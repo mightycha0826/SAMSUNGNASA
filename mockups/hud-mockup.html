@@ -1,197 +1,206 @@
 <meta name="claude:viewport-fit-sides" content="cover">
-<title>Marswalk Visor HUD 목업</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<title>Marswalk Visor HUD Mockup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=check_circle,error,layers,link_off,navigation,warning&display=block">
 <style>
-/* 배치: 위에 헬멧 시야(스테이지), 아래에 조작판·이벤트 로그·디자인 기준표. HUD 치수는 모두 시야각(°) 단위. */
+/* Layout: helmet view (stage) on top, then controls, event log and the spec tables.
+   Tokens are the Point design system, combo 1 (cobalt + orange). HUD sizes are in degrees of visual angle. */
+@font-face{font-family:"Wanted Sans";src:url("fonts/WantedSansVariable.woff2") format("woff2");font-weight:400 1000;font-display:swap}
 :root{
-  --bg:#f1f4f6; --surface:#ffffff; --fg:#15202b; --muted:#566573; --line:#d3dae0;
-  --accent:#0a6c8c; --on-accent:#ffffff; --note-bg:#fff6dc; --note-fg:#5c4300;
-  /* HUD 색은 테마와 무관하게 고정 (배경이 실제 공간이므로) */
-  --hud-ink:#f3fbff; --hud-dim:#bfd0da; --hud-panel:rgba(5,13,20,.70); --hud-line:rgba(190,235,255,.42);
-  --hud-info:#7fe3ff; --hud-warn:#ffc247; --hud-crit:#ff4a4a; --hud-haz:#ff4a4a;
-  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
-  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --bg:#ffffff; --surface:#ffffff; --row:#f3f3f3; --track:#dadada; --ink:#111111; --ink-muted:#5c5c5c;
+  --primary:#2f45d8; --on-primary:#ffffff; --primary-text:#2f45d8; --point-text:#b85d08; --danger:#ce2f27;
+  --badge-bg:#ffffff; --focus:#141414; --shadow-card:0 12px 32px rgba(17,17,17,.08); --shadow-seg:0 1px 3px rgba(0,0,0,.12);
+  /* HUD: the system's dark theme, fixed, because the backdrop is the real room */
+  --h-surface:rgba(38,38,38,.88); --h-row:#2e2e2e; --h-track:#3d3d3d; --h-badge:#3b3b3b; --h-toast:rgba(63,63,63,.94);
+  --h-ink:#f2f2f2; --h-muted:#a8a8a8; --h-primary:#596ae0; --h-primary-icon:#7a88e6; --h-point:#f27a0a; --h-danger:#ed716b; --h-danger-line:#e5342b;
+  --sans:"Wanted Sans","Apple SD Gothic Neo",system-ui,sans-serif; --icon:"Material Symbols Rounded";
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#0d1318; --surface:#151d25; --fg:#e7eef3; --muted:#94a3af; --line:#2a3642;
-  --accent:#6fd3f2; --on-accent:#06202b; --note-bg:#3a2e0c; --note-fg:#ffe6a3; color-scheme:dark } }
+  --bg:#1e1e1e; --surface:#262626; --row:#2e2e2e; --track:#3d3d3d; --ink:#f2f2f2; --ink-muted:#a8a8a8;
+  --primary:#596ae0; --on-primary:#ffffff; --primary-text:#7a88e6; --point-text:#f27a0a; --danger:#ed716b;
+  --badge-bg:#3b3b3b; --focus:#eeeeee; --shadow-card:0 0 0 1px rgba(255,255,255,.06); --shadow-seg:none; color-scheme:dark } }
 :root[data-theme="dark"]{
-  --bg:#0d1318; --surface:#151d25; --fg:#e7eef3; --muted:#94a3af; --line:#2a3642;
-  --accent:#6fd3f2; --on-accent:#06202b; --note-bg:#3a2e0c; --note-fg:#ffe6a3; color-scheme:dark }
+  --bg:#1e1e1e; --surface:#262626; --row:#2e2e2e; --track:#3d3d3d; --ink:#f2f2f2; --ink-muted:#a8a8a8;
+  --primary:#596ae0; --on-primary:#ffffff; --primary-text:#7a88e6; --point-text:#f27a0a; --danger:#ed716b;
+  --badge-bg:#3b3b3b; --focus:#eeeeee; --shadow-card:0 0 0 1px rgba(255,255,255,.06); --shadow-seg:none; color-scheme:dark }
 
-body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.55}
-.page{max-width:1280px;margin:0 auto;padding-block:20px 48px;
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:24px;letter-spacing:-.01em}
+.page{max-width:1280px;margin:0 auto;padding-block:24px 48px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
-  display:flex;flex-direction:column;gap:18px}
-h1{font-size:22px;font-weight:700;margin:0;text-wrap:balance}
-h2{font-size:16px;font-weight:700;margin:0 0 8px}
+  display:flex;flex-direction:column;gap:24px}
+h1{font-size:26px;line-height:34px;font-weight:650;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:17px;line-height:24px;font-weight:600;margin:0 0 12px}
 p{margin:0}
-.lede{color:var(--muted);max-width:70ch}
-.notice{background:var(--note-bg);color:var(--note-fg);padding:8px 12px;border-radius:6px;font-size:14px;max-width:max-content}
-a{color:var(--accent)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lede{color:var(--ink-muted);max-width:68ch}
+.notice{background:var(--row);border-radius:16px;padding:12px 16px;font-size:15px;line-height:22px;display:flex;gap:8px;align-items:flex-start;max-width:max-content}
+.notice .ms{color:var(--point-text);font-size:20px;line-height:22px}
+a{color:var(--primary-text)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.ms{font-family:var(--icon);font-weight:400;font-style:normal;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-variation-settings:"FILL" 1;-webkit-font-smoothing:antialiased}
 
-/* ---------- 스테이지 ---------- */
-.stage-scroll{overflow-x:auto;border-radius:10px;border:1px solid var(--line);background:#000}
+/* ---------- stage ---------- */
+.stage-scroll{overflow-x:auto;border-radius:20px;background:#000}
 .stage{position:relative;min-width:760px;aspect-ratio:16/10;container-type:inline-size;overflow:hidden;background:#222}
 .stage svg.scene{position:absolute;inset:0;width:100%;height:100%;display:block}
-.caption{color:var(--muted);font-size:13px}
+.caption{color:var(--ink-muted);font-size:13px;line-height:18px;max-width:100ch}
 
-.hud{position:absolute;inset:0;--d:1.246cqw;font-size:calc(1.1*var(--d));color:var(--hud-ink);font-family:var(--sans);font-weight:500;line-height:1.25;pointer-events:none}
-[hidden]{display:none!important}
+.hud{position:absolute;inset:0;--d:1.246cqw;font-size:calc(1.2*var(--d));color:var(--h-ink);font-family:var(--sans);font-weight:500;line-height:1.3;letter-spacing:-.01em;font-variant-numeric:tabular-nums;pointer-events:none}
 .hud,.hud *{box-sizing:border-box}
-.hud button{pointer-events:auto;font:inherit;color:inherit}
-.tag{display:inline-block;font-size:calc(.9*var(--d));font-weight:600;padding:0 calc(.4*var(--d));border:1px dashed var(--hud-dim);border-radius:calc(.3*var(--d));color:var(--hud-dim);vertical-align:middle;white-space:nowrap}
-.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.hud button{pointer-events:auto;font:inherit;color:inherit;letter-spacing:inherit}
+.hud .ms{font-size:calc(1.7*var(--d));line-height:1}
+.tag{display:inline-block;font-size:calc(.95*var(--d));font-weight:600;padding:calc(.05*var(--d)) calc(.5*var(--d));background:var(--h-badge);border-radius:999px;color:var(--h-muted);vertical-align:middle;white-space:nowrap}
 
-/* 비상 가장자리 */
+/* emergency edge: the only red surface in the HUD */
 .edge{position:absolute;inset:0;opacity:0}
 .hud.crit .edge{opacity:1}
-.edge .glow{position:absolute;inset:0;box-shadow:inset 0 0 calc(4.5*var(--d)) calc(1.4*var(--d)) var(--hud-crit);animation:pulse var(--period,1.6s) ease-in-out infinite}
-.edge .br{position:absolute;width:calc(7*var(--d));height:calc(7*var(--d));border:calc(.7*var(--d)) solid var(--hud-crit);animation:pulse var(--period,1.6s) ease-in-out infinite;display:none}
-.edge .br.a{left:calc(1.5*var(--d));top:calc(1.5*var(--d));border-right:0;border-bottom:0}
-.edge .br.b{right:calc(1.5*var(--d));top:calc(1.5*var(--d));border-left:0;border-bottom:0}
-.edge .br.c{left:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-right:0;border-top:0}
-.edge .br.e{right:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-left:0;border-top:0}
-.hud.blink-bracket .edge .glow{box-shadow:inset 0 0 0 calc(.25*var(--d)) var(--hud-crit);animation:none;opacity:.55}
+.edge .glow{position:absolute;inset:0;box-shadow:inset 0 0 calc(4.5*var(--d)) calc(1.4*var(--d)) var(--h-danger-line);animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite}
+.edge .br{position:absolute;width:calc(7*var(--d));height:calc(7*var(--d));border:calc(.7*var(--d)) solid var(--h-danger-line);border-radius:calc(1.6*var(--d));animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite;display:none}
+.edge .br.a{left:calc(1.5*var(--d));top:calc(1.5*var(--d));border-right:0;border-bottom:0;border-radius:calc(1.6*var(--d)) 0 0 0}
+.edge .br.b{right:calc(1.5*var(--d));top:calc(1.5*var(--d));border-left:0;border-bottom:0;border-radius:0 calc(1.6*var(--d)) 0 0}
+.edge .br.c{left:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-right:0;border-top:0;border-radius:0 0 0 calc(1.6*var(--d))}
+.edge .br.e{right:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-left:0;border-top:0;border-radius:0 0 calc(1.6*var(--d)) 0}
+.hud.blink-bracket .edge .glow{box-shadow:inset 0 0 0 calc(.25*var(--d)) var(--h-danger-line);animation:none;opacity:.55}
 .hud.blink-bracket .edge .br{display:block}
 .hud.blink-steady .edge .glow,.hud.acked .edge .glow,.hud.acked .edge .br{animation:none}
-.hud.acked .edge{opacity:.55}
+.hud.acked .edge{opacity:.5}
 @keyframes pulse{0%,100%{opacity:.28}50%{opacity:1}}
 @media (prefers-reduced-motion: reduce){.edge .glow,.edge .br,.chev{animation:none!important}}
 
-/* 상태창 */
-.status{position:absolute;left:calc(3.5*var(--d));top:calc(4.5*var(--d));width:calc(20*var(--d));background:var(--hud-panel);border:calc(.12*var(--d)) solid var(--hud-line);border-radius:calc(.8*var(--d));padding:calc(.9*var(--d)) calc(1.1*var(--d));display:flex;flex-direction:column;gap:calc(.7*var(--d))}
+/* status card */
+.status{position:absolute;left:calc(3.5*var(--d));top:calc(4.5*var(--d));width:calc(20*var(--d));background:var(--h-surface);border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d));display:flex;flex-direction:column;gap:calc(.6*var(--d));box-shadow:0 0 0 1px rgba(255,255,255,.06)}
 .hud.pos-tr .status{left:auto;right:calc(3.5*var(--d))}
 .hud.pos-bl .status{top:auto;bottom:calc(4.5*var(--d))}
-.hud.pos-strip .status{left:50%;transform:translateX(-50%);width:max-content;max-width:calc(70*var(--d));flex-direction:row;align-items:center;gap:calc(1.4*var(--d));padding:calc(.6*var(--d)) calc(1.2*var(--d))}
-.st-main{display:flex;gap:calc(.7*var(--d));align-items:flex-start;padding:calc(.3*var(--d)) calc(.5*var(--d));border-radius:calc(.5*var(--d));border-left:calc(.35*var(--d)) solid transparent}
-.st-ico{font-size:calc(1.5*var(--d));line-height:1.1;color:var(--hud-info);width:calc(1.6*var(--d));text-align:center;flex:none}
+.hud.pos-strip .status{left:50%;transform:translateX(-50%);width:max-content;max-width:calc(72*var(--d));flex-direction:row;align-items:stretch}
+.st-main{background:var(--h-row);border-radius:calc(1.25*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));display:flex;gap:calc(.7*var(--d));align-items:center}
+.st-main .ms{color:var(--h-muted);flex:none;font-size:calc(2*var(--d))}
 .st-body{flex:1;min-width:0}
-.st-lab{color:var(--hud-dim);display:flex;gap:calc(.5*var(--d));align-items:center;flex-wrap:wrap}
-.st-val{display:flex;align-items:baseline;gap:calc(.4*var(--d));white-space:nowrap}
-.st-val b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:calc(2.2*var(--d));font-weight:600;line-height:1.1}
-.st-val i{font-style:normal;font-size:calc(1.3*var(--d));color:var(--hud-dim)}
-.st-val em{font-style:normal;font-size:calc(1.1*var(--d));margin-left:calc(.4*var(--d))}
-.st-main.warn{background:rgba(255,194,71,.16);border-left-color:var(--hud-warn)}
-.st-main.warn .st-ico,.st-main.warn .st-val b{color:var(--hud-warn)}
-.st-main.crit{background:rgba(255,74,74,.22);border-left-color:var(--hud-crit)}
-.st-main.crit .st-ico,.st-main.crit .st-val b{color:var(--hud-crit)}
-.st-main.stale .st-val b{opacity:.55}
-.gauge{position:relative;height:calc(.5*var(--d));margin:calc(.5*var(--d)) 0 calc(1.2*var(--d));background:linear-gradient(90deg,rgba(127,227,255,.55) 0 50%,var(--hud-warn) 50% 75%,var(--hud-crit) 75%);border-radius:calc(.25*var(--d))}
-.gauge s{position:absolute;top:calc(-.35*var(--d));width:calc(.3*var(--d));height:calc(1.2*var(--d));background:var(--hud-ink);border:calc(.08*var(--d)) solid #000;transform:translateX(-50%)}
-.gauge u{position:absolute;top:calc(.6*var(--d));font-size:calc(.9*var(--d));text-decoration:none;color:var(--hud-dim);transform:translateX(-50%);font-family:var(--mono)}
-.st-env{display:grid;grid-template-columns:auto 1fr auto;gap:calc(.25*var(--d)) calc(.8*var(--d));align-items:baseline;border-top:calc(.1*var(--d)) solid var(--hud-line);padding-top:calc(.6*var(--d))}
-.st-env .k{color:var(--hud-dim)}
-.st-env .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:calc(1.4*var(--d));text-align:right;white-space:nowrap}
-.st-env .v small{font-size:calc(1*var(--d));color:var(--hud-dim);font-family:var(--sans)}
-.st-env .v.warn{color:var(--hud-warn)} .st-env .v.crit{color:var(--hud-crit)}
-.st-foot{border-top:calc(.1*var(--d)) solid var(--hud-line);padding-top:calc(.5*var(--d));color:var(--hud-dim);display:flex;flex-direction:column;gap:calc(.15*var(--d))}
-.st-foot b{color:var(--hud-ink);font-weight:600}
+.st-lab{color:var(--h-muted);font-weight:600;font-size:calc(1.1*var(--d));display:flex;gap:calc(.5*var(--d));align-items:center;flex-wrap:wrap}
+.st-val{display:flex;align-items:baseline;gap:calc(.35*var(--d));white-space:nowrap}
+.st-val b{font-size:calc(2.4*var(--d));font-weight:650;line-height:1.15;letter-spacing:-.02em}
+.st-val i{font-style:normal;font-size:calc(1.3*var(--d));color:var(--h-muted)}
+.st-val em{font-style:normal;font-weight:600;font-size:calc(1.2*var(--d));margin-left:calc(.5*var(--d))}
+.st-main.warn .ms,.st-main.warn .st-val em{color:var(--h-point)}
+.st-main.crit .ms,.st-main.crit .st-val em{color:var(--h-danger)}
+.st-main.stale .st-val b{color:var(--h-muted)}
+.gauge{position:relative;height:calc(.45*var(--d));margin:calc(.45*var(--d)) 0 calc(1.25*var(--d));background:var(--h-track);border-radius:999px}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--h-primary)}
+.st-main.warn .gauge .fill{background:var(--h-point)} .st-main.crit .gauge .fill{background:var(--h-danger-line)}
+.gauge s{position:absolute;top:calc(-.25*var(--d));width:calc(.14*var(--d));height:calc(.95*var(--d));background:var(--h-ink)}
+.gauge u{position:absolute;top:calc(.65*var(--d));font-size:calc(.95*var(--d));text-decoration:none;color:var(--h-muted);transform:translateX(-50%)}
+.st-env{background:var(--h-row);border-radius:calc(1.25*var(--d));padding:calc(.6*var(--d)) calc(.9*var(--d));display:grid;grid-template-columns:1fr auto auto;gap:calc(.3*var(--d)) calc(.6*var(--d));align-items:baseline}
+.st-env .k{color:var(--h-muted)}
+.st-env .v{font-size:calc(1.4*var(--d));font-weight:600;text-align:right;white-space:nowrap}
+.st-env .v small{font-size:calc(1.05*var(--d));color:var(--h-muted);font-weight:500}
+.st-env .v .ms{font-size:calc(1.4*var(--d));vertical-align:-.2em}
+.st-env .v.warn .ms{color:var(--h-point)} .st-env .v.crit .ms{color:var(--h-danger)}
+.st-foot{color:var(--h-muted);font-size:calc(1.05*var(--d));padding:0 calc(.9*var(--d)) calc(.2*var(--d));display:flex;justify-content:space-between;gap:calc(.6*var(--d));flex-wrap:wrap}
+.st-foot b{color:var(--h-ink);font-weight:600}
 .hud.pos-strip .gauge{display:none}
-.hud.pos-strip .st-env{border-top:0;padding-top:0;border-left:calc(.1*var(--d)) solid var(--hud-line);padding-left:calc(1.2*var(--d))}
-.hud.pos-strip .st-foot{border-top:0;padding-top:0;border-left:calc(.1*var(--d)) solid var(--hud-line);padding-left:calc(1.2*var(--d))}
-.hud.pos-strip .st-val b{font-size:calc(1.9*var(--d))}
+.hud.pos-strip .st-foot{flex-direction:column;justify-content:center;padding:0 calc(.6*var(--d))}
 
-/* 상단 중앙: 경보 띠 + 경로 안내 문구 */
-.topc{position:absolute;top:calc(4.5*var(--d));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:calc(.7*var(--d));width:calc(32*var(--d))}
-.hud.pos-strip .topc{top:calc(15*var(--d))}
-.banner{display:flex;gap:calc(.9*var(--d));align-items:center;background:var(--hud-panel);border-radius:calc(.8*var(--d));padding:calc(.7*var(--d)) calc(1.2*var(--d));border:calc(.2*var(--d)) solid var(--hud-warn);max-width:100%}
-.banner .b-ico{font-size:calc(2*var(--d));color:var(--hud-warn);line-height:1}
-.banner .b-title{font-size:calc(1.5*var(--d));font-weight:700}
-.banner .b-msg{font-size:calc(1.3*var(--d))}
-.banner .b-sub{color:var(--hud-dim)}
-.banner.crit{border-color:var(--hud-crit);background:rgba(60,4,4,.82)}
-.banner.crit .b-ico{color:var(--hud-crit);font-size:calc(3*var(--d))}
-.banner.crit .b-title{font-size:calc(1.9*var(--d))}
-.toast{background:var(--hud-panel);border:calc(.12*var(--d)) solid var(--hud-line);border-radius:calc(2*var(--d));padding:calc(.45*var(--d)) calc(1.2*var(--d));font-size:calc(1.3*var(--d));text-align:center}
-.toast.warn{border-color:var(--hud-warn);color:var(--hud-warn)}
+/* top centre: alert card + route toast */
+.topc{position:absolute;top:calc(4.5*var(--d));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:calc(.7*var(--d));width:calc(30*var(--d))}
+.hud.pos-strip .topc{top:calc(14*var(--d))}
+.banner{display:flex;gap:calc(.9*var(--d));align-items:center;background:var(--h-surface);border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d)) calc(1.3*var(--d));max-width:100%;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 calc(.8*var(--d)) calc(2*var(--d)) rgba(0,0,0,.5)}
+.banner > .ms{font-size:calc(2.4*var(--d));color:var(--h-point)}
+.banner .b-title{font-size:calc(1.5*var(--d));font-weight:600}
+.banner .b-sub{color:var(--h-muted)}
+.banner.crit > .ms{color:var(--h-danger);font-size:calc(3.4*var(--d))}
+.banner.crit .b-title{font-size:calc(1.9*var(--d));font-weight:650;letter-spacing:-.02em}
+.banner .more{margin-left:calc(.4*var(--d))}
+.toast{background:var(--h-toast);border-radius:calc(1.25*var(--d));padding:calc(.55*var(--d)) calc(1.2*var(--d));font-size:calc(1.3*var(--d));font-weight:500;display:flex;gap:calc(.5*var(--d));align-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.toast .ms{color:var(--h-primary-icon);font-size:calc(1.6*var(--d))}
 
-/* 손바닥 지도 */
+/* palm map */
 .palm{position:absolute;left:calc(3.5*var(--d));bottom:calc(3.5*var(--d));display:flex;gap:calc(1*var(--d));align-items:flex-end}
 .hud.pos-bl .palm{left:calc(26*var(--d))}
 .palm .handwrap{position:relative;width:calc(14*var(--d));height:calc(15*var(--d))}
 .palm .hand{position:absolute;left:0;bottom:calc(-4*var(--d));width:100%;height:auto}
 .map3d{position:absolute;left:calc(.5*var(--d));top:0;width:calc(13*var(--d));height:calc(13*var(--d));perspective:calc(46*var(--d))}
-.map3d canvas{width:100%;height:100%;transform:rotateX(54deg) rotateZ(-14deg);border:calc(.15*var(--d)) solid var(--hud-ink);box-shadow:calc(.3*var(--d)) calc(.9*var(--d)) 0 rgba(0,0,0,.6);image-rendering:auto}
-.pcol{width:calc(17*var(--d));display:flex;flex-direction:column;gap:calc(.45*var(--d))}
-.tab{display:flex;align-items:center;gap:calc(.6*var(--d));text-align:left;background:var(--hud-panel);border:calc(.12*var(--d)) solid var(--hud-line);border-radius:calc(.6*var(--d));padding:calc(.5*var(--d)) calc(.8*var(--d));min-height:calc(2.7*var(--d));cursor:pointer}
-.tab .mk{width:calc(1*var(--d));opacity:0}
-.tab[aria-pressed="true"]{border-color:var(--hud-ink);border-width:calc(.25*var(--d));background:rgba(20,60,80,.85);font-weight:700}
-.tab[aria-pressed="true"] .mk{opacity:1;color:var(--hud-info)}
-.legend{background:var(--hud-panel);border:calc(.12*var(--d)) solid var(--hud-line);border-radius:calc(.6*var(--d));padding:calc(.6*var(--d)) calc(.8*var(--d));display:flex;flex-direction:column;gap:calc(.3*var(--d));font-size:calc(1*var(--d))}
-.legend .ramp{height:calc(.9*var(--d));border-radius:calc(.2*var(--d));border:calc(.08*var(--d)) solid rgba(255,255,255,.6)}
-.legend .mm{display:flex;justify-content:space-between;font-family:var(--mono)}
-.legend .src{color:var(--hud-dim)}
-.legend .keys{display:flex;gap:calc(.9*var(--d));flex-wrap:wrap;color:var(--hud-dim)}
+.map3d canvas{width:100%;height:100%;transform:rotateX(54deg) rotateZ(-14deg);border-radius:calc(.8*var(--d));box-shadow:0 0 0 calc(.15*var(--d)) var(--h-ink),calc(.3*var(--d)) calc(.9*var(--d)) 0 rgba(0,0,0,.6)}
+.pcol{width:calc(16*var(--d));display:flex;flex-direction:column;gap:calc(.6*var(--d))}
+.seg-hud{display:grid;grid-template-columns:1fr 1fr;gap:calc(.3*var(--d));background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.3*var(--d))}
+.tab{border:0;background:transparent;border-radius:calc(.8*var(--d));min-height:calc(3.2*var(--d));padding:calc(.4*var(--d)) calc(.6*var(--d));color:var(--h-muted)!important;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:calc(.4*var(--d))}
+.tab .ms{display:none;color:var(--h-primary-icon);font-size:calc(1.4*var(--d))}
+.tab[aria-pressed="true"]{background:var(--h-badge);color:var(--h-ink)!important;font-weight:600}
+.tab[aria-pressed="true"] .ms{display:inline}
+.legend{background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));display:flex;flex-direction:column;gap:calc(.3*var(--d));font-size:calc(1.05*var(--d))}
+.legend .ramp{height:calc(.8*var(--d));border-radius:999px}
+.legend .mm{display:flex;justify-content:space-between;align-items:center}
+.legend .src,.legend .keys{color:var(--h-muted)}
+.legend .keys{display:flex;gap:calc(1*var(--d));flex-wrap:wrap}
 
-/* ---------- 조작판 ---------- */
-.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px 22px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
-.ctl{display:flex;flex-direction:column;gap:6px;min-width:0}
-.ctl > span{font-size:13px;font-weight:600;color:var(--muted)}
-.seg{display:flex;flex-wrap:wrap;gap:4px}
-.seg button{font:inherit;font-size:14px;padding:5px 10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
-.ctl input[type=range]{width:100%}
+/* ---------- controls (Point system: grey surfaces, one primary) ---------- */
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 24px}
+.ctl{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ctl > span,.ctl label{font-size:14px;line-height:20px;font-weight:600;color:var(--ink-muted)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--row);border-radius:14px;padding:4px;width:max-content;max-width:100%}
+.seg button{font:inherit;font-size:15px;line-height:22px;font-weight:500;letter-spacing:inherit;padding:7px 14px;border:0;background:transparent;color:var(--ink-muted);border-radius:10px;cursor:pointer;transition:transform 140ms cubic-bezier(.3,0,.5,1)}
+.seg button:active{transform:scale(.95)}
+.seg button[aria-pressed="true"]{background:var(--badge-bg);color:var(--ink);font-weight:600;box-shadow:var(--shadow-seg)}
+.seg button:disabled{opacity:.4;cursor:default}
 .ctl.primary{grid-column:1/-1}
-.ctl.primary .seg button{font-size:16px;padding:8px 18px}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
-pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:var(--fg)}
+.ctl.primary .seg button[aria-pressed="true"]{background:var(--primary);color:var(--on-primary);box-shadow:none}
+.ctl input[type=range]{width:100%;accent-color:var(--primary)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px}
+.card{background:var(--surface);border-radius:20px;padding:20px;min-width:0;box-shadow:var(--shadow-card)}
+pre{margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:var(--ink);background:var(--row);border-radius:16px;padding:12px 16px}
 .tbl{overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th,td{text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:600;font-size:13px}
-td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
-.small{font-size:13px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:15px;line-height:22px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--track);vertical-align:top}
+th{color:var(--ink-muted);font-weight:600;font-size:14px}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:22px}
+.small{font-size:13px;line-height:18px;color:var(--ink-muted)}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--row);border-radius:6px;padding:1px 5px}
 </style>
 
 <div class="page">
-  <header style="display:flex;flex-direction:column;gap:8px">
-    <h1>Marswalk Visor HUD 목업</h1>
-    <p class="lede">Quest 3 패스스루 시야의 가운데 부분(가로 약 70°)을 PC 화면에 옮긴 디자인 점검용 그림입니다. 아래 조작판으로 상태와 선택지를 바꿔 볼 수 있습니다.</p>
-    <p class="notice">대기·방사선 값은 아직 NASA 자료에서 뽑지 않았습니다. 화면의 <b>0</b>과 “자리표시” 꼬리표는 값이 정해지지 않았다는 뜻입니다. 지도 지형도 가짜입니다.</p>
+  <header style="display:flex;flex-direction:column;gap:12px">
+    <h1>Marswalk Visor HUD Mockup</h1>
+    <p class="lede">The central part of the Quest 3 passthrough view (about 70° wide), drawn flat for a design check. Colours, type, radii and wording follow the Point design system, combo 1.</p>
+    <p class="notice"><span class="ms">warning</span><span>Atmosphere and radiation values have not been extracted from NASA data yet. A dash with a <b>TBD</b> tag means the value is not set. The map terrain is synthetic.</span></p>
   </header>
 
   <div>
     <div class="stage-scroll">
       <div class="stage" id="stage">
-        <svg class="scene" id="scene" viewBox="0 0 1600 1000" preserveAspectRatio="none" role="img" aria-label="방 안 패스스루 시야를 흉내 낸 배경과 바닥 화살표, 장애물 표시"></svg>
+        <svg class="scene" id="scene" viewBox="0 0 1600 1000" preserveAspectRatio="none" role="img" aria-label="Simulated passthrough room with floor arrows and an obstacle outline"></svg>
         <div class="hud" id="hud">
           <div class="edge"><div class="glow"></div><div class="br a"></div><div class="br b"></div><div class="br c"></div><div class="br e"></div></div>
 
           <div class="status" id="status">
             <div class="st-main" id="rowSuit">
-              <span class="st-ico" id="suitIco">●</span>
+              <span class="ms" id="suitIco">check_circle</span>
               <div class="st-body">
-                <div class="st-lab">슈트 온도 <span class="tag" id="suitSrc">mock</span></div>
-                <div class="st-val"><b id="suitVal">24.5</b><i>°C</i><em id="suitWord">정상</em></div>
-                <div class="gauge"><s id="suitMark"></s><u style="left:50%">30</u><u style="left:75%">35</u></div>
+                <div class="st-lab">Suit temp <span class="tag" id="suitSrc">mock</span></div>
+                <div class="st-val"><b id="suitVal">24.5</b><i>°C</i><em id="suitWord">Normal</em></div>
+                <div class="gauge"><div class="fill" id="suitFill"></div><s style="left:50%"></s><s style="left:75%"></s><u style="left:50%">30</u><u style="left:75%">35</u></div>
               </div>
             </div>
             <div class="st-main" id="rowDist">
-              <span class="st-ico" id="distIco">➤</span>
+              <span class="ms" id="distIco">navigation</span>
               <div class="st-body">
-                <div class="st-lab">남은 거리 <span id="distTarget"></span></div>
+                <div class="st-lab" id="distLab">Distance</div>
                 <div class="st-val"><b id="distVal">1.8</b><i id="distUnit">m</i><em id="distWord"></em></div>
               </div>
             </div>
             <div class="st-env">
-              <span class="k">방사선</span><span class="v" id="envRad"></span><span class="tag">자리표시</span>
-              <span class="k">기압</span><span class="v" id="envP"></span><span class="tag">자리표시</span>
-              <span class="k">기온</span><span class="v" id="envT"></span><span class="tag">자리표시</span>
+              <span class="k">Radiation</span><span class="v" id="envRad"></span><span class="tag env-tag">TBD</span>
+              <span class="k">Pressure</span><span class="v" id="envP"></span><span class="tag env-tag">TBD</span>
+              <span class="k">Air temp</span><span class="v" id="envT"></span><span class="tag env-tag">TBD</span>
             </div>
             <div class="st-foot">
-              <span>레이어 <b id="layName"></b></span>
+              <span>Layer <b id="layName"></b></span>
               <span id="solLine"></span>
             </div>
           </div>
 
           <div class="topc">
             <div class="banner" id="banner" hidden>
-              <span class="b-ico" id="bIco">▲</span>
-              <div><div class="b-title" id="bTitle"></div><div class="b-msg" id="bMsg"></div><div class="b-sub" id="bSub"></div></div>
+              <span class="ms" id="bIco">warning</span>
+              <div><div class="b-title" id="bTitle"></div><div class="b-sub" id="bSub"></div></div>
+              <span class="tag more" id="bMore" hidden></span>
             </div>
             <div class="toast" id="toast" hidden></div>
           </div>
@@ -206,91 +215,102 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowra
                   <rect x="18" y="70" width="96" height="78" rx="26"/>
                 </g>
               </svg>
-              <div class="map3d"><canvas id="mapc" width="256" height="256" aria-label="가짜 지형으로 그린 손바닥 지도"></canvas></div>
+              <div class="map3d"><canvas id="mapc" width="256" height="256" aria-label="Palm map drawn from synthetic terrain"></canvas></div>
             </div>
             <div class="pcol">
-              <div id="tabs" style="display:grid;grid-template-columns:1fr 1fr;gap:inherit"></div>
+              <div class="seg-hud" id="tabs"></div>
               <div class="legend">
                 <div class="ramp" id="lgRamp"></div>
                 <div class="mm"><span id="lgMin"></span><span id="lgMax"></span></div>
                 <div class="src" id="lgSrc"></div>
-                <div class="keys"><span>■ 기지</span><span>◆ 조사 지점</span><span>▲ 내 위치</span></div>
+                <div class="keys"><span>■ Base</span><span>◆ Survey site</span><span>▲ You</span></div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    <p class="caption" style="margin-top:6px">Quest 3의 가로 시야는 110°이고, 이 그림은 그 가운데 약 70°×47°만 보여 줍니다. 붉은 테두리는 실제 화면 끝이 아니라 시야 중앙에서 약 ±31° 떨어진 자리에 그리는 것으로 가정했습니다. PC 모니터에서는 헤드셋보다 훨씬 작게 보이므로 글자 크기는 아래 표의 각도 값으로 판단해 주세요.</p>
+    <p class="caption" style="margin-top:8px">Quest 3 has a 110° horizontal field of view; this drawing covers the central 70° × 47°. The red frame is assumed to sit about ±31° from the centre of view, not at the physical display edge. On a monitor everything looks far smaller than in the headset, so judge type sizes by the angles in the table below.</p>
   </div>
 
   <div class="controls" id="controls">
-    <div class="ctl primary"><span>상태</span>
-      <div class="seg"><button id="c-level-normal" data-k="level" data-v="normal">정상</button><button id="c-level-warn" data-k="level" data-v="warn">warn (주의)</button><button id="c-level-critical" data-k="level" data-v="critical">critical (비상)</button><button id="c-ack" data-act="ack">“경보 확인” 말하기</button></div></div>
-    <div class="ctl"><span>경보 종류 (alert id)</span>
+    <div class="ctl primary"><span>State</span>
+      <div class="seg"><button id="c-level-normal" data-k="level" data-v="normal">Normal</button><button id="c-level-warn" data-k="level" data-v="warn">Warn</button><button id="c-level-critical" data-k="level" data-v="critical">Critical</button></div></div>
+    <div class="ctl"><span>Voice command</span>
+      <div class="seg"><button id="c-ack" data-act="ack">Say “Acknowledge alert”</button></div></div>
+    <div class="ctl"><span>Alert id</span>
       <div class="seg"><button id="c-al-suit" data-k="alertId" data-v="suit-temp">suit-temp</button><button id="c-al-rad" data-k="alertId" data-v="radiation">radiation</button><button id="c-al-link" data-k="alertId" data-v="link-lost">link-lost</button></div></div>
-    <div class="ctl"><span>경로 상태 (nav:route status)</span>
+    <div class="ctl"><span>Route status</span>
       <div class="seg"><button id="c-nav-ok" data-k="nav" data-v="ok">ok</button><button id="c-nav-blocked" data-k="nav" data-v="blocked">blocked</button><button id="c-nav-arrived" data-k="nav" data-v="arrived">arrived</button><button id="c-nav-cancelled" data-k="nav" data-v="cancelled">cancelled</button></div></div>
-    <div class="ctl"><span>현장 장애물 (의자)</span>
-      <div class="seg"><button id="c-hz-off" data-k="hazard" data-v="false">없음</button><button id="c-hz-on" data-k="hazard" data-v="true">경로 위에 놓기</button></div></div>
-    <div class="ctl"><span>손바닥 지도</span>
-      <div class="seg"><button id="c-palm-on" data-k="palm" data-v="true">손 올림</button><button id="c-palm-off" data-k="palm" data-v="false">손 내림</button></div></div>
-    <div class="ctl"><span>배경 (패스스루 환경)</span>
-      <div class="seg"><button id="c-bg-bright" data-k="bg" data-v="bright">밝은 방</button><button id="c-bg-dark" data-k="bg" data-v="dark">어두운 방</button><button id="c-bg-busy" data-k="bg" data-v="busy">복잡한 방</button></div></div>
-    <div class="ctl"><span>선택지 ① 상태창 위치</span>
-      <div class="seg"><button id="c-pos-tl" data-k="pos" data-v="tl">좌상</button><button id="c-pos-tr" data-k="pos" data-v="tr">우상</button><button id="c-pos-strip" data-k="pos" data-v="strip">상단 띠</button><button id="c-pos-bl" data-k="pos" data-v="bl">좌하</button></div></div>
-    <div class="ctl"><span>선택지 ② 점멸 방식</span>
-      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">가장자리 번짐</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">모서리 꺾쇠</button><button id="c-bl-steady" data-k="blink" data-v="steady">점멸 없이 고정</button></div></div>
-    <div class="ctl"><label for="c-period"><span style="font-size:13px;font-weight:600;color:var(--muted)">점멸 주기 <b id="periodOut"></b></span></label>
+    <div class="ctl"><span>Obstacle (chair)</span>
+      <div class="seg"><button id="c-hz-off" data-k="hazard" data-v="false">None</button><button id="c-hz-on" data-k="hazard" data-v="true">On the route</button></div></div>
+    <div class="ctl"><span>Palm map</span>
+      <div class="seg"><button id="c-palm-on" data-k="palm" data-v="true">Hand up</button><button id="c-palm-off" data-k="palm" data-v="false">Hand down</button></div></div>
+    <div class="ctl"><span>Room</span>
+      <div class="seg"><button id="c-bg-bright" data-k="bg" data-v="bright">Bright</button><button id="c-bg-dark" data-k="bg" data-v="dark">Dark</button><button id="c-bg-busy" data-k="bg" data-v="busy">Cluttered</button></div></div>
+    <div class="ctl"><span>Status card position</span>
+      <div class="seg"><button id="c-pos-tl" data-k="pos" data-v="tl">Top left</button><button id="c-pos-tr" data-k="pos" data-v="tr">Top right</button><button id="c-pos-strip" data-k="pos" data-v="strip">Top strip</button><button id="c-pos-bl" data-k="pos" data-v="bl">Bottom left</button></div></div>
+    <div class="ctl"><span>Emergency frame</span>
+      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Edge glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner brackets</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
+    <div class="ctl"><label for="c-period">Pulse period <b id="periodOut"></b></label>
       <input type="range" id="c-period" min="0.8" max="3" step="0.1" value="1.6"></div>
-    <div class="ctl"><span>선택지 ③ 장애물 색</span>
-      <div class="seg"><button id="c-hc-red" data-k="hazColor" data-v="red">빨강</button><button id="c-hc-magenta" data-k="hazColor" data-v="magenta">자홍</button><button id="c-hc-amber" data-k="hazColor" data-v="amber">주황</button></div></div>
-    <div class="ctl"><span>선택지 ④ 거리 표기</span>
-      <div class="seg"><button id="c-dm-room" data-k="distMode" data-v="room">방 기준 (m)</button><button id="c-dm-mars" data-k="distMode" data-v="mars">화성 환산 (×10)</button></div></div>
-    <div class="ctl"><span>점검 도구</span>
-      <div class="seg"><button id="c-grid" data-tog="grid">시야각 눈금</button><button id="c-fill" data-tog="fill">자릿수 시험값</button></div></div>
+    <div class="ctl"><span>Obstacle colour</span>
+      <div class="seg"><button id="c-hc-red" data-k="hazColor" data-v="red">Danger red</button><button id="c-hc-point" data-k="hazColor" data-v="point">Point orange</button></div></div>
+    <div class="ctl"><span>Distance shown as</span>
+      <div class="seg"><button id="c-dm-room" data-k="distMode" data-v="room">Room metres</button><button id="c-dm-mars" data-k="distMode" data-v="mars">Mars scale ×10</button></div></div>
+    <div class="ctl"><span>Check tools</span>
+      <div class="seg"><button id="c-grid" data-tog="grid">Angle grid</button><button id="c-fill" data-tog="fill">Sample digits</button></div></div>
   </div>
 
   <div class="grid2">
     <div class="card">
-      <h2>지금 화면을 만든 이벤트</h2>
-      <p class="small" style="margin-bottom:8px">형식은 INTERFACES.md 3장의 목 데이터와 같습니다.</p>
+      <h2>Events behind this frame</h2>
       <pre id="log"></pre>
+      <p class="small" style="margin-top:8px">Payload shapes follow docs/INTERFACES.md, section 3.</p>
     </div>
     <div class="card">
-      <h2>글자 크기 기준 (시작값)</h2>
+      <h2>Type scale</h2>
       <div class="tbl"><table>
-        <tr><th>쓰임</th><th>각도</th><th>1 m 거리에서 높이</th><th>Quest 3 화소</th></tr>
-        <tr><td>큰 값 (온도, 거리)</td><td class="n">2.2°</td><td class="n">38 mm</td><td class="n">55 px</td></tr>
-        <tr><td>비상 제목</td><td class="n">1.9°</td><td class="n">33 mm</td><td class="n">48 px</td></tr>
-        <tr><td>경보 문구, 안내 문구, 작은 값</td><td class="n">1.3~1.5°</td><td class="n">23~26 mm</td><td class="n">33~38 px</td></tr>
-        <tr><td>라벨</td><td class="n">1.1°</td><td class="n">19 mm</td><td class="n">28 px</td></tr>
-        <tr><td>꼬리표 (가장 작은 글자)</td><td class="n">0.9°</td><td class="n">16 mm</td><td class="n">23 px</td></tr>
+        <tr><th>Role</th><th>Point style</th><th>Angle</th><th>At 1 m</th><th>Quest 3</th></tr>
+        <tr><td>Main value</td><td>text-amount, 650</td><td class="n">2.4°</td><td class="n">42 mm</td><td class="n">60 px</td></tr>
+        <tr><td>Emergency title</td><td>text-title, 650</td><td class="n">1.9°</td><td class="n">33 mm</td><td class="n">48 px</td></tr>
+        <tr><td>Alert title, small value</td><td>text-heading, 600</td><td class="n">1.4–1.5°</td><td class="n">24–26 mm</td><td class="n">35–38 px</td></tr>
+        <tr><td>Body, tab, toast</td><td>text-row, 500</td><td class="n">1.2–1.3°</td><td class="n">21–23 mm</td><td class="n">30–33 px</td></tr>
+        <tr><td>Label</td><td>text-label, 600</td><td class="n">1.1°</td><td class="n">19 mm</td><td class="n">28 px</td></tr>
+        <tr><td>Tag, legend</td><td>text-caption</td><td class="n">0.95–1.05°</td><td class="n">17–18 mm</td><td class="n">24–26 px</td></tr>
       </table></div>
-      <p class="small" style="margin-top:8px">화소 수는 Quest 3의 25 PPD로 계산했습니다 (<a href="https://www.meta.com/gb/quest/compare/">Meta 비교 페이지</a>, 검색 요약으로 확인). 높이는 tan(각도)×1 m입니다. 이 크기가 헤드셋에서 실제로 잘 읽히는지는 확인하지 못했습니다. 기기에서 봐야 합니다.</p>
+      <p class="small" style="margin-top:8px">Pixels use Quest 3’s 25 pixels per degree (<a href="https://www.meta.com/gb/quest/compare/">Meta comparison page</a>, confirmed from a search summary). Height is tan(angle) × 1 m. Whether these sizes read well in the headset is not verified.</p>
     </div>
   </div>
 
   <div class="grid2">
     <div class="card">
-      <h2>기본 디자인 안</h2>
+      <h2>How the Point system is applied</h2>
       <ul>
-        <li><b>정보 순서</b>: 슈트 온도 → 남은 거리 → 방사선·기압·기온 → 레이어 이름. 경보를 일으키는 값과 걷는 데 필요한 값을 크게 둡니다.</li>
-        <li><b>색 3단계</b>: 하늘색은 안내, 주황은 주의, 빨강은 위험. 색만으로 구분하지 않도록 ● ▲ ◆ 모양과 “정상·주의·위험” 글자를 함께 씁니다 (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
-        <li><b>바탕</b>: 모든 글자 뒤에 어두운 반투명 판을 깝니다. 밝은 벽이나 조명에서 글자가 묻힐 수 있기 때문입니다 (<a href="https://developers.meta.com/horizon/design/styles_typography/">Meta 타이포그래피 지침</a>, 검색 요약).</li>
-        <li><b>비상</b>: 시야 바깥 테두리만 붉게, 1.6초에 한 번 밝아집니다. 초당 3회 이하라는 기준보다 훨씬 느립니다 (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>). 지도와 화살표가 있는 가운데는 비워 둡니다.</li>
-        <li><b>화살표</b>: 비상 때도 하늘색을 유지합니다. 빨강은 위험 표시에만 씁니다.</li>
-        <li><b>장애물</b>: 상자 윤곽과 바닥 빗금, “장애물” 글자를 같이 씁니다.</li>
+        <li><b>Two accents only.</b> Cobalt marks what is current: floor arrows, the destination, your position, the active layer. Orange marks the one thing to watch: a warn alert.</li>
+        <li><b>Alerts are grey surfaces.</b> Alert cards and toasts keep a grey face and carry a small coloured icon. Nothing is filled red except the emergency frame.</li>
+        <li><b>Red is for errors.</b> Critical alerts and obstacles use red, always with an exclamation icon and a word, never colour alone (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
+        <li><b>Dark grey, not black.</b> Card <code>#262626</code>, rows <code>#2e2e2e</code>, tracks <code>#3d3d3d</code>. A dark face keeps text readable against bright walls (<a href="https://developers.meta.com/horizon/design/styles_typography/">Meta typography guidance</a>, search summary).</li>
+        <li><b>Type.</b> Wanted Sans, weights 400–650, tabular numerals, −0.02em tracking on large sizes.</li>
+        <li><b>Shape.</b> Cards 20, rows and toasts 16, segmented control 14 with a 10 selected cell, scaled to degrees.</li>
+        <li><b>No explanatory sentences in the HUD.</b> Titles, data and state words only.</li>
+        <li><b>Slow pulse.</b> The frame brightens once every 1.6 s, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
       </ul>
     </div>
     <div class="card">
-      <h2>확인하지 못한 것</h2>
+      <h2>Behaviour this mockup settles</h2>
       <ul>
-        <li>Quest 브라우저의 immersive-ar 세션에서 어두운 반투명 판이 의도대로 보이는지. WebXR 규격상 영상 패스스루 기기는 alpha-blend 방식이라 가능해야 하지만 (<a href="https://developer.mozilla.org/en-US/docs/Web/API/XRSession/environmentBlendMode">MDN</a>), 기기에서 본 적은 없습니다.</li>
-        <li>상태창을 머리에 고정할 때와 늦게 따라오게 할 때 어느 쪽이 편한지. 이 목업은 평면 그림이라 판단할 수 없습니다.</li>
-        <li>손바닥 지도 옆 탭을 장갑 낀 손으로 누를 수 있는 크기인지. Meta는 손 추적용 주요 버튼에 60×60 px 이상을 권합니다 (<a href="https://developers.meta.com/horizon/design/pwa/">Meta 디자인 문서</a>, 검색 요약). 이 단위를 WebXR 공간 크기로 바꾸는 방법은 찾지 못했습니다.</li>
-        <li>방사선 경보 기준값. INTERFACES.md에 없습니다.</li>
+        <li><b>Status card</b> sits top left. Bottom left collides with the palm map; the top strip pushes alerts into the centre.</li>
+        <li><b>Acknowledge alert</b> stops the pulse. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
+        <li><b>Several alerts.</b> The card shows the highest level and a “+1” tag for the rest.</li>
+        <li><b>Critical clears.</b> The route returns to the previous target.</li>
+        <li><b>Link lost.</b> The last suit temperature stays, greyed, tagged “last value”.</li>
+        <li><b>Layers</b> are exclusive: one at a time.</li>
+        <li><b>Units.</b> Air temperature is shown in °C, converted from <code>airTempK</code>.</li>
+        <li><b>Distance</b> shows <code>distanceM</code> as sent, in room metres.</li>
+        <li><b>Obstacles</b> are danger red with a hatch and a label.</li>
       </ul>
+      <p class="small" style="margin-top:12px">Still unverified, needs the headset: translucent cards in the Quest browser (the spec says video passthrough uses alpha-blend, <a href="https://developer.mozilla.org/en-US/docs/Web/API/XRSession/environmentBlendMode">MDN</a>), head-locked versus lazy-follow comfort, and whether layer tabs are large enough for a gloved poke. Radiation thresholds are not defined yet.</p>
     </div>
   </div>
 </div>
@@ -298,16 +318,16 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowra
 <script>
 (function(){
 "use strict";
-/* ---------- 목 데이터 (INTERFACES.md 형식) ---------- */
+/* ---------- mock data (shapes from docs/INTERFACES.md) ---------- */
 var LAYERSET={
-  site:{name:"Gale Crater / Mount Sharp",scienceGoal:"박스워크 지형 조사",lat:null,lon:null},
+  site:{name:"Gale Crater / Mount Sharp",scienceGoal:"Boxwork survey",lat:null,lon:null},
   grid:{cols:256,rows:256,cellSizeM:1.0},
   layers:[
-    {id:"topo",kind:"topographic",mission:"MRO",instrument:"HiRISE",format:"float32",unit:"m",min:0,max:0,label:"지형 높이"},
-    {id:"slope",kind:"derived",mission:"MRO",instrument:"HiRISE",format:"float32",unit:"deg",min:0,max:0,label:"경사도"},
-    {id:"optical",kind:"optical",mission:"",instrument:"",format:"image",label:"광학 영상"},
-    {id:"thermal",kind:"thermal",mission:"",instrument:"",format:"image",label:"열 영상"}],
-  waypoints:[{id:"base",label:"기지",cell:[20,20]},{id:"site1",label:"조사 지점 1",cell:[200,180]}],
+    {id:"topo",kind:"topographic",mission:"MRO",instrument:"HiRISE",format:"float32",unit:"m",min:0,max:0,label:"Elevation"},
+    {id:"slope",kind:"derived",mission:"MRO",instrument:"HiRISE",format:"float32",unit:"deg",min:0,max:0,label:"Slope"},
+    {id:"optical",kind:"optical",mission:"",instrument:"",format:"image",label:"Optical"},
+    {id:"thermal",kind:"thermal",mission:"",instrument:"",format:"image",label:"Thermal"}],
+  waypoints:[{id:"base",label:"Base",cell:[20,20]},{id:"site1",label:"Survey site 1",cell:[200,180]}],
   demo:{regionCells:[100,100,140,140],roomSizeM:[4,4]}
 };
 var ROUTES={
@@ -316,9 +336,10 @@ var ROUTES={
   base:[[0,0,0],[-0.15,0,-0.7],[-0.5,0,-1.3],[-0.6,0,-1.8]]
 };
 var ALERTS={
-  "suit-temp":{name:"슈트 온도",warn:"슈트 온도가 높습니다",critical:"슈트 온도가 위험 수준입니다"},
-  "radiation":{name:"방사선",warn:"방사선 수치가 높습니다",critical:"방사선 수치가 위험 수준입니다"},
-  "link-lost":{name:"연결",warn:"젯슨 연결이 끊겼습니다",critical:"젯슨 연결이 끊겼습니다"}
+  "suit-temp":{warn:"Suit temperature high",critical:"Suit temperature critical"},
+  "radiation":{warn:"Radiation high",critical:"Radiation critical"},
+  "link-lost":{warn:"Suit hub link lost",critical:"Suit hub link lost"},
+  "route-blocked":{warn:"Route blocked"}
 };
 var RAMPS={
   topo:[[18,42,74],[32,120,128],[196,170,110],[250,246,232]],
@@ -326,21 +347,25 @@ var RAMPS={
   optical:[[30,30,30],[240,240,240]],
   thermal:[[10,6,40],[110,30,120],[230,110,40],[252,240,150]]
 };
+var C={ink:"#f2f2f2",primary:"#596ae0",primaryIcon:"#7a88e6",point:"#f27a0a",danger:"#ed716b",dangerLine:"#e5342b",surface:"rgba(38,38,38,.92)"};
 var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"tl",blink:"glow",period:1.6,hazColor:"red",distMode:"room",grid:false,fill:false,ack:false};
 var $=function(id){return document.getElementById(id)};
 
-/* ---------- 투영: 눈높이 1.6 m, 아래로 20°, 가로 시야 70° ---------- */
+/* ---------- projection: eye height 1.6 m, pitched 20° down, 70° horizontal ---------- */
 var W=1600,H=1000,F=800/Math.tan(35*Math.PI/180),CAM=[0,1.6,1.8],sp=Math.sin(20*Math.PI/180),cp=Math.cos(20*Math.PI/180);
 function P(x,y,z){var dx=x-CAM[0],dy=y-CAM[1],dz=z-CAM[2];var zc=-dy*sp-dz*cp,yc=dy*cp-dz*sp;return [W/2+F*dx/zc,H/2-F*yc/zc];}
 function pts(a){return a.map(function(p){var q=P(p[0],p[1],p[2]);return q[0].toFixed(1)+","+q[1].toFixed(1)}).join(" ");}
 function poly(a,attr){return '<polygon points="'+pts(a)+'" '+attr+'/>';}
 function line(a,b,attr){var p=P(a[0],a[1],a[2]),q=P(b[0],b[1],b[2]);return '<line x1="'+p[0].toFixed(1)+'" y1="'+p[1].toFixed(1)+'" x2="'+q[0].toFixed(1)+'" y2="'+q[1].toFixed(1)+'" '+attr+'/>';}
-function box(x0,x1,y0,y1,z0,z1,c){ /* 앞면(z1), 윗면, 왼쪽 면 */
+function box(x0,x1,y0,y1,z0,z1,c){
   return poly([[x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0]],'fill="'+c[2]+'"')+
          poly([[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]],'fill="'+c[0]+'"')+
          poly([[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]],'fill="'+c[1]+'"');}
-function pill(x,y,text,bg,fg,size){size=size||24;var w=text.length*size*0.92+28,h=size+16;
-  return '<g><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-h/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h+'" rx="'+(h/2)+'" fill="'+bg+'" stroke="'+fg+'" stroke-width="2"/><text x="'+x.toFixed(1)+'" y="'+(y+size*0.35).toFixed(1)+'" text-anchor="middle" font-size="'+size+'" font-weight="600" fill="'+fg+'">'+text+'</text></g>';}
+/* world label: grey face, small coloured icon, ink text */
+function pill(x,y,icon,iconCol,text){var size=25,w=text.length*size*0.56+72,h=size+20;
+  return '<g><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-h/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h+'" rx="16" fill="'+C.surface+'"/>'+
+    '<text x="'+(x-w/2+14).toFixed(1)+'" y="'+(y+15).toFixed(1)+'" class="msv" font-size="30" fill="'+iconCol+'">'+icon+'</text>'+
+    '<text x="'+(x-w/2+52).toFixed(1)+'" y="'+(y+size*0.34).toFixed(1)+'" font-size="'+size+'" font-weight="600" fill="'+C.ink+'">'+text+'</text></g>';}
 function routeLen(r){var s=0;for(var i=1;i<r.length;i++)s+=Math.hypot(r[i][0]-r[i-1][0],r[i][2]-r[i-1][2]);return s;}
 
 function drawRoom(){
@@ -357,8 +382,8 @@ function drawRoom(){
   if(S.bg==="busy"){
     o+=poly([[-0.5,0,-2],[0.6,0,-2],[0.6,1.75,-2],[-0.5,1.75,-2]],'fill="#5b4634"');
     var cols=['#b33b3b','#2f6fa8','#e0b23c','#3d8f5f','#ece7dc','#7a4fa0','#d9712e','#2b2b2b'];
-    for(var s=0;s<4;s++)for(var b=0;b<11;b++){var x=-0.46+b*0.095,y=0.08+s*0.42;
-      o+=poly([[x,y,-1.99],[x+0.08,y,-1.99],[x+0.08,y+0.3+((b*7+s*3)%4)*0.02,-1.99],[x,y+0.3+((b*7+s*3)%4)*0.02,-1.99]],'fill="'+cols[(b*3+s*5)%8]+'"');}
+    for(var s=0;s<4;s++)for(var b=0;b<11;b++){var x=-0.46+b*0.095,y=0.08+s*0.42,hh=0.3+((b*7+s*3)%4)*0.02;
+      o+=poly([[x,y,-1.99],[x+0.08,y,-1.99],[x+0.08,y+hh,-1.99],[x,y+hh,-1.99]],'fill="'+cols[(b*3+s*5)%8]+'"');}
     for(var r=0;r<8;r++)o+=poly([[-1.5,0.002,-1.5+r*0.15],[0.2,0.002,-1.5+r*0.15],[0.2,0.002,-1.35+r*0.15],[-1.5,0.002,-1.35+r*0.15]],'fill="'+(r%2?'#f0ead8':'#a83d32')+'"');
   }
   return '<g style="filter:brightness('+(S.bg==="dark"?0.28:1)+')">'+o+(S.hazard?drawChair():'')+'</g>';
@@ -366,15 +391,15 @@ function drawRoom(){
 function drawChair(){var c=['#6f7f8f','#566574','#3f4c59'];
   return box(0.35,0.75,0,0.46,-1.1,-0.7,c)+box(0.35,0.75,0.46,0.9,-1.1,-1.03,c);}
 function drawHazard(){
-  var col={red:'#ff4a4a',magenta:'#ff4fd8',amber:'#ff9f2e'}[S.hazColor];
+  var col=S.hazColor==="red"?C.dangerLine:C.point,icoCol=S.hazColor==="red"?C.danger:C.point;
   var x0=0.3,x1=0.8,y1=0.94,z0=-1.15,z1=-0.65,o='';
   o+='<defs><pattern id="hatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="14" fill="'+col+'"/></pattern></defs>';
-  o+=poly([[x0,0.004,z0],[x1,0.004,z0],[x1,0.004,z1],[x0,0.004,z1]],'fill="url(#hatch)" fill-opacity=".75" stroke="'+col+'" stroke-width="4"');
+  o+=poly([[x0,0.004,z0],[x1,0.004,z0],[x1,0.004,z1],[x0,0.004,z1]],'fill="url(#hatch)" fill-opacity=".75" stroke="'+col+'" stroke-width="4" stroke-linejoin="round"');
   var c=[[x0,0,z0],[x1,0,z0],[x1,0,z1],[x0,0,z1],[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]];
   var e=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]],under='',over='';
-  e.forEach(function(k){under+=line(c[k[0]],c[k[1]],'stroke="#000" stroke-opacity=".7" stroke-width="10" stroke-linecap="round"');over+=line(c[k[0]],c[k[1]],'stroke="'+col+'" stroke-width="5" stroke-linecap="round"');});
+  e.forEach(function(k){under+=line(c[k[0]],c[k[1]],'stroke="#111" stroke-opacity=".75" stroke-width="10" stroke-linecap="round"');over+=line(c[k[0]],c[k[1]],'stroke="'+col+'" stroke-width="5" stroke-linecap="round"');});
   var t=P(0.55,1.12,-0.9);
-  return o+under+over+pill(t[0],t[1],'◆ 장애물','rgba(5,13,20,.85)',col,26);
+  return o+under+over+pill(t[0],t[1],'error',icoCol,'Obstacle');
 }
 function drawRoute(r,label){
   var o='',n=0,carry=0.32;
@@ -383,27 +408,27 @@ function drawRoute(r,label){
     for(;t<L-0.05;t+=0.24){var px=ax+dx*t,pz=az+dz*t;
       var q=[[px+dx*0.09,pz+dz*0.09],[px-dx*0.05+nx*0.13,pz-dz*0.05+nz*0.13],[px-dx*0.13+nx*0.13,pz-dz*0.13+nz*0.13],[px+dx*0.01,pz+dz*0.01],[px-dx*0.13-nx*0.13,pz-dz*0.13-nz*0.13],[px-dx*0.05-nx*0.13,pz-dz*0.05-nz*0.13]]
         .map(function(v){return [v[0],0.006,v[1]]});
-      o+='<polygon class="chev" style="animation-delay:'+(n*0.16).toFixed(2)+'s" points="'+pts(q)+'" fill="#7fe3ff" stroke="#03202b" stroke-width="4" stroke-linejoin="round"/>';n++;}
+      o+='<polygon class="chev" style="animation-delay:'+(n*0.16).toFixed(2)+'s" points="'+pts(q)+'" fill="'+C.primary+'" stroke="'+C.ink+'" stroke-width="5" stroke-linejoin="round"/>';n++;}
     carry=t-L;
   }
   return o+drawDest(r[r.length-1],label);
 }
 function drawDest(p,label){
   var o='',ring=function(rad){var a=[];for(var k=0;k<28;k++){var th=k/28*Math.PI*2;a.push([p[0]+Math.cos(th)*rad,0.006,p[2]+Math.sin(th)*rad]);}return a;};
-  o+=poly(ring(0.2),'fill="rgba(127,227,255,.25)" stroke="#03202b" stroke-width="7"')+poly(ring(0.2),'fill="none" stroke="#7fe3ff" stroke-width="4"');
-  o+=line([p[0],0,p[2]],[p[0],0.6,p[2]],'stroke="#03202b" stroke-width="7"')+line([p[0],0,p[2]],[p[0],0.6,p[2]],'stroke="#7fe3ff" stroke-width="3"');
-  var t=P(p[0],0.72,p[2]);return o+pill(t[0],t[1],label,'rgba(5,13,20,.85)','#7fe3ff',26);
+  o+=poly(ring(0.2),'fill="rgba(89,106,224,.35)" stroke="'+C.ink+'" stroke-width="9"')+poly(ring(0.2),'fill="none" stroke="'+C.primary+'" stroke-width="5"');
+  o+=line([p[0],0,p[2]],[p[0],0.6,p[2]],'stroke="'+C.ink+'" stroke-width="8" stroke-linecap="round"')+line([p[0],0,p[2]],[p[0],0.6,p[2]],'stroke="'+C.primary+'" stroke-width="4" stroke-linecap="round"');
+  var t=P(p[0],0.72,p[2]);return o+pill(t[0],t[1],'navigation',C.primaryIcon,label);
 }
 function drawGrid(){
-  var o='';for(var a=-30;a<=30;a+=10){var x=W/2+F*Math.tan(a*Math.PI/180);
-    o+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"/><text x="'+(x+6)+'" y="'+(H/2-8)+'" font-size="22" fill="#fff" stroke="#000" stroke-width="5" paint-order="stroke">'+a+'°</text>';}
-  for(var b=-20;b<=20;b+=10){if(b===0)continue;var y=H/2-F*Math.tan(b*Math.PI/180);
-    o+='<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"/><text x="'+(W/2+6)+'" y="'+(y-8)+'" font-size="22" fill="#fff" stroke="#000" stroke-width="5" paint-order="stroke">'+b+'°</text>';}
-  o+='<line x1="0" y1="'+H/2+'" x2="'+W+'" y2="'+H/2+'" stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"/>';
+  var o='',st='stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"',tx='font-size="22" fill="#fff" stroke="#111" stroke-width="5" paint-order="stroke"';
+  for(var a=-30;a<=30;a+=10){var x=W/2+F*Math.tan(a*Math.PI/180);
+    o+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" '+st+'/><text x="'+(x+6)+'" y="'+(H/2-8)+'" '+tx+'>'+a+'°</text>';}
+  for(var b=-20;b<=20;b+=10){var y=H/2-F*Math.tan(b*Math.PI/180);
+    o+='<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" '+st+'/>'+(b?'<text x="'+(W/2+6)+'" y="'+(y-8)+'" '+tx+'>'+b+'°</text>':'');}
   return o;
 }
 
-/* ---------- 손바닥 지도 (가짜 지형) ---------- */
+/* ---------- palm map (synthetic terrain) ---------- */
 function ramp(stops,t){t=Math.max(0,Math.min(1,t))*(stops.length-1);var i=Math.min(stops.length-2,Math.floor(t)),f=t-i,a=stops[i],b=stops[i+1];return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
 function hgt(x,y){return 0.5+0.25*Math.sin(x*3.1+1)*Math.cos(y*2.3)+0.18*Math.sin((x+y)*5.2)+0.07*Math.sin(x*13)*Math.sin(y*11);}
 function drawMap(nav,target){
@@ -417,98 +442,106 @@ function drawMap(nav,target){
   var cell=function(cc){return [cc[0],255-cc[1]]},b=cell([20,20]),s=cell([200,180]),me=cell([120,120]);
   var r=LAYERSET.demo.regionCells;g.strokeStyle="#fff";g.lineWidth=2;g.setLineDash([5,4]);g.strokeRect(r[0],255-r[3],r[2]-r[0],r[3]-r[1]);g.setLineDash([]);
   if(nav==="ok"){var to=target==="base"?b:s;g.lineCap="round";g.lineJoin="round";
-    [["#03202b",9],["#7fe3ff",5]].forEach(function(k){g.strokeStyle=k[0];g.lineWidth=k[1];g.beginPath();g.moveTo(me[0],me[1]);
+    [[C.ink,10],[C.primary,6]].forEach(function(k){g.strokeStyle=k[0];g.lineWidth=k[1];g.beginPath();g.moveTo(me[0],me[1]);
       g.quadraticCurveTo(target==="base"?me[0]-10:me[0]+70,target==="base"?me[1]+70:me[1]-5,to[0],to[1]);g.stroke();});}
-  g.lineWidth=3;g.strokeStyle="#000";g.fillStyle="#fff";
+  g.lineWidth=3;g.strokeStyle="#111";g.fillStyle=C.ink;
   g.fillRect(b[0]-9,b[1]-9,18,18);g.strokeRect(b[0]-9,b[1]-9,18,18);
   g.beginPath();g.moveTo(s[0],s[1]-13);g.lineTo(s[0]+13,s[1]);g.lineTo(s[0],s[1]+13);g.lineTo(s[0]-13,s[1]);g.closePath();g.fill();g.stroke();
-  g.fillStyle="#7fe3ff";g.beginPath();g.moveTo(me[0],me[1]-13);g.lineTo(me[0]+11,me[1]+10);g.lineTo(me[0]-11,me[1]+10);g.closePath();g.fill();g.stroke();
+  g.fillStyle=C.primary;g.strokeStyle=C.ink;g.beginPath();g.moveTo(me[0],me[1]-13);g.lineTo(me[0]+11,me[1]+10);g.lineTo(me[0]-11,me[1]+10);g.closePath();g.fill();g.stroke();
 }
 function buildTabs(){
-  $("tabs").innerHTML=LAYERSET.layers.map(function(l){return '<button class="tab" id="tab-'+l.id+'" data-k="layer" data-v="'+l.id+'" aria-pressed="'+(S.layer===l.id)+'"><span class="mk">▶</span><span>'+l.label+'</span></button>';}).join("");
+  $("tabs").innerHTML=LAYERSET.layers.map(function(l){return '<button class="tab" id="tab-'+l.id+'" data-k="layer" data-v="'+l.id+'" aria-pressed="'+(S.layer===l.id)+'"><span class="ms">layers</span><span>'+l.label+'</span></button>';}).join("");
 }
 
-/* ---------- 화면 갱신 ---------- */
+/* ---------- render ---------- */
 function render(){
-  var crit=S.level==="critical",warn=S.level==="warn",al=ALERTS[S.alertId];
+  var crit=S.level==="critical",warn=S.level==="warn";
   var suit=S.alertId==="suit-temp"?(crit?35.8:warn?31.2:24.5):24.5;
   var linkLost=S.level!=="normal"&&S.alertId==="link-lost";
   var target=crit?"base":"site1",nav=crit?"ok":S.nav;
   var route=crit?ROUTES.base:(S.hazard?ROUTES.site1Detour:ROUTES.site1);
   var dist=nav==="ok"?Math.round(routeLen(route)*10)/10:(nav==="arrived"?0:null);
-  var tLabel=target==="base"?"기지":"조사 지점 1";
+  var tLabel=target==="base"?"Base":"Survey site 1";
   var layer=LAYERSET.layers.filter(function(l){return l.id===S.layer})[0];
+  /* active alerts, highest level first */
+  var alerts=[];if(S.level!=="normal")alerts.push({id:S.alertId,level:S.level});
+  if(nav==="blocked")alerts.push({id:"route-blocked",level:"warn"});
+  alerts.sort(function(a,b){return (b.level==="critical")-(a.level==="critical")});
 
   var hud=$("hud");
   hud.className="hud pos-"+S.pos+" blink-"+S.blink+(crit?" crit":"")+(S.ack?" acked":"");
   hud.style.setProperty("--period",S.period+"s");
-  $("periodOut").textContent=S.period.toFixed(1)+"초에 1회 ("+(1/S.period).toFixed(2)+" Hz)";
+  $("periodOut").textContent=S.period.toFixed(1)+" s ("+(1/S.period).toFixed(2)+" Hz)";
 
-  /* 상태창 */
+  /* status card */
   var sState=linkLost?"stale":(S.alertId==="suit-temp"?(crit?"crit":warn?"warn":""):"");
   $("rowSuit").className="st-main "+sState;
-  $("suitIco").textContent=sState==="crit"?"◆":sState==="warn"?"▲":"●";
+  $("suitIco").textContent=sState==="crit"?"error":sState==="warn"?"warning":sState==="stale"?"link_off":"check_circle";
   $("suitVal").textContent=suit.toFixed(1);
-  $("suitWord").textContent=linkLost?"마지막 값":sState==="crit"?"위험":sState==="warn"?"주의":"정상";
-  $("suitSrc").textContent=linkLost?"연결 끊김":"mock";
-  $("suitMark").style.left=Math.max(0,Math.min(100,(suit-20)/20*100))+"%";
-  var dRow=$("rowDist");dRow.className="st-main "+(nav==="blocked"?"warn":"");
-  $("distIco").textContent=nav==="blocked"?"▲":"➤";
-  $("distTarget").textContent=nav==="cancelled"?"":"→ "+tLabel;
-  var shown=dist===null?"—":(S.distMode==="mars"?(dist*10).toFixed(0):dist.toFixed(1));
-  $("distVal").textContent=shown;$("distUnit").textContent=dist===null?"":"m";
-  $("distWord").textContent=nav==="blocked"?"길 막힘":nav==="arrived"?"도착":nav==="cancelled"?"안내 없음":(crit?"복귀 중":"");
-  var fv=S.fill?"888.8":"0",radCls=S.alertId==="radiation"?(crit?"crit":warn?"warn":""):"";
+  $("suitWord").textContent=linkLost?"":sState==="crit"?"Critical":sState==="warn"?"High":"Normal";
+  $("suitSrc").textContent=linkLost?"last value":"mock";
+  $("suitFill").style.width=Math.max(0,Math.min(100,(suit-20)/20*100))+"%";
+  $("rowDist").className="st-main "+(nav==="blocked"?"warn":"");
+  $("distIco").textContent=nav==="blocked"?"warning":"navigation";
+  $("distLab").textContent=nav==="cancelled"?"Distance":"Distance to "+tLabel;
+  $("distVal").textContent=dist===null?"—":(S.distMode==="mars"?(dist*10).toFixed(0):dist.toFixed(1));
+  $("distUnit").textContent=dist===null?"":"m";
+  $("distWord").textContent=nav==="blocked"?"Blocked":nav==="arrived"?"Arrived":nav==="cancelled"?"No route":"";
+  var radCls=S.alertId==="radiation"?(crit?"crit":warn?"warn":""):"";
+  var radIco=radCls==="crit"?'<span class="ms">error</span> ':radCls==="warn"?'<span class="ms">warning</span> ':"";
   $("envRad").className="v "+radCls;
-  $("envRad").innerHTML=(radCls==="crit"?"◆ ":radCls==="warn"?"▲ ":"")+fv+" <small>μGy/일</small>";
-  $("envP").innerHTML=fv+" <small>Pa</small>";$("envT").innerHTML=fv+" <small>K</small>";
+  $("envRad").innerHTML=radIco+(S.fill?"213":"—")+" <small>µGy/day</small>";
+  $("envP").innerHTML=(S.fill?"742":"—")+" <small>Pa</small>";
+  $("envT").innerHTML=(S.fill?"−18.4":"—")+" <small>°C</small>";
+  document.querySelectorAll(".env-tag").forEach(function(t){t.textContent=S.fill?"sample":"TBD";});
   $("layName").textContent=layer.label;
-  $("solLine").innerHTML='Sol 0 · 12:00 <span class="tag">자리표시</span>';
+  $("solLine").innerHTML='Sol — · —:— <span class="tag">TBD</span>';
 
-  /* 경보 띠 */
-  var bn=$("banner");bn.hidden=S.level==="normal";bn.className="banner"+(crit?" crit":"");
-  if(!bn.hidden){$("bIco").textContent=crit?"◆":"▲";
-    $("bTitle").textContent=(crit?"비상 · ":"주의 · ")+al.name;$("bMsg").textContent=al[S.level];
-    $("bSub").textContent=crit?(S.ack?"경보 확인됨 · 기지로 안내 중":"기지 복귀 경로로 전환 · “경보 확인”"):(S.alertId==="suit-temp"?"30°C 이상 · 35°C부터 비상":S.alertId==="radiation"?"기준값 미정":"슈트 온도는 마지막 값입니다");}
-  /* 경로 안내 문구 */
-  var tt=$("toast"),msg="",tw=false;
-  if(nav==="blocked"){msg="▲ 길이 막혔습니다. 다른 경로를 찾지 못했습니다";tw=true;}
-  else if(nav==="arrived")msg="조사 지점 1에 도착했습니다";
-  else if(nav==="cancelled")msg="안내를 종료했습니다";
-  else if(!crit&&S.hazard)msg="장애물 감지 · 경로를 다시 계산했습니다";
-  tt.hidden=!msg;tt.textContent=msg;tt.className="toast"+(tw?" warn":"");
+  /* alert card */
+  var bn=$("banner"),top=alerts[0];bn.hidden=!top;
+  if(top){var tc=top.level==="critical";bn.className="banner"+(tc?" crit":"");
+    $("bIco").textContent=tc?"error":"warning";
+    $("bTitle").textContent=ALERTS[top.id][top.level];
+    var sub=tc?(S.ack?"Acknowledged · Returning to base":"Returning to base"):(top.id==="link-lost"?"Showing last value":"");
+    $("bSub").textContent=sub;$("bSub").hidden=!sub;
+    $("bMore").hidden=alerts.length<2;$("bMore").textContent="+"+(alerts.length-1);}
+  /* route toast */
+  var tt=$("toast"),msg="";
+  if(nav==="arrived")msg="Arrived at Survey site 1";
+  else if(nav==="cancelled")msg="Guidance ended";
+  else if(nav==="ok"&&!crit&&S.hazard)msg="Route recalculated";
+  tt.hidden=!msg;tt.innerHTML='<span class="ms">navigation</span><span>'+msg+'</span>';
 
-  /* 배경과 현장 표시 */
+  /* scene */
   var sv=drawRoom();
   if(S.hazard)sv+=drawHazard();
   if(nav==="ok")sv+=drawRoute(route,tLabel);
   else if(nav==="arrived"||nav==="blocked")sv+=drawDest(ROUTES.site1[2],tLabel);
   if(S.grid)sv+=drawGrid();
-  $("scene").innerHTML='<style>.chev{animation:flow 1.6s linear infinite}@keyframes flow{0%,100%{opacity:.55}40%{opacity:1}}text{font-family:"IBM Plex Sans KR",sans-serif}</style>'+sv;
+  $("scene").innerHTML='<style>.chev{animation:flow 1.6s linear infinite}@keyframes flow{0%,100%{opacity:.6}40%{opacity:1}}text{font-family:"Wanted Sans",system-ui,sans-serif}text.msv{font-family:"Material Symbols Rounded";font-variation-settings:"FILL" 1}</style>'+sv;
 
-  /* 손바닥 지도 */
+  /* palm map */
   $("palm").hidden=!S.palm;buildTabs();drawMap(nav,target);
   $("lgRamp").style.background="linear-gradient(90deg,"+RAMPS[S.layer].map(function(c){return "rgb("+c.join(",")+")"}).join(",")+")";
-  if(layer.format==="float32"){$("lgMin").textContent=layer.min+" "+layer.unit;$("lgMax").textContent=layer.max+" "+layer.unit+" (자리표시)";}
-  else{$("lgMin").textContent="낮음";$("lgMax").textContent="높음 (범례 미정)";}
-  $("lgSrc").textContent=layer.mission?layer.mission+" · "+layer.instrument:"임무·장비 미정";
+  if(layer.format==="float32"){$("lgMin").textContent="min — "+layer.unit;$("lgMax").innerHTML='max — '+layer.unit+' <span class="tag">TBD</span>';}
+  else{$("lgMin").textContent="Low";$("lgMax").innerHTML='High <span class="tag">TBD</span>';}
+  $("lgSrc").textContent=layer.mission?layer.mission+" · "+layer.instrument:"Mission TBD";
 
-  /* 조작판 눌림 표시 */
+  /* controls */
   document.querySelectorAll("#controls [data-k]").forEach(function(b){b.setAttribute("aria-pressed",String(S[b.dataset.k])===b.dataset.v);});
   document.querySelectorAll("#controls [data-tog]").forEach(function(b){b.setAttribute("aria-pressed",!!S[b.dataset.tog]);});
   $("c-ack").disabled=!crit;$("c-ack").setAttribute("aria-pressed",S.ack);
 
-  /* 이벤트 로그 */
+  /* event log */
   var ts=Date.now(),L=[];
-  L.push("telemetry:update  "+(linkLost?"(끊김, 마지막 값) ":"")+JSON.stringify({suitTempC:suit,source:"mock",ts:ts}));
+  L.push("telemetry:update  "+(linkLost?"(none since link lost; last) ":"")+JSON.stringify({suitTempC:suit,source:"mock",ts:ts}));
   L.push("env:update        "+JSON.stringify({sol:0,localTime:"12:00",pressurePa:0,airTempK:0,radiationUGyPerDay:0}));
   L.push("layer:toggle      "+JSON.stringify({id:S.layer,visible:true}));
-  if(S.hazard)L.push('hazard:update     {"originXZ":[-2,-2],"cellSizeM":0.1,"cols":40,"rows":40,"cells":"Uint8Array(1600), 장애물 25칸","ts":'+ts+'}');
+  if(S.hazard)L.push('hazard:update     {"originXZ":[-2,-2],"cellSizeM":0.1,"cols":40,"rows":40,"cells":"Uint8Array(1600), 25 obstacle cells","ts":'+ts+'}');
   L.push("nav:route         "+JSON.stringify({status:nav,targetId:target,points:nav==="ok"?route:[],distanceM:dist===null?0:dist,reason:nav==="blocked"?"no-path":""}));
-  if(S.level!=="normal")L.push("alert:raise       "+JSON.stringify({id:S.alertId,level:S.level,message:al[S.level],ts:ts}));
-  if(nav==="blocked")L.push("alert:raise       "+JSON.stringify({id:"route-blocked",level:"warn",message:"길이 막혔습니다",ts:ts}));
+  alerts.forEach(function(a){L.push("alert:raise       "+JSON.stringify({id:a.id,level:a.level,message:ALERTS[a.id][a.level],ts:ts}));});
   L.push("mode:change       "+JSON.stringify({mode:crit?"emergency":"normal"}));
-  if(crit&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"경보 확인"}));
+  if(crit&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"Acknowledge alert"}));
   $("log").textContent=L.join("\n");
 }
 
@@ -520,5 +553,6 @@ document.addEventListener("click",function(e){
 });
 $("c-period").addEventListener("input",function(e){S.period=parseFloat(e.target.value);render();});
 render();
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(render);
 })();
 </script>
