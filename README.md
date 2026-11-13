@@ -12,6 +12,7 @@
 | 이 README | 팀 전원 | 무엇을 왜 만드는지, 일정, 규칙 |
 | [docs/ROLES.md](docs/ROLES.md) | 각 담당자 | 6명의 역할, 완료 기준, AI 토큰 소모 예상 |
 | [docs/INTERFACES.md](docs/INTERFACES.md) | 담당자와 각자의 AI | 모듈끼리 주고받는 데이터 형식 |
+| [docs/RESOURCES.md](docs/RESOURCES.md) | 팀 전원, 특히 C | 공개된 리소스 분석, 쓸 데이터와 주소 |
 | [docs/CHALLENGE.md](docs/CHALLENGE.md) | 팀 전원 | 챌린지 원문 전체 |
 
 ---
@@ -22,9 +23,9 @@ Meta Quest 3를 "우주복 헬멧"으로 삼아, 화성 탐사자가 걸으면�
 
 | 겹 | 무엇을 보여주나 | 데이터 | 장비 |
 |---|---|---|---|
-| 1. 궤도 지도 | 지형·광학·열 데이터를 겹친 탐사 지점 3D 지도 | **NASA 궤도선 데이터** | Quest 3 (손바닥 지도) |
+| 1. 궤도 지도 | 지형·광학·열 데이터를 겹친 탐사 지점 3D 지도 | **NASA 궤도선 데이터** (MRO, Mars Odyssey, MGS) | Quest 3 (손바닥 지도) |
 | 2. 현장 지도 | 궤도 데이터에 안 보이는 눈앞 장애물 | NASA 지도 위에 헬멧 깊이 센서를 얹음 | Quest 3 (실시간 환경 분석) |
-| 3. 생존 정보 | 방사선·대기 상태, 슈트 온도, 비상 경보 | **NASA Curiosity 관측 데이터** + 온도 센서 | Jetson + Arduino |
+| 3. 생존 정보 | 방사선 상태, 슈트 온도, 비상 경보 | **NASA Curiosity 관측 데이터** + 온도 센서 | Jetson + Arduino |
 
 조작은 손바닥 제스처와 음성으로만 합니다. 우주복 장갑을 낀 손으로는 화면을 누르기 어렵다는 설정입니다.
 
@@ -34,12 +35,15 @@ Meta Quest 3를 "우주복 헬멧"으로 삼아, 화성 탐사자가 걸으면�
 
 | 기능 | 바탕이 되는 NASA 데이터 |
 |---|---|
-| 손바닥 3D 지도 | 지형·광학·열 레이어 (서로 다른 임무 2개 이상) |
-| 길안내 | 지형과 경사도로 계산한 통행 비용. 다른 레이어를 더 합칠지는 리소스 확인 후 정함 |
-| 상태창 | Curiosity의 대기·방사선 관측값 |
+| 손바닥 3D 지도 | 지형(MRO HiRISE 등), 광학(MRO HiRISE), 열(Mars Odyssey THEMIS) |
+| 길안내 | 지형에서 계산한 경사도. Curiosity가 실제로 지나간 길과 나란히 보여 검증 |
+| 상태창 | Curiosity RAD의 방사선 관측값, 현재 위치의 높이와 지질 단위 |
 | 비상 모드 | 방사선 관측값 기준 경보 (슈트 온도 경보와 함께) |
 | 음성 안내 | 위 값들을 말로 읽어 줌 |
+| 로버 시점 사진 | Curiosity가 그 자리에서 찍은 실제 사진 |
 | 실시간 환경 분석 | NASA 데이터로 만든 경로를, 눈앞 장애물에 맞춰 고침 |
+
+어떤 데이터를 어디서 받는지는 [docs/RESOURCES.md](docs/RESOURCES.md)에 있습니다.
 
 NASA 데이터가 아닌 입력은 둘뿐입니다. 헬멧 깊이 센서와 슈트 온도 센서입니다. 둘 다 NASA 데이터로 만든 지도와 경로 위에서만 동작합니다.
 
@@ -49,18 +53,23 @@ NASA 데이터 지도만으로는 화면 속 그림에 그칩니다. 실시간 �
 
 - 주인공은 NASA 데이터이고, 실시간 환경 분석은 그것을 돋보이게 하는 역할입니다.
 - 원문과도 맞닿습니다. 기존 도구는 "built for regional and global views rather than the hyperlocalized areas astronauts will target"이라고 했습니다. 궤도 데이터가 약한 초근거리를 헬멧 센서가 메웁니다.
+- 실제 데이터가 이를 뒷받침합니다. 우리 지도 범위(2km)에서 열 영상은 가로 25픽셀뿐이고, 가장 선명한 광학 영상도 픽셀 하나가 약 0.64m입니다 ([docs/RESOURCES.md](docs/RESOURCES.md) 4장). 발 앞의 돌은 궤도에서 보이지 않습니다.
 
-### 미션 시나리오 (기본안)
+### 미션 시나리오
 
-게일 크레이터의 샤프산(Mount Sharp)에서 박스워크(boxwork) 지형을 조사하고 기지로 돌아옵니다.
+게일 크레이터 샤프산(Mount Sharp)의 **게디즈 발리스(Gediz Vallis) 수로**에서 황이 든 돌을 조사하고 기지로 돌아옵니다.
 
-- 이 지점을 고른 이유: 챌린지 원문이 직접 든 예시입니다. "like the Mount Sharp region where Curiosity observed them" ([원문](docs/CHALLENGE.md))
-- 단점: 다른 팀과 지점이 겹칠 수 있습니다.
-- 최종 지점은 해커톤 시작 후 3시간 안에 팀이 확정합니다.
+- **탐사 지점**: 동경 137.4075°, 남위 4.7868°. Curiosity가 sol 4312에 머문 자리입니다.
+- **과학 목표**: Curiosity가 이곳에서 순수한 황으로 된 돌을 발견했습니다 ([JPL](https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/), 검색 요약). 사람이 직접 가서 더 넓게 조사한다는 설정입니다.
+- **지도 범위**: 기준점을 가운데 둔 2,048m × 2,048m.
+- **참고 경로**: Curiosity는 이 수로까지 약 1,001m를 주행하며 44m를 올라갔습니다 (sol 4098 → 4312).
+- **이 지점을 고른 이유**: 원문 예시인 박스워크와 겹치지 않으면서, 같은 샤프산이라 지형·광학·방사선·로버 사진을 모두 쓸 수 있습니다.
+
+좌표와 수치의 근거는 [docs/RESOURCES.md](docs/RESOURCES.md) 4장에 있습니다.
 
 ### 데모 흐름 (심사에서 보여줄 1분)
 
-1. 왼손 손바닥을 들면 샤프산 3D 지도가 뜬다. 레이어를 바꿔 본다.
+1. 왼손 손바닥을 들면 게디즈 발리스 3D 지도가 뜬다. 레이어를 바꿔 본다.
 2. "조사 지점으로 안내해 줘"라고 말하면 바닥에 화살표가 깔린다.
 3. **(킥)** 걷다가 의자(바위 역할)를 만나면 경로가 다시 계산된다.
 4. 온도 센서를 손으로 데우면 화면이 붉게 점멸하고, 기지 복귀 경로로 바뀐다.
@@ -106,11 +115,12 @@ NASA 데이터 지도만으로는 화면 속 그림에 그칩니다. 실시간 �
 | NASA 데이터 레이어 (3종 이상) | Q1, Q2, Q4 | P0 | C |
 | 손바닥 3D 지도, 레이어 전환 | Q1, Q8 | P0 | D, F |
 | 길안내 (장애물 회피 경로, 바닥 화살표) | Q7 | P0 | D |
-| 상태창 (대기·방사선·슈트 온도) | Q6 | P0 | F, E |
+| Curiosity 실제 주행 경로 표시 (경로 검증) | Q1, Q7 | P0 | C, D |
+| 상태창 (방사선·높이·슈트 온도) | Q6 | P0 | F, E |
 | 비상 모드 (화면 붉은 점멸) | Q6 | P0 | F, E |
 | 실시간 환경 분석 (현장 장애물 레이어, 시연의 킥) | Q5, Q7 | P1 | A |
 | 음성 명령(STT)과 음성 안내(TTS) | Q10 | P1 | E |
-| 로버 시점 사진 표시 | Q9 | P2 | F |
+| 로버 시점 사진 표시 (Curiosity 실제 사진) | Q9 | P1 | F, C |
 | 야간투시 | 원문에 근거 없음 | P2 | A, F |
 | 영상촬영 모드 | 원문에 근거 없음 | P2 | F |
 
@@ -173,7 +183,7 @@ docs/                문서
 
 | 시간 | 할 일 | 끝났다는 기준 |
 |---|---|---|
-| 0~3h | 지점·과학 목표 확정, 인터페이스 확정, 뼈대 올리기 | 헤드셋에서 빈 AR 화면이 뜬다 |
+| 0~3h | 지형 파일(3.6GB) 다운로드 시작, 인터페이스 확정, 뼈대 올리기 | 헤드셋에서 빈 AR 화면이 뜬다 |
 | 3~24h | 각자 모듈 개발 (목 모드) | 각 모듈이 가짜 데이터로 혼자 돈다 |
 | ~12h | **C가 지형 레이어 1종을 먼저 넘긴다** | D의 지도에 실제 화성 지형이 보인다 |
 | 24~36h | 통합 | 데모 흐름 1~4가 헤드셋에서 이어진다 |
@@ -188,7 +198,10 @@ docs/                문서
 
 | 위험 | 대비 | 담당 |
 |---|---|---|
-| NASA 데이터 가공이 늦으면 지도가 비어 버린다 | 지형 레이어 1종을 12시간 안에 먼저 넘긴다. 나머지는 그다음 | C |
+| NASA 데이터 가공이 늦으면 지도가 비어 버린다 | 광학 타일은 바로 받을 수 있으니 먼저 넘긴다. 지형은 12시간 안에 | C |
+| 지형 높이 값은 3.6GB 파일에만 있다 | 시작 직후 다운로드를 건다. 일부만 잘라 받을 수 있는지 확인한다 | C |
+| 방사선 자료는 원시 자료에 가까워 해석이 오래 걸릴 수 있다 | 6시간 안에 안 되면 발표된 값을 고정값으로 쓴다 | C |
+| 대기(REMS) 자료는 확인하지 못했다 | 없어도 출품할 수 있게 상태창에서 필수로 두지 않는다 | C, F |
 | WebXR은 HTTPS(또는 localhost)에서만 켜진다 ([MDN](https://developer.mozilla.org/docs/Web/API/Navigator/xr)) | 첫 3시간 안에 헤드셋에서 접속되는지 확인한다 | B |
 | 깊이·메쉬 데이터가 기대대로 안 나올 수 있다 | 첫 3시간 안에 기기에서 확인한다. 안 되면 A는 평면 감지로 낮춘다 | A |
 | 손 추적, 마이크 입력이 브라우저에서 되는지 확인하지 못했다 | 첫 3시간 안에 기기에서 확인한다 | D, E |
@@ -197,18 +210,39 @@ docs/                문서
 
 ---
 
-## 8. NASA 데이터 후보
+## 8. NASA 데이터
 
-원문이 이름을 든 도구는 "Jet Propulsion Laboratory’s (JPL) Mars Trek"와 "USGS-NASA Planetary Geologic Mapping Program"입니다. 아래는 그 밖에 우리가 찾은 후보입니다.
+Resources 탭이 공개되어 직접 접속해 확인했습니다. 자세한 분석과 주소는 [docs/RESOURCES.md](docs/RESOURCES.md)에 있습니다.
 
-**주의**: 아래 표는 검색 결과 요약으로만 확인했습니다. 이 저장소를 만든 환경에서는 각 페이지를 직접 열어 보지 못했습니다. C가 Resources 탭과 대조한 뒤 확정합니다.
+| 순위 | 레이어 | 종류 (Q4) | 임무 · 장비 | 출처 |
+|---|---|---|---|---|
+| 1 | 지형 높이 | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | [USGS Gale 1m DEM](https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m) |
+| 2 | 경사도 | (계산) | 위와 같음 | 지형에서 계산 |
+| 3 | 광학 영상 | optical | MRO · HiRISE | [Mars Trek](https://trek.nasa.gov/mars/) |
+| 4 | 열 영상 (야간) | thermal | Mars Odyssey · THEMIS | [Mars Trek](https://trek.nasa.gov/mars/) |
+| 5 | 로버 주행 기록 | (지상 실측) | MSL Curiosity | [NASA 주행 기록](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json) |
+| 6 | 로버 시점 사진 | optical (지상) | MSL Curiosity | NASA 원본 사진 |
+| 7 | 방사선 | radiation | MSL Curiosity · RAD | [PDS](https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/) |
+| 8 | 지질 단위 | geologic | USGS SIM 3292 | [Mars Trek](https://trek.nasa.gov/mars/) |
 
-| 종류 (Q4) | 후보 | 링크 |
-|---|---|---|
-| 지형 (topographic) | HiRISE 수치 지형 모델 | [AWS Open Data: NASA/USGS HiRISE DTMs](https://registry.opendata.aws/nasa-usgs-mars-hirise-dtms/) |
-| 광학·열 (optical, thermal) | Mars Trek 지도 레이어, THEMIS 게일 모자이크 | [Mars Trek WMTS 문서](https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=mars), [JMARS Gale](https://jmars.mars.asu.edu/maps/gale/gale.html) |
-| 대기 (atmospheric) | Curiosity REMS (기압, 온도) | [PDS Atmospheres Node: REMS](https://atmos.nmsu.edu/data_and_services/atmospheres_data/MARS/curiosity/rems.html) |
-| 방사선 (radiation) | Curiosity RAD | [PDS PPI: MSL RAD](https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/AAREADME.TXT) |
+- 1~6은 주소와 형식을 직접 확인했습니다. 7은 폴더 구조만 확인했고 값 추출은 해 보지 못했습니다.
+- 서로 다른 임무가 4개입니다 (MRO, Mars Odyssey, MGS, MSL Curiosity).
+
+**리소스 5개를 어떻게 쓰나**
+
+| 리소스 | 쓰임 |
+|---|---|
+| Mars Trek | 광학·열 타일의 주 공급원 |
+| USGS-NASA Planetary Geologic Mapping Program | 지점의 지질 단위 표시 |
+| Curiosity 경로 지도 예시 | 경로 지도 디자인 참고 |
+| NASA Worldview | 레이어 전환 화면 참고 (지구 관측 도구이며 화성 데이터 출처가 아님) |
+| Mars Perseverance Raw Images Gallery | 같은 방식의 Curiosity 사진을 씀 (Perseverance는 다른 크레이터에 있음) |
+
+**알아 둘 한계**
+
+- Mars Trek의 지형 타일은 그림이라 높이 값을 얻을 수 없습니다. 높이는 USGS 파일에서만 나옵니다.
+- 열 영상은 약 81m/픽셀이라 우리 지도 범위에서 가로 25픽셀입니다.
+- 전 지구 지질도는 우리 지점 전체가 한 단위(`Htu`)로 나옵니다.
 
 ---
 
@@ -226,6 +260,8 @@ docs/                문서
 ## 10. 이 문서의 확인 수준
 
 - 챌린지 요구사항: 팀장이 준 원문에서 인용했습니다 ([docs/CHALLENGE.md](docs/CHALLENGE.md)).
-- Resources 탭 내용, 제출물 요건: 받지 못해 모릅니다.
-- 해커톤 일정, Quest 브라우저 기능, NASA 데이터 후보: 검색 결과 요약으로만 확인했습니다. 원문 페이지는 열어 보지 못했습니다.
+- NASA 데이터의 주소, 형식, 해상도, 좌표: 직접 접속해 확인했습니다 (2026-11-13). 항목별 확인 수준은 [docs/RESOURCES.md](docs/RESOURCES.md)에 표시했습니다.
+- 제출물 요건: 공식 사이트 접속이 실패해 모릅니다.
+- 대기(REMS) 자료, 방사선 값 추출 방법: 확인하지 못했습니다.
+- 해커톤 일정, Quest 브라우저 기능, 게디즈 발리스의 과학적 발견: 검색 결과 요약으로만 확인했습니다.
 - 우선순위, 역할 분담, 일정표, 토큰 소모 예상: 사실이 아니라 제안입니다. 팀이 바꿀 수 있습니다.

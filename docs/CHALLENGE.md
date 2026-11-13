@@ -1,7 +1,7 @@
 # 챌린지 원문 — Interplanetary Survival Guide: Martian Map
 
 > 팀장이 챌린지 페이지에서 복사해 온 원문입니다. README의 모든 인용은 이 파일에서 글자 그대로 가져왔습니다.
-> Resources 탭 내용은 여기에 없습니다. 공개되면 C 담당이 이 폴더에 `RESOURCES.md`로 추가합니다.
+> Resources 탭의 내용과 분석은 [RESOURCES.md](RESOURCES.md)에 있습니다.
 
 - Event: 2026 NASA Space Apps Challenge
 - Difficulty: Intermediate

@@ -28,6 +28,7 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
 
 - 두 좌표계를 잇는 변환은 **D만** 만듭니다 (`web/src/nav/`). 다른 모듈은 변환을 직접 계산하지 않습니다.
 - 변환 기준은 `layerset.json`의 `demo` 항목입니다. 지도의 일부 구역을 방 바닥 크기로 축소해 대응시킵니다.
+- 화성 경위도 ↔ 지도 격자 변환은 **C만** 합니다. 브라우저에는 격자 좌표만 넘어옵니다. 1도는 약 59,274.7m입니다 (반지름 3,396,190m 기준).
 - 시간은 모두 밀리초 단위 Unix 시각(`Date.now()`)입니다.
 - 온도는 섭씨(`C`), 거리는 미터(`M`)를 필드 이름 끝에 붙입니다. 예: `suitTempC`, `distanceM`.
 
@@ -39,79 +40,89 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
 
 ### 2.1 `layerset.json` — 레이어 목록
 
+아래 값은 [RESOURCES.md](RESOURCES.md)의 분석 결과로 채운 것입니다. `null`은 C가 파일을 가공한 뒤 채웁니다.
+
 ```json
 {
   "site": {
-    "name": "Gale Crater / Mount Sharp",
-    "scienceGoal": "박스워크 지형 조사",
-    "lat": null,
-    "lon": null
+    "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
+    "scienceGoal": "황이 든 돌 조사",
+    "lat": -4.78681191,
+    "lon": 137.4075342,
+    "bounds": { "west": 137.39026, "east": 137.42481, "south": -4.80409, "north": -4.76954 },
+    "geologicUnit": { "code": "Htu", "name": "Hesperian transition undivided unit", "source": "USGS SIM 3292" }
   },
-  "grid": { "cols": 256, "rows": 256, "cellSizeM": 1.0 },
+  "grid": { "cols": 512, "rows": 512, "cellSizeM": 4.0 },
   "layers": [
     {
       "id": "topo",
       "kind": "topographic",
-      "mission": "MRO",
-      "instrument": "HiRISE",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
       "file": "topo.bin",
       "format": "float32",
       "unit": "m",
-      "min": 0,
-      "max": 0,
+      "min": null,
+      "max": null,
       "label": "지형 높이",
-      "sourceUrl": ""
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
     },
     {
       "id": "slope",
       "kind": "derived",
-      "mission": "MRO",
-      "instrument": "HiRISE",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
       "file": "slope.bin",
       "format": "float32",
       "unit": "deg",
-      "min": 0,
-      "max": 0,
+      "min": null,
+      "max": null,
       "label": "경사도",
-      "sourceUrl": ""
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
     },
     {
       "id": "optical",
       "kind": "optical",
-      "mission": "",
-      "instrument": "",
+      "mission": "MRO",
+      "instrument": "HiRISE",
       "file": "optical.png",
       "format": "image",
       "label": "광학 영상",
-      "sourceUrl": ""
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
     },
     {
       "id": "thermal",
       "kind": "thermal",
-      "mission": "",
-      "instrument": "",
+      "mission": "Mars Odyssey",
+      "instrument": "THEMIS",
       "file": "thermal.png",
       "format": "image",
-      "label": "열 영상",
-      "sourceUrl": ""
+      "label": "열 영상 (야간)",
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
     }
   ],
   "waypoints": [
-    { "id": "base", "label": "기지", "cell": [20, 20] },
-    { "id": "site1", "label": "조사 지점 1", "cell": [200, 180] }
+    { "id": "base", "label": "기지", "cell": [0, 0] },
+    { "id": "site1", "label": "황 암석 지대", "cell": [256, 256] }
   ],
   "demo": {
-    "regionCells": [100, 100, 140, 140],
+    "regionCells": [246, 246, 266, 266],
     "roomSizeM": [4, 4]
   }
 }
 ```
 
+- `grid`는 2,048m × 2,048m를 4m 칸 512×512로 나눈 것입니다. 원본 지형은 1m 해상도라 더 촘촘하게도 만들 수 있습니다. 헤드셋 성능을 보고 B, C, D가 정합니다.
+- `waypoints`의 `base` 좌표와 `demo`는 자리만 잡은 값입니다. C와 D가 확정합니다.
+- `site1`은 격자 한가운데, 즉 기준점입니다.
+
 필드 설명:
 
 | 필드 | 뜻 |
 |---|---|
-| `site.lat`, `site.lon` | 지점 좌표. 지점 확정 후 C가 채운다 |
+| `site.lat`, `site.lon` | 기준점 좌표 (남위는 음수, 동경) |
+| `site.bounds` | 지도 범위. 모든 레이어를 이 범위로 잘라 맞춘다 |
+| `site.geologicUnit` | 이 지점의 지질 단위. 상태창과 범례에 표시 |
 | `grid` | 모든 레이어가 공유하는 격자. 레이어마다 해상도가 달라도 C가 이 격자에 맞춰 낸다 |
 | `layers[].kind` | 원문 Q4의 데이터 종류: `optical`, `thermal`, `spectral`, `topographic`, `geophysical`, `atmospheric`, `radiation`, `chemical`. 계산으로 만든 것은 `derived` |
 | `layers[].format` | `float32`(숫자 격자) 또는 `image`(색 입힌 이미지) |
@@ -132,30 +143,61 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
 - 크기는 `cols x rows` 픽셀의 정수배
 - 위쪽이 북쪽
 
-### 2.4 `env.json` — 대기·방사선 시계열
+### 2.4 `env.json` — 방사선·대기 시계열
 
 Curiosity 관측 자료에서 뽑은 값입니다. 헤드셋은 이를 데모 시간에 맞춰 순서대로 재생합니다.
 
 ```json
 {
-  "sourceUrls": [""],
+  "sourceUrls": ["https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/"],
+  "radiationIsFixedValue": false,
   "samples": [
-    { "sol": 0, "localTime": "12:00", "pressurePa": 0, "airTempK": 0, "radiationUGyPerDay": 0 }
+    { "sol": 4312, "localTime": "12:00", "radiationUGyPerDay": null, "pressurePa": null, "airTempK": null }
   ]
 }
 ```
 
-값은 C가 실제 자료로 채웁니다. 위의 `0`은 자리만 잡은 것입니다.
+- `radiationUGyPerDay`는 필수입니다. RAD 파일에서 뽑지 못하면 발표된 값을 넣고 `radiationIsFixedValue`를 `true`로 둡니다. 상태창은 이때 "발표값"이라고 표시합니다.
+- `pressurePa`, `airTempK`는 선택입니다. 대기(REMS) 자료를 확인하지 못했으므로 `null`일 수 있습니다. 상태창은 `null`인 항목을 숨깁니다.
 
-### 2.5 `pov.json` — 로버 시점 사진 (P2)
+### 2.5 `traverse.json` — Curiosity 실제 주행 경로
+
+NASA 주행 기록에서 지도 범위 안의 정차 지점만 추린 것입니다.
+
+```json
+{
+  "sourceUrl": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+  "points": [
+    { "sol": 4312, "rmc": "109_120", "lon": 137.4075342, "lat": -4.78681191, "elevM": -3689.67, "tiltDeg": null, "cell": [256, 256] }
+  ]
+}
+```
+
+- `rmc`는 원본의 `RMC` 값(`site_drive`)입니다. 사진과 위치를 잇는 열쇠입니다.
+- `cell`은 C가 지도 격자 좌표로 바꿔 넣습니다.
+- D는 이 점들을 이어 "Curiosity가 실제로 간 길"로 지도에 그립니다.
+
+### 2.6 `pov.json` — 로버 시점 사진
+
+Curiosity가 그 자리에서 찍은 실제 사진입니다.
 
 ```json
 {
   "photos": [
-    { "waypointId": "site1", "file": "pov/site1.jpg", "caption": "", "sourceUrl": "" }
+    {
+      "waypointId": "site1",
+      "rmc": "109_120",
+      "sol": 4312,
+      "instrument": "NAV_LEFT_B",
+      "file": "pov/site1.jpg",
+      "caption": "",
+      "sourceUrl": ""
+    }
   ]
 }
 ```
+
+`rmc`가 `traverse.json`의 점과 같으면 그 자리에서 찍은 사진입니다.
 
 ---
 
@@ -189,7 +231,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
 
 **`layers:ready`**
 ```json
-{ "layerSet": { "...": "layerset.json 내용 그대로" }, "grids": { "topo": "Float32Array", "slope": "Float32Array" } }
+{ "layerSet": { "...": "layerset.json 내용 그대로" }, "grids": { "topo": "Float32Array", "slope": "Float32Array" }, "traverse": { "...": "traverse.json 내용 그대로" } }
 ```
 
 **`layer:toggle`**
@@ -199,8 +241,9 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
 
 **`env:update`**
 ```json
-{ "sol": 0, "localTime": "12:00", "pressurePa": 0, "airTempK": 0, "radiationUGyPerDay": 0 }
+{ "sol": 4312, "localTime": "12:00", "radiationUGyPerDay": 200, "radiationIsFixedValue": false, "pressurePa": null, "airTempK": null }
 ```
+`pressurePa`와 `airTempK`는 `null`일 수 있습니다. 위의 `200`은 목 데이터용 값입니다.
 
 **`hazard:update`** — 방 좌표 기준 바닥 격자
 ```json
