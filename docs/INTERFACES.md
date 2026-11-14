@@ -295,6 +295,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 - `level`: `warn` (only the status panel color changes) or `critical` (red flashing screen)
 - `id` values: `suit-temp` (E), `route-blocked` (D), `radiation` (B, decided from `env.json`), `link-lost` (B, Jetson connection lost)
 - On `critical`, D computes a new route to `base`.
+- `radiation` thresholds (starting values, `web/src/core/radiation.js`): `warn` at 300 µGy/day, `critical` at 600 µGy/day, clear below 270. The observed values in `env.json` (about 152–157) raise nothing; `?radWarn=` and `?radCrit=` change them.
 
 **`alert:clear`**
 ```json
