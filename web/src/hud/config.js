@@ -20,12 +20,12 @@ export const HUD = {
   // larger on every side for its outline and text glow.
   status: {
     leftDeg: 3.2, topDeg: 4.2, wDeg: 21.1, hDeg: 31.6,
-    /** Opacity of the whole status card (0 to 1). `mapOpacity` applies while the map is in view
-     *  (palm up in the headset; always on a PC screen), so the card does not hide the terrain
-     *  behind it. Any active alert brings the card back to full opacity. `fadeRate` is how fast
-     *  it changes (1/s). Not checked on the headset: raise `mapOpacity` if the numbers get hard
-     *  to read against a bright room. */
-    opacity: 0.9, mapOpacity: 0.55, fadeRate: 6,
+    /** Opacity of the whole status card (0 to 1). Both values are 1, as in the mockup: the card's
+     *  face is already transparent there and its outlines and text are at full strength.
+     *  `mapOpacity` applies while the map is in view (palm up in the headset; always on a PC
+     *  screen); lower it (for example 0.55) to fade the card while looking at the map. Any active
+     *  alert brings the card back to full opacity. `fadeRate` is how fast it changes (1/s). */
+    opacity: 1, mapOpacity: 1, fadeRate: 6,
   },
   /** Toast strip, top centre */
   banner: { topDeg: 4.5, wDeg: 38, hDeg: 4 },
@@ -50,9 +50,9 @@ export const HUD = {
     palmOffsetRightM: 0.27,
     palmOffsetUpM: 0.02,
     palmScale: 0.6,
-    /** Opacity of the menu and legend backgrounds (0 to 1). They sit next to the map, so they
-     *  are kept lighter than the alert card. The text and the colour ramp stay fully opaque. */
-    faceOpacity: 0.6,
+    /** Opacity of the menu and legend backgrounds (0 to 1). 0.9 is the mockup's `--h-surface`.
+     *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
+    faceOpacity: 0.9,
     /** The fingertip cursor appears within this distance in front of the menu (m) */
     hoverDistM: 0.09,
     /** How long a pressed tab stays lit (ms) */
