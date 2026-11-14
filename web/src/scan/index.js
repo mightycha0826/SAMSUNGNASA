@@ -18,13 +18,16 @@
 // the depth image of the left eye is laid over the same cells (depth.js, grid.js). It adds what
 // stands within depthRangeM of the wearer now and takes it away again once only floor is seen
 // there, so a chair put down after the scan appears, and clears within a few seconds of being
-// taken away. It never clears structure that came from the room scan. Not yet checked on the
-// headset.
+// taken away, or once it has been out of sight for forgetScans reads. It never clears structure
+// that came from the room scan. Not yet checked on the headset.
+//
+// Known gap: Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid.
 //
 // The obstacles are also outlined in red on the real floor in field mode (overlay.js).
 //
 // ctx and frame: see the comment in map/index.js.
 
+import { mode } from '../core/mode.js';
 import { startMockHazard } from '../mock/hazard.js';
 import { createGrid, mergeLayers } from './grid.js';
 import { readDepth } from './depth.js';
@@ -49,6 +52,7 @@ export const SCAN = {
   minPoints: 3, // samples needed in a cell before a read says anything about it
   setScans: 2, // reads that must see an obstacle before it counts (2 = 1 s): not someone walking past
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
+  forgetScans: 40, // reads out of sight before a live obstacle is forgotten (40 = 20 s): it may have walked away
 
   // Outline on the floor, [r, g, b, a] 0-255.
   edgeRGBA: [255, 48, 48, 230], // cells on the rim of an obstacle
@@ -66,7 +70,12 @@ const jobs = []; // triangles waiting to be rasterised: { m: Float32Array(16), v
 let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0, depth: 0 };
 let live; // what live depth sees, on the same cells
 let depthOn = false; // this session has depth-sensing and reading it has not failed
-let lastDepth = 0;
+let depthSeen = false; // the live layer holds what a recent read saw
+let lastDepth = 0; // time of the last read that got an image
+let waitFrom = 0; // time of the first read in a row that got none
+let said = {}; // what has been reported once this session
+let sent = null; // the cells of the last hazard:update
+let started = 0; // time of the session's first frame
 let space = null; // the reference space whose 'reset' is being listened to
 
 function reset() {
@@ -78,6 +87,10 @@ function reset() {
   dirty = true;
   live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
   depthOn = ctx.xr.has('depth-sensing') === true;
+  depthSeen = false;
+  waitFrom = started = 0;
+  said = {};
+  sent = null;
 }
 
 function mark(x, y, z) {
@@ -105,7 +118,8 @@ function markLocal(m, x, y, z) {
 function rasterTriangle(m, ax, ay, az, bx, by, bz, cx, cy, cz) {
   const ab = Math.hypot(bx - ax, by - ay, bz - az);
   const ac = Math.hypot(cx - ax, cy - ay, cz - az);
-  const n = Math.max(1, Math.ceil(Math.max(ab, ac) / SCAN.sampleM));
+  // At most 400 steps (28 m, more than the grid's diagonal): one vertex at infinity must not hang the frame.
+  const n = Math.min(400, Math.max(1, Math.ceil(Math.max(ab, ac) / SCAN.sampleM)));
   for (let i = 0; i <= n; i++) {
     for (let j = 0; j <= n - i; j++) {
       const u = i / n;
@@ -203,23 +217,56 @@ export function update(frame) {
   }
   work();
 
+  // Without a room scan the grid stays empty and a route runs straight through the furniture.
+  // Nothing else tells the wearer, so say it once, a few seconds in.
+  started ||= time;
+  if (!said.noRoom && time - started > 3000) {
+    said.noRoom = true;
+    if (!meshes?.size && !planes?.size) {
+      console.error('[scan] no room scan: run Space Setup in this room. Features:', ctx.xr.enabledFeatures);
+      if (mode.current === 'field') ctx.bus.emit('voice:say', { text: 'No room scan. Run Space Setup first.', priority: 'normal' });
+    }
+  }
+
+  let read = false;
   if (depthOn && time - lastDepth >= SCAN.depthMs) {
     try {
-      // No image on this frame (the sensor is slower than the display): try again on the next.
-      if (readDepth(ctx.renderer, frame, live, SCAN)) {
+      // Nothing read for a while (headset off, menu up, no images): what was marked may be gone.
+      if (depthSeen && time - lastDepth > 5000) {
+        live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
+        depthSeen = false;
+        dirty = true;
+      }
+      read = readDepth(ctx.renderer, frame, live, SCAN);
+      if (read) {
         lastDepth = time;
+        waitFrom = 0;
+        depthSeen = true;
         if (live.commit()) dirty = true;
+      } else if (!waitFrom) {
+        waitFrom = time; // no image on this frame (the sensor is slower than the display): try the next
+      } else if (time - waitFrom > 5000) {
+        lastDepth = time; // none for 5 s: keep trying, but every depthMs and not every frame
+        if (!said.noDepth) console.error('[scan] depth-sensing is on but no depth image arrives');
+        said.noDepth = true;
       }
     } catch (err) {
-      depthOn = false; // the room scan carries on without it
+      depthOn = depthSeen = false; // the room scan carries on without it, and without what it had marked
+      live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
+      dirty = true;
       console.error('[scan] live depth switched off:', err);
     }
   }
 
-  if (dirty && !jobs.length && time - lastEmit >= SCAN.emitMs) {
+  // Not in the frame that read depth: the read and the consumers of the event each take time.
+  if (dirty && !read && !jobs.length && time - lastEmit >= SCAN.emitMs) {
     dirty = false;
-    lastEmit = time;
     const { cells: merged, ...counts } = mergeLayers(cells, live.cells);
+    // A live cell can change without changing what is sent (floor seen where the room scan
+    // already has floor, flicker on a cell the room scan blocks): nothing to say then.
+    if (sent && merged.every((cell, i) => cell === sent[i])) return;
+    sent = merged;
+    lastEmit = time;
     stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts };
     ctx.bus.emit('hazard:update', {
       originXZ: [...origin],
@@ -228,7 +275,7 @@ export function update(frame) {
       rows: cols,
       cells: merged,
       ts: Date.now(),
-      source: depthOn ? 'room-scan+depth' : 'room-scan',
+      source: depthSeen ? 'room-scan+depth' : 'room-scan',
       stats,
     });
   }

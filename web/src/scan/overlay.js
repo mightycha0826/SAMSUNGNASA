@@ -6,10 +6,13 @@
 import * as THREE from 'three';
 import { mode } from '../core/mode.js';
 
-const NONE = [0, 0, 0, 0];
+// [r, g, b, a] as the one 32-bit number those four bytes make in a little-endian Uint32Array.
+const pack = ([r, g, b, a]) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
 
 /** @param colours { edgeRGBA, fillRGBA } each [r, g, b, a] 0-255 (SCAN in index.js) */
 export function initOverlay(ctx, { edgeRGBA, fillRGBA }) {
+  const edge = pack(edgeRGBA);
+  const fill = pack(fillRGBA);
   let floor = null;
 
   ctx.bus.on('app:mode', () => {
@@ -40,16 +43,16 @@ export function initOverlay(ctx, { edgeRGBA, fillRGBA }) {
     floor.scale.set(width, 1, depth);
     floor.position.set(originXZ[0] + width / 2, 0.01, originXZ[1] + depth / 2);
 
-    const data = material.map.image.data;
+    const texels = new Uint32Array(material.map.image.data.buffer); // one store per cell: this runs on every event
     for (let i = 0; i < cols * rows; i++) {
-      let rgba = NONE;
+      let rgba = 0;
       if (cells[i] === 1) {
         const col = i % cols;
         const inside =
           col > 0 && col < cols - 1 && cells[i - 1] === 1 && cells[i + 1] === 1 && cells[i - cols] === 1 && cells[i + cols] === 1;
-        rgba = inside ? fillRGBA : edgeRGBA;
+        rgba = inside ? fill : edge;
       }
-      data.set(rgba, i * 4);
+      texels[i] = rgba;
     }
     material.map.needsUpdate = true;
   });
