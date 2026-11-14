@@ -12,14 +12,14 @@
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
 //   mode:change·nav:route가 바뀌면 state,
-//   microphone audio as mic.begin / binary / mic.end (voice.js)
+//   a continuous microphone stream (mic.begin + binary) and voice.status (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
 // 목 모드(mock.link)에서는 WebSocket 대신 mock/jetson.js가 같은 메시지를 넣는다.
 
 import { bus } from './bus.js';
 import { config, mock } from './config.js';
-import { handleVoiceMessage, initVoice, resetVoice } from './voice.js';
+import { handleVoiceMessage, initVoice, resetVoice, voiceLinkOpened } from './voice.js';
 
 let ws = null;
 let linkLost = false;
@@ -119,6 +119,7 @@ function connect() {
     clearLost();
     send('hello', { client: 'quest', mock: false });
     send('state', state);
+    voiceLinkOpened();
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') {

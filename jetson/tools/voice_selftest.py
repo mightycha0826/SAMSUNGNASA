@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Voice round trip without a headset or a microphone:
-each command sentence -> TTS -> (16 kHz, like the headset mic) -> STT -> intent parser.
+"""Voice checks without a headset or a microphone.
 
-  .venv/bin/python tools/voice_selftest.py              # print timings and results
-  .venv/bin/python tools/voice_selftest.py --save samples   # also write samples/<intent>.wav
-                                                          # (feed them to fake_quest.py --wav)
-A synthetic voice is not a real one: also record the team's voices (QUEST_CONNECT.md).
+  tools/voice_selftest.py --text "show me the thermal map"   # which command would this be?
+  tools/voice_selftest.py                  # every test sentence -> TTS -> stream with silence
+                                           #   between -> VAD -> STT -> command matcher
+  tools/voice_selftest.py --save samples   # also write samples/<n>_<intent>.wav
+                                           # (feed them to fake_quest.py --wav / --stream)
+A synthetic voice is not a real one: also check with the team's voices through the headset
+(everything the hub hears is written to logs/heard.log).
 """
 import argparse
 import sys
@@ -19,14 +21,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from marswalk import intents  # noqa: E402
 from marswalk.voice import make_stt, make_tts  # noqa: E402
 
-SENTENCES = [  # docs/INTERFACES.md section 6, plus the phrasings we expect in the demo
-    ("nav.start", "Take me to the survey site"), ("nav.start", "Guide me to the sulfur rocks"),
-    ("nav.home", "Go back to base"), ("nav.home", "Return to base"),
-    ("nav.stop", "Stop navigation"),
-    ("layer.show", "Show the thermal map"), ("layer.hide", "Hide the thermal map"),
-    ("layer.show", "Show the slope layer"), ("layer.show", "Show the terrain map"),
-    ("status.report", "Status report"), ("alert.ack", "Acknowledge alert"),
-    ("mode.set", "Night mode"),
+SENTENCES = [  # short forms first: these are what we say in the demo
+    ("status.report", "Status"), ("nav.start", "Navigate"), ("nav.home", "Base"),
+    ("nav.stop", "Stop"), ("layer.show", "Thermal"), ("layer.show", "Slope"),
+    ("layer.show", "Elevation"), ("layer.show", "Optical"), ("layer.hide", "Thermal off"),
+    ("alert.ack", "Confirm"), ("mode.set", "Night mode"),
+    ("nav.start", "Take me to the survey site"), ("nav.home", "Go back to base"),
+    ("nav.stop", "Stop navigation"), ("layer.show", "Show the thermal map"),
+    ("layer.hide", "Hide the thermal map"), ("status.report", "Status report"),
+    ("alert.ack", "Acknowledge alert"),
 ]
 
 
@@ -41,22 +44,43 @@ def to_16k(pcm: bytes, rate: int) -> bytes:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--text", action="append", default=[],
+                   help="only run the command matcher on this text (no models needed)")
     p.add_argument("--save", metavar="DIR", help="write the 16 kHz WAVs here")
     a = p.parse_args()
-    tts, stt = make_tts("supertonic"), make_stt("sensevoice")
+    if a.text:
+        for text in a.text:
+            cmd = intents.parse(text)
+            print(f"{text!r} -> {(cmd['intent'], cmd['slots']) if cmd else None}")
+        return 0
+
+    from marswalk.voice import make_segmenter
+    tts, stt, seg = make_tts("supertonic"), make_stt("sensevoice"), make_segmenter()
     if a.save:
         Path(a.save).mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(0)
+
+    def quiet(secs):   # room noise between utterances
+        return (rng.standard_normal(int(16000 * secs)) * 60).astype("<i2").tobytes()
+
     ok = 0
     for i, (want, text) in enumerate(SENTENCES):
         t0 = time.monotonic()
         pcm = to_16k(tts.synthesize(text), tts.sample_rate)
         t1 = time.monotonic()
-        heard = stt.transcribe(pcm, 16000)
+        # Stream it the way the headset does: 100 ms chunks, silence before and after.
+        stream = quiet(1.0) + pcm + quiet(1.5)
+        heard = []
+        seg.reset()
+        for j in range(0, len(stream), 3200):
+            for samples in seg.feed(stream[j:j + 3200], 16000):
+                heard.append(stt.transcribe(samples, 16000))
         t2 = time.monotonic()
-        got = (intents.parse(heard) or {}).get("intent")
-        ok += got == want
-        print(f"{'ok  ' if got == want else 'FAIL'} tts {t1 - t0:.2f}s  stt {t2 - t1:.2f}s  "
-              f"{text!r} -> {heard!r} -> {got}")
+        got = [(intents.parse(h) or {}).get("intent") for h in heard]
+        good = got == [want]
+        ok += good
+        print(f"{'ok  ' if good else 'FAIL'} tts {t1 - t0:.2f}s  vad+stt {t2 - t1:.2f}s  "
+              f"{text!r} -> {heard} -> {got}")
         if a.save:
             with wave.open(f"{a.save}/{i:02d}_{want.replace('.', '_')}.wav", "wb") as w:
                 w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm)

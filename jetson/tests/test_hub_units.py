@@ -31,6 +31,16 @@ class AlertTest(unittest.TestCase):
 
 class IntentTest(unittest.TestCase):
     CASES = {
+        # short forms
+        "Status.": ("status.report", {}),
+        "base": ("nav.home", {}),
+        "Stop.": ("nav.stop", {}),
+        "thermal": ("layer.show", {"id": "thermal"}),
+        "Elevation.": ("layer.show", {"id": "topo"}),
+        "thermal off": ("layer.hide", {"id": "thermal"}),
+        "night": ("mode.set", {"mode": "night"}),
+        "confirm": ("alert.ack", {}),
+        # full sentences still work
         "Take me to the survey site": ("nav.start", {"targetId": "site1"}),
         "Guide me to the sulfur rocks.": ("nav.start", {"targetId": "site1"}),
         "Go back to base": ("nav.home", {}),
@@ -46,6 +56,8 @@ class IntentTest(unittest.TestCase):
         # as the STT sometimes writes them
         "Show the thermo mat.": ("layer.show", {"id": "thermal"}),
         "takeme to the survey site": ("nav.start", {"targetId": "site1"}),
+        "Statis.": ("status.report", {}),
+        "Acknowlege": ("alert.ack", {}),
     }
 
     def test_examples(self):
@@ -59,11 +71,33 @@ class IntentTest(unittest.TestCase):
         self.assertIsNone(parse("take me to the survey site", wake="helmet"))
         self.assertEqual(parse("Helmet, take me to the survey site.", wake="helmet")["intent"],
                          "nav.start")
-        self.assertEqual(parse("Helmets stop navigation", wake="helmet")["intent"], "nav.stop")
+        self.assertEqual(parse("Helmets status", wake="helmet")["intent"], "status.report")
 
     def test_unknown_dropped(self):
-        self.assertIsNone(parse("what is for lunch today"))
-        self.assertIsNone(parse(""))
+        for text in ["what is for lunch today", "", "shop", "the", "bass"]:
+            with self.subTest(text=text):
+                self.assertIsNone(parse(text))
+
+    def test_custom_file_and_reload(self):
+        import json, os, tempfile, time
+        from marswalk.intents import CommandSet
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.json")
+            def write(cmds):
+                with open(path, "w") as f:
+                    json.dump({"commands": cmds}, f)
+            write([{"intent": "greet", "phrases": ["hello"], "reply": "Visor online"}])
+            cs = CommandSet(path)
+            r = cs.parse("Hello there")
+            self.assertEqual((r["intent"], r["reply"]), ("greet", "Visor online"))
+            self.assertIsNone(cs.parse("photograph"))
+            write([{"intent": "camera.shot", "phrases": ["photograph", "take a picture"]}])
+            os.utime(path, (time.time() + 5, time.time() + 5))   # make the change visible
+            self.assertEqual(cs.parse("photograph")["intent"], "camera.shot")
+            with open(path, "w") as f:
+                f.write("{ not json")
+            os.utime(path, (time.time() + 9, time.time() + 9))
+            self.assertEqual(cs.parse("photograph")["intent"], "camera.shot")  # old set kept
 
 
 class SpeechTest(unittest.TestCase):

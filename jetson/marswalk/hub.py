@@ -21,7 +21,7 @@ from aiohttp import WSMsgType, web
 from . import intents, speech
 from .alerts import SUIT_TEMP_MESSAGES, SuitTempAlert, Thresholds
 from .sensors import SuitTemp
-from .voice import make_stt, make_tts
+from .voice import make_segmenter, make_stt, make_tts
 
 log = logging.getLogger("hub")
 
@@ -29,6 +29,7 @@ HERE = Path(__file__).resolve().parent
 JETSON_DIR = HERE.parent
 REPO_DIR = JETSON_DIR.parent
 TTS_CHUNK = 4096  # bytes per binary frame
+MUTE_TAIL_S = 0.6  # keep microphones muted this long after the hub's own speech ends
 ALERT_SPEECH = [SUIT_TEMP_MESSAGES["critical"]]  # spoken by the hub; synthesized at startup
 
 
@@ -47,6 +48,8 @@ class Hub:
         self.tts = make_tts(args.tts, args.lang)
         self.tts.warm(ALERT_SPEECH)
         self.say_epoch = 0          # bumped by every urgent utterance
+        self.mute_until = 0.0       # monotonic time until which microphones are ignored
+        self.heard_log = (JETSON_DIR / "logs" / "heard.log")
         self.state = {"mode": "normal", "navStatus": None, "targetId": None}
         self.active_alerts: dict[str, dict] = {}
         self.tts_lock = asyncio.Lock()
@@ -106,6 +109,9 @@ class Hub:
             if epoch != self.say_epoch:
                 log.info("dropped (urgent speech came first): %s", text)
                 return
+            # Do not listen while speaking: the headset microphone hears its own speaker.
+            secs = len(pcm) / 2 / self.tts.sample_rate
+            self.mute_until = time.monotonic() + secs + MUTE_TAIL_S
             await self.broadcast("tts.begin", {"sampleRate": self.tts.sample_rate,
                                                "priority": priority})
             for i in range(0, len(pcm), TTS_CHUNK):
@@ -116,13 +122,35 @@ class Hub:
 
     async def handle_text_command(self, text: str):
         cmd = intents.parse(text, self.args.wake_word)
+        self._note_heard(text, cmd)
         if cmd is None:
-            log.info("no intent for %r", text)
+            log.info("no command in %r", text)
             return
+        reply = cmd.pop("reply", None)
         log.info("voice.command %s", cmd)
         await self.broadcast("voice.command", cmd)
         if cmd["intent"] == "status.report":   # the hub answers this one itself
             await self.say(self.status_sentence())
+        elif reply:
+            await self.say(reply)
+
+    def _note_heard(self, text: str, cmd: dict | None):
+        """Everything the recognizer heard, matched or not: the material for tuning commands.json."""
+        try:
+            self.heard_log.parent.mkdir(exist_ok=True)
+            with self.heard_log.open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%H:%M:%S')}\t{cmd['intent'] if cmd else '-'}\t{text}\n")
+        except OSError:
+            pass
+
+    async def handle_utterance(self, samples, rate: int):
+        try:
+            text = await asyncio.to_thread(self.stt.transcribe, samples, rate)
+        except Exception:
+            log.exception("STT failed")
+            return
+        if text:
+            await self.handle_text_command(text)
 
     def status_sentence(self) -> str:
         r = self.suit.reading()
@@ -138,13 +166,20 @@ class Hub:
         mic_buf = bytearray()
         mic_rate = 16000
         mic_on = False
+        segmenter = None            # set while the client streams its microphone continuously
         try:
             # send current alert state so a reconnecting headset is in sync
             for a in self.active_alerts.values():
                 await ws.send_str(envelope("alert.raise", a))
             async for msg in ws:
                 if msg.type == WSMsgType.BINARY:
-                    if mic_on:
+                    if segmenter is not None:
+                        if time.monotonic() < self.mute_until:
+                            segmenter.reset()        # the hub is speaking: not a command
+                            continue
+                        for samples in segmenter.feed(msg.data, mic_rate):
+                            asyncio.create_task(self.handle_utterance(samples, segmenter.RATE))
+                    elif mic_on:
                         mic_buf += msg.data
                     continue
                 if msg.type != WSMsgType.TEXT:
@@ -159,20 +194,31 @@ class Hub:
                 if type_ == "hello":
                     log.info("hello from %s: %s", peer, p)
                 elif type_ == "mic.begin":
-                    mic_buf.clear()
                     mic_rate = int(p.get("sampleRate", 16000))
-                    mic_on = True
+                    if p.get("stream"):
+                        # Continuous stream: the hub finds the utterances itself.
+                        segmenter = segmenter or make_segmenter()
+                        if segmenter is None:
+                            log.warning("streaming mic from %s but no VAD model "
+                                        "(tools/get_models.sh)", peer)
+                        else:
+                            segmenter.reset()
+                            log.info("mic stream from %s (%d Hz)", peer, mic_rate)
+                    else:
+                        segmenter = None
+                        mic_buf.clear()
+                        mic_on = True
                 elif type_ == "mic.end":
-                    mic_on = False
-                    audio = bytes(mic_buf)
-                    mic_buf.clear()
-                    try:
-                        text = await asyncio.to_thread(self.stt.transcribe, audio, mic_rate)
-                    except Exception:
-                        log.exception("STT failed")
-                        text = ""
-                    if text:
-                        await self.handle_text_command(text)
+                    if segmenter is not None:
+                        segmenter = None
+                        log.info("mic stream from %s ended", peer)
+                    elif mic_on:
+                        mic_on = False
+                        audio = bytes(mic_buf)
+                        mic_buf.clear()
+                        await self.handle_utterance(audio, mic_rate)
+                elif type_ == "voice.status":
+                    log.info("voice status from %s: %s", peer, p)
                 elif type_ == "voice.say":
                     asyncio.create_task(self.say(p.get("text", ""), p.get("priority", "normal")))
                 elif type_ == "state":
