@@ -60,11 +60,62 @@ let mapInView = false;
 const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0 };
 let audio = null;
 
+function audioCtx() {
+  audio ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.state !== 'running') audio.resume();
+  return audio;
+}
+
+// Alarm beep of the mockup: it sounds 0.1 s before each flash of the alert frame.
+//   warn      one soft 880 Hz sine tone
+//   critical  two sharp 2350 Hz square pulses through a low-pass filter (a piezo buzzer)
+function alarmBeep(level) {
+  if (!HUD.alarm.enabled) return;
+  try {
+    const ac = audioCtx();
+    const t = ac.currentTime + 0.004;
+    const G = HUD.alarm.gain;
+    if (level === 'critical') {
+      for (const [at, dur] of [[0, 0.105], [0.165, 0.135]]) {
+        const osc = ac.createOscillator();
+        const filter = ac.createBiquadFilter();
+        const gain = ac.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(HUD.alarm.criticalHz, t + at);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(3400, t + at);
+        gain.gain.setValueAtTime(0.0001, t + at);
+        gain.gain.exponentialRampToValueAtTime(G * 1.1, t + at + 0.008);
+        gain.gain.setValueAtTime(G * 1.1, t + at + dur - 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + at + dur);
+        osc.connect(filter).connect(gain).connect(ac.destination);
+        osc.start(t + at);
+        osc.stop(t + at + dur + 0.015);
+      }
+    } else {
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(HUD.alarm.warnHz, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(G, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+      osc.connect(gain).connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.16);
+    }
+  } catch {
+    /* no audio: the frame still flashes */
+  }
+}
+// The running alarm: which level it is for, when it started, and how many beeps have sounded.
+const alarm = { level: null, t0: 0, beeps: 0 };
+let edgeShape = null;
+
 /** Short click, so a press is heard as well as seen. */
 function clickSound() {
   try {
-    audio ??= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state !== 'running') audio.resume();
+    audioCtx();
     const t = audio.currentTime;
     const osc = audio.createOscillator();
     const gain = audio.createGain();
@@ -487,8 +538,6 @@ export function init(context) {
   pEdge.mesh.position.set(0, 0, -HUD.distanceM);
   pEdge.mesh.renderOrder = 999;
   pEdge.mesh.visible = false;
-  drawEdge(pEdge.g);
-  pEdge.tex.needsUpdate = true;
   rigid.add(pEdge.mesh);
 
   wire(ctx.bus);
@@ -541,12 +590,40 @@ export function update(frame) {
   // 테두리: critical은 빨강, warn은 같은 테두리를 주황으로. 느리게 밝아졌다 어두워진다.
   // "경보 확인" 뒤에는 흐리게 멈춘다. mode:change(emergency)는 critical일 때만 보낸다.
   const level = frameLevel();
+  // Frame shape follows the display: the Quest 3 lens oval in the headset, the window edge on a PC.
+  const shape = ctx.xr.presenting ? 'quest3' : 'rect';
+  if (shape !== edgeShape) {
+    edgeShape = shape;
+    drawEdge(pEdge.g, shape);
+    pEdge.tex.needsUpdate = true;
+  }
   pEdge.mesh.visible = !!level;
+  // Alarm: a beep at the start of every period, the flash 0.1 s after it (mockup). "Confirm"
+  // stops both; a change of level starts over.
+  const ringing = level && !state.acked ? level : null;
+  if (ringing !== alarm.level) {
+    alarm.level = ringing;
+    alarm.t0 = now;
+    alarm.beeps = 0;
+  }
   if (level) {
     const E = HUD.edge;
     pEdge.mat.color.set(level === 'critical' ? T.dangerLine : T.point);
-    const wave = 0.5 - 0.5 * Math.cos((2 * Math.PI * now) / 1000 / E.periodS);
-    pEdge.mat.opacity = state.acked ? E.ackedOpacity : E.minOpacity + (1 - E.minOpacity) * wave;
+    if (!ringing) pEdge.mat.opacity = E.ackedOpacity;
+    else {
+      const periodMs = E.periodS * 1000;
+      if (now - alarm.t0 >= alarm.beeps * periodMs) {
+        alarm.beeps++;
+        alarmBeep(ringing);
+      }
+      // Pulse: bright at the start, eased down to lowOpacity by 48% of the period, held, then
+      // back up over the last 8%.
+      const since = now - alarm.t0 - E.flashDelayS * 1000;
+      const p = since < 0 ? 0.6 : (since % periodMs) / periodMs;
+      const ease = (x) => x * x * (3 - 2 * x);
+      const k = p < 0.48 ? 1 - ease(p / 0.48) : p < 0.92 ? 0 : ease((p - 0.92) / 0.08);
+      pEdge.mat.opacity = E.lowOpacity + (1 - E.lowOpacity) * k;
+    }
   }
 
   // Status card: lighter while the map is in view so the terrain shows through, full when any

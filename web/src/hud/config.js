@@ -31,12 +31,17 @@ export const HUD = {
   banner: { topDeg: 4.5, wDeg: 38, hDeg: 4 },
   /** Alert card, centred in the view (updated mockup: alerts sit in the line of sight) */
   alert: { wDeg: 36, hDeg: 8 },
-  /** Alert frame (critical red, warn orange). The mockup runs it around the whole viewport, so
-   *  here it sits near the edge of the headset's field of view instead of around the stage:
-   *  half-sizes in stage degrees from the centre of view (66 and 52 are about 49 and 42 real
-   *  degrees on the 1 m plane; Quest 3 shows roughly 55 and 48). Its glow reaches about 7 real
-   *  degrees inward. If the frame is cut off or invisible, lower these; periodS is the pulse. */
-  edge: { halfWDeg: 66, halfHDeg: 52, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },
+  /** Alert frame (critical red, warn orange), as in the mockup: it follows the outline of the
+   *  display. In the headset that is the rounded oval of the Quest 3 lenses; on a PC screen it
+   *  is the window edge. Half-sizes are in stage degrees from the centre of view (66 and 52 are
+   *  about 49 and 42 real degrees on the 1 m plane; Quest 3 shows roughly 55 and 48). If the
+   *  frame is cut off or invisible in the headset, lower them.
+   *  Pulse: full brightness at the start of every period, fading to lowOpacity by 48% of it,
+   *  0.1 s after the alarm beep. "Confirm" stops the pulse and the beep (ackedOpacity). */
+  edge: { halfWDeg: 66, halfHDeg: 52, periodS: 1.6, lowOpacity: 0.16, ackedOpacity: 0.42, flashDelayS: 0.1 },
+  /** Alarm beep before each flash: one soft 880 Hz tone for warn, two sharp 2350 Hz pulses for
+   *  critical (mockup). `?sound=0` turns it off. */
+  alarm: { enabled: q.get('sound') !== '0', warnHz: 880, criticalHz: 2350, gain: 0.2 },
   /** 레이어 탭 + 범례 */
   layers: {
     wDeg: 16,
