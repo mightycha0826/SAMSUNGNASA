@@ -17,7 +17,7 @@ python validate.py          # check the result (exit code 1 on failure)
 
 The first run takes 3 to 4 minutes (measured: 211 seconds). Downloads are kept in `cache/`, about 100 MB (radiation 70 MB, atmosphere 13 MB, 183 tiles, the cropped terrain 16 MB), and are not fetched again. The terrain file (3.6 GB) is read over the network only for the rows needed. `cache/` is not committed.
 
-**Without downloading from NASA:** the source files are published as one zip, the [source data bundle](https://github.com/kdhkpm11/SAMSUNGNASA/releases/tag/source-data-2026-11-14) (25 MB). Unzip it into `cache/` and `python build_data.py` finishes in a few seconds with no network access.
+**Without downloading from NASA:** the source files are published as one zip, the [source data bundle](https://github.com/mightycha0826/SAMSUNGNASA/releases/tag/source-data-2026-11-14) (25 MB). Unpack it with `python unpack_bundle.py marswalk-source-data-2026-11-14.zip` (the zip was made on Windows; a plain `unzip` on Linux or macOS does not recreate its folders) and `python build_data.py` finishes in a few seconds with no network access. Rebuilt on a different platform, the files match in content but not always byte for byte: checked on Linux aarch64, `thermal.png` had identical pixels with different PNG bytes, and `slope.bin` differed by at most 7.6e-6 degrees.
 
 Rebuilding from an empty cache was confirmed to give files byte-identical to the ones in the repository (2026-11-14). The output and cache folders can be changed with the environment variables `MARSWALK_OUT` and `MARSWALK_CACHE`.
 

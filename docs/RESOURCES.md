@@ -315,7 +315,7 @@ Outside the Resources tab, all from NASA or USGS: the USGS Gale terrain file, th
 
 ### The source files themselves
 
-The source files the pipeline downloads are kept out of the repository (about 100 MB), but a copy exactly as downloaded on 2026-11-14 is published as a release: [source data bundle](https://github.com/kdhkpm11/SAMSUNGNASA/releases/tag/source-data-2026-11-14) (25 MB zip, 192 files). Unzipped into `data-pipeline/cache/`, it rebuilds every data file without downloading anything, byte-identical to the files in the repository. `SOURCES.md` inside the zip lists the address each file came from.
+The source files the pipeline downloads are kept out of the repository (about 100 MB), but a copy exactly as downloaded on 2026-11-14 is published as a release: [source data bundle](https://github.com/mightycha0826/SAMSUNGNASA/releases/tag/source-data-2026-11-14) (25 MB zip, 192 files). Unzipped into `data-pipeline/cache/`, it rebuilds every data file without downloading anything, byte-identical to the files in the repository. `SOURCES.md` inside the zip lists the address each file came from.
 
 ### Scripts, checks and figures
 
