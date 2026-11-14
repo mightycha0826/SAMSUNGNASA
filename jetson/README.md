@@ -108,6 +108,13 @@ sudo systemctl daemon-reload && sudo systemctl enable --now marswalk-hub
 journalctl -u marswalk-hub -f
 ```
 
+### Monitor, stored maps, rescue signal
+
+- **Monitor.** `http://localhost:8080/monitor` (or `https://<jetson>:8443/monitor`) shows what the headset app is drawing, live. The app sends JPEG pictures over `/mirror` only while the page is open. No Meta account or developer mode is involved.
+- **Field maps.** The headset sends its obstacle map whenever it changes; the hub keeps it in `maps/` (`--maps-dir`), one JSON file per run, the newest 200. After a restart the newest file is still handed back to a headset that asks.
+- **Utterances.** The last 100 pieces of speech the hub cut out of the microphone stream are kept as WAV in `logs/utterances/`, named by time and by what the recogniser made of them (`--keep-audio 0` keeps none). This is audio of whoever spoke near the headset; it stays on the Jetson and `logs/` is not in git.
+- **Rescue signal.** The headset's emergency button arrives as `rescue.signal`. The hub logs it, raises the alert `crew-rescue` on every other headset, shows a banner on the monitor page, speaks, and after 5 s acknowledges in the name of a crew that does not exist ("Base crew (simulated)").
+
 ## Layout
 
 | File | Contents |
@@ -119,6 +126,9 @@ journalctl -u marswalk-hub -f
 | `marswalk/intents.py` | Matches what was heard against `commands.json` |
 | `marswalk/speech.py` | Sentences the hub speaks (numbers spelled out) |
 | `marswalk/voice.py` | STT / TTS backends |
+| `marswalk/maps.py` | The field map on disk (`maps/`) |
+| `marswalk/mirror.py` | The headset's view for the monitor page (`/mirror`, `/monitor`) |
+| `marswalk/static/monitor.html` | The monitor page |
 | `marswalk/static/index.html` | Connection test page |
 | `tools/fake_quest.py` | Fake Quest client |
 | `tools/voice_selftest.py` | Voice round trip without a microphone |

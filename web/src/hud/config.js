@@ -150,5 +150,43 @@ export const HUD = {
     /** How far beyond the hand, away from the wearer, the card stands (m) */
     awayM: 0.08,
   },
+  /** Suit view over the right palm: a slowly turning figure of the suit with its readings
+   *  around it; a part turns orange or red when its reading is out of range (hud/suit.js). */
+  suit: {
+    wDeg: 32,
+    hDeg: 22,
+    /** Size factor: at 0.5 the card is 28 cm wide and 19 cm tall */
+    scale: 0.5,
+    /** Height of the figure (m), and how far its feet float above the palm */
+    figureM: 0.13,
+    liftM: 0.04,
+    /** Seconds for one turn of the figure */
+    turnS: 14,
+    /** Right palm counts as up when the back-of-hand direction points this far down */
+    palmUpDot: -0.35,
+    /** Out-of-range limits. Oxygen is the tank level in percent, pressure the suit pressure in
+     *  kPa (an EMU runs at 29.6), battery the headset's own charge in percent. */
+    o2: { warn: 30, crit: 15 },
+    pressureKpa: { nominal: 29.6, warnLow: 27, critLow: 25, warnHigh: 32 },
+    battery: { warn: 30, crit: 15 },
+    /** Heart rate (bpm) */
+    heart: { critLow: 40, warnLow: 50, warnHigh: 120, critHigh: 150 },
+    /** How much cooler than the torso sensor the parts without a sensor are shown (deg C) */
+    cooler: { head: 0.6, arms: 1.4, legs: 1.9 },
+  },
+  /** Emergency button over the back of the right hand, shown when the wearer looks at it the
+   *  way one looks at a watch. The LEFT hand points and pinches: once to arm it, again to send. */
+  sos: {
+    wDeg: 17,
+    hDeg: 15,
+    scale: 0.5,
+    liftM: 0.115,
+    /** The back of the hand must face the eyes this squarely (dot product) */
+    faceDot: 0.5,
+    /** and the fingers must not point away from the wearer more than this (a pointing hand does) */
+    maxAwayDot: 0.55,
+    /** An armed button goes back to idle after this long (ms) */
+    armMs: 6000,
+  },
   toastMs: 4000,
 };

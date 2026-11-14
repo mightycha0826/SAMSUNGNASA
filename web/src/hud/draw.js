@@ -506,3 +506,99 @@ export function drawCommands(g, d, vm) {
   });
   return hits;
 }
+
+// ---- Suit view (right palm) ----
+// vm: { left: [chip, ...], right: [chip, ...] } where a chip is
+//   { label, value, unit, tag, state: '' | 'warn' | 'crit', toY }             one reading, or
+//   { label, tag, rows: [{ label, value, tag, state }], unit, state, toY }    a short table (the unit goes in its heading)
+// toY is where its line ends on the figure, as a fraction of the card's height. The turning
+// figure floats in the middle (suit.js); the chips stand in a column on each side of it.
+export function drawSuit(g, d, vm) {
+  const W = g.canvas.width;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  const chipW = 10.6 * d;
+  const pad = 0.4 * d;
+  const gap = 0.7 * d;
+  const tone = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : null);
+  const heightOf = (chip) => (chip.rows ? 2.5 * d + chip.rows.length * 1.75 * d + 0.5 * d : 5.2 * d);
+  for (const side of ['left', 'right']) {
+    const chips = vm[side];
+    const total = chips.reduce((sum, c) => sum + heightOf(c), 0) + gap * (chips.length - 1);
+    let y = (H - total) / 2;
+    for (const chip of chips) {
+      const h = heightOf(chip);
+      const x = side === 'left' ? pad : W - pad - chipW;
+      const line = tone(chip.state) ?? 'rgba(255, 255, 255, 0.55)';
+      // The line toward the figure, ending in a dot.
+      const toX = W / 2 + (side === 'left' ? -1 : 1) * 3.0 * d;
+      const toY = H * chip.toY;
+      g.beginPath();
+      g.moveTo(side === 'left' ? x + chipW : x, y + h / 2);
+      g.lineTo(toX, toY);
+      g.strokeStyle = line;
+      g.lineWidth = 0.12 * d;
+      g.stroke();
+      g.beginPath();
+      g.arc(toX, toY, 0.28 * d, 0, Math.PI * 2);
+      g.fillStyle = line;
+      g.fill();
+
+      box(g, x, y, chipW, h, 1.0 * d, T.surface);
+      g.beginPath();
+      g.roundRect(x + 0.1 * d, y + 0.1 * d, chipW - 0.2 * d, h - 0.2 * d, 0.9 * d);
+      g.strokeStyle = line;
+      g.lineWidth = chip.state ? 0.3 * d : 0.14 * d;
+      g.stroke();
+      text(g, chip.rows && chip.unit ? `${chip.label} · ${chip.unit}` : chip.label, x + 0.8 * d, y + 1.3 * d, { weight: 600, size: 1.0 * d, color: T.muted });
+      if (chip.tag) tag(g, chip.tag, x + chipW - 0.6 * d, y + 1.3 * d, d, true);
+      if (chip.rows) {
+        chip.rows.forEach((row, k) => {
+          const ry = y + 2.5 * d + (k + 0.5) * 1.75 * d;
+          const colour = tone(row.state) ?? T.ink;
+          text(g, row.label, x + 0.8 * d, ry, { weight: 600, size: 1.05 * d, color: tone(row.state) ?? T.muted });
+          // The unit stands once, in the chip's heading: the rows keep the room for their numbers.
+          text(g, row.value, x + chipW - 0.8 * d, ry, { weight: 700, size: 1.3 * d, color: colour, align: 'right', tight: true });
+          if (row.tag) text(g, row.tag, x + 0.8 * d + measure(g, row.label, 600, 1.05 * d) + 0.4 * d, ry + 0.08 * d, { weight: 600, size: 0.75 * d, color: T.muted });
+        });
+      } else {
+        const size = 2.1 * d;
+        text(g, chip.value, x + 0.8 * d, y + 3.55 * d, { weight: 700, size, color: tone(chip.state) ?? T.ink, tight: true });
+        const vw = measure(g, chip.value, 700, size);
+        if (chip.unit) text(g, chip.unit, x + 0.8 * d + vw + 0.35 * d, y + 3.85 * d, { weight: 600, size: 1.05 * d, color: T.muted });
+      }
+      y += h + gap;
+    }
+  }
+}
+
+// ---- Emergency button (back of the right hand) ----
+// vm: { phase: 'idle' | 'armed' | 'sent', hover, pressed, lines: [string, string], pulse: 0..1 }
+// Returns the hit rectangle of the button: [{ id: 'sos', x, y, w, h }].
+export function drawSos(g, d, vm) {
+  const W = g.canvas.width;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  box(g, 0, 0, W, H, 1.6 * d, T.surface);
+  ring(g, 0, 0, W, H, 1.6 * d);
+  text(g, vm.title, W / 2, 1.7 * d, { weight: 700, size: 1.25 * d, align: 'center' });
+  const r = 3.6 * d;
+  const cx = W / 2;
+  const cy = 1.7 * d + 1.4 * d + r;
+  // The button: red, with a ring that lights up while the pointer is on it.
+  const sent = vm.phase === 'sent';
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fillStyle = sent ? T.row : vm.phase === 'armed' ? `rgba(255, 64, 64, ${0.75 + 0.25 * vm.pulse})` : T.danger;
+  g.fill();
+  g.beginPath();
+  g.arc(cx, cy, r - 0.2 * d, 0, Math.PI * 2);
+  g.strokeStyle = vm.hover || vm.pressed ? '#ffffff' : sent ? T.dangerLine : 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = vm.hover || vm.pressed ? 0.45 * d : 0.22 * d;
+  g.stroke();
+  text(g, vm.button, cx, cy, { weight: 800, size: (vm.button.length > 4 ? 1.45 : 2.3) * d, align: 'center', tight: true });
+  const y0 = cy + r + 1.4 * d;
+  text(g, fit(g, vm.lines[0] ?? '', W - 1.6 * d, 700, 1.1 * d), W / 2, y0, { weight: 700, size: 1.1 * d, align: 'center', color: sent ? T.dangerLine : T.ink });
+  text(g, fit(g, vm.lines[1] ?? '', W - 1.6 * d, 500, 0.95 * d), W / 2, y0 + 1.6 * d, { size: 0.95 * d, align: 'center', color: T.muted });
+  return [{ id: 'sos', x: cx - r, y: cy - r, w: 2 * r, h: 2 * r }];
+}

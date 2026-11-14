@@ -9,11 +9,13 @@
 //                      layer.show               → layer:toggle
 //   tts.begin / binary / tts.end → played by voice.js
 //   map.stored     → map:stored         (the field map the hub stored last, for scan/)
+//   rescue.state   → rescue:state       (what became of this headset's rescue signal)
 //
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
 //   mode:change·nav:route가 바뀌면 state,
 //   map:store → map.store (the field map, kept on the Jetson's disk), map:request → map.request,
+//   rescue:signal → rescue.signal (the emergency button),
 //   a continuous microphone stream (mic.begin + binary) and voice.status (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
@@ -57,6 +59,9 @@ export function handleMessage(msg) {
       break;
     case 'voice.commands':
       bus.emit('voice:commands', { commands: payload.commands ?? [] });
+      break;
+    case 'rescue.state':
+      bus.emit('rescue:state', payload);
       break;
     case 'map.stored':
       bus.emit('map:stored', payload);
@@ -184,6 +189,8 @@ export async function initLink(xr) {
   // The field map goes to the hub's disk; a map that cannot be sent now is sent with the next change.
   bus.on('map:store', (map) => send('map.store', map));
   bus.on('map:request', () => send('map.request', {}));
+  // The emergency button (hud/suit.js). The hub tells the other headsets and answers rescue.state.
+  bus.on('rescue:signal', (signal) => send('rescue.signal', signal));
   bus.on('mode:change', ({ mode }) => sendState({ mode }));
   bus.on('nav:route', ({ status, targetId }) => sendState({ navStatus: status, targetId: targetId ?? null }));
 

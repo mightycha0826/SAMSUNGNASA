@@ -18,6 +18,8 @@
   #view { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: auto; background: #0b0d12; aspect-ratio: 4 / 3; }
   #wait { position: absolute; text-align: center; max-width: 34em; padding: 0 16px; color: #9aa4b5; }
   #wait b { color: #d7dde8; }
+  #rescue { background: #b91c1c; color: #fff; padding: 10px 16px; font-weight: 600; letter-spacing: 0.01em; }
+  #rescue[hidden] { display: none; }
   footer { padding: 8px 16px; color: #7c8798; border-top: 1px solid #1c212b; font-size: 12px; }
 </style>
 </head>
@@ -26,6 +28,7 @@
   <h1>Marswalk monitor</h1>
   <span id="state"><span class="dot"></span><span id="text">Connecting to the hub</span></span>
 </header>
+<div id="rescue" hidden></div>
 <main>
   <img id="view" alt="What the headset app is drawing">
   <div id="wait" hidden></div>
@@ -44,6 +47,13 @@
       const s = await (await fetch('/monitor.json', { cache: 'no-store' })).json();
       const fps = before ? Math.max(0, s.frames - before.frames) / ((Date.now() - before.at) / 1000) : 0;
       before = { frames: s.frames, at: Date.now() };
+      const rescue = document.getElementById('rescue');
+      rescue.hidden = !s.rescue;
+      if (s.rescue) {
+        const r = s.rescue;
+        rescue.textContent = `RESCUE SIGNAL from ${r.from} at ${r.at}` + (r.position ? ` · map position ${r.position[0]} m, ${r.position[1]} m` : '') +
+          (r.suitTempC != null ? ` · suit ${r.suitTempC} °C` : '') + (r.acknowledged ? ` · acknowledged by ${r.by}` : ' · not acknowledged yet');
+      }
       const live = s.sources > 0 && s.ageS !== null && s.ageS < 2;
       state.className = live ? 'live' : s.frames ? 'stale' : '';
       const i = s.info || {};

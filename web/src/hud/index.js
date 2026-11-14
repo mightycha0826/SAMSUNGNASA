@@ -29,6 +29,7 @@ import { drawStatus, drawBanner, drawAlert, drawAlertGlow, drawLayers, drawComma
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
 import { createPointer } from './pointer.js';
+import { createSuit } from './suit.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -81,7 +82,8 @@ const menuCommands = () => commands.filter((c) => !c.mode || c.mode === mode.cur
 let pointer;
 let pointerTargets = [];
 // Which menus a pointer was on in the last frame: a menu that is being pointed at holds still.
-const engaged = { layers: false, commands: false };
+const engaged = { layers: false, commands: false, sos: false };
+let suit = null; // the right hand: suit view over the palm, emergency button over the back (suit.js)
 // Test hook: keep the command menu up without a hand (PC).
 let commandsPinned = false;
 let audio = null;
@@ -482,6 +484,7 @@ function initInput() {
   pointerTargets = [
     { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer },
     { id: 'commands', panel: pCommands, hits: () => commandHits, press: pressCommand },
+    suit.target, // the emergency button: pressed by the left hand
   ];
   // PC: mouse click
   const el = ctx.renderer.domElement;
@@ -575,6 +578,7 @@ function updateHands(frame) {
     pLayers.mesh.scale.setScalar(1);
     if (!commandsPinned) pCommands.mesh.visible = false;
     steady.layers.shown = steady.commands.shown = false;
+    suit.hide();
     mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
   }
@@ -604,6 +608,10 @@ function updateHands(frame) {
     palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
     backUp = v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
   }
+  // The right hand's own two views (suit.js). While its emergency button is up, the left hand
+  // is the one that points: its command card stays away so it does not pop up over the ray.
+  suit.place(frame, now, frame.dt, { right, crowded, engaged: engaged.sos });
+  if (suit.sosShown) backUp = false;
   // Palm up shows the map in both modes, so in both it sends the command card away at once.
   const mapUp = palmUp;
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
@@ -661,6 +669,9 @@ function updatePointer(frame, now) {
       dirty[flag] = true;
     }
   }
+  const s = res.get('sos');
+  engaged.sos = s.engaged;
+  suit.setHover(s.hoverId != null);
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -712,6 +723,7 @@ export function init(context) {
   camera.add(wash);
   placeLayersFixed();
 
+  suit = createSuit(ctx, { makePanel, followMenu, aim, showToast });
   wire(ctx.bus);
   initInput();
   loadFont().then(() => {
@@ -732,6 +744,7 @@ export function init(context) {
       dirty.commands = true;
     },
     pointer,
+    suit,
     panels: () => ({ layers: pLayers, commands: pCommands, layerHits, commandHits }),
     state,
     statusVM,
@@ -765,6 +778,7 @@ export function update(frame) {
 
   updateHands(frame);
   updatePointer(frame, now);
+  suit.tick(now, frame.dt);
   if (touch.pressedId && now > touch.pressedUntil) {
     touch.pressedId = null;
     dirty.layers = true;

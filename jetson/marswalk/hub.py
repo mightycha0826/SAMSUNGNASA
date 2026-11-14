@@ -59,6 +59,8 @@ class Hub:
         self.tts_lock = asyncio.Lock()
         self.maps = MapStore(Path(args.maps_dir))
         self.mirror = Mirror()
+        self.mirror.extra = lambda: {"rescue": self.rescue}
+        self.rescue: dict | None = None   # the rescue signal that is up, if any
 
     # ---------- broadcast ----------
     async def broadcast(self, type_: str, payload: dict):
@@ -295,6 +297,8 @@ class Hub:
                     else:
                         if self.maps.latest["updates"] == 1:
                             log.info("storing the field map of run %s in %s", p.get("run"), path.name)
+                elif type_ == "rescue.signal":
+                    await self.handle_rescue(ws, peer, p)
                 elif type_ == "map.request":
                     if self.maps.latest:
                         await ws.send_str(envelope("map.stored", self.maps.latest))
@@ -306,6 +310,52 @@ class Hub:
             self.clients.discard(ws)
             log.info("client gone %s (%d left)", peer, len(self.clients))
         return ws
+
+    async def handle_rescue(self, sender: web.WebSocketResponse, peer, p: dict):
+        """The emergency button of a headset (web/src/hud/suit.js).
+
+        The crew is virtual: the other headsets on the hub get an alert, the monitor page shows
+        it, and a few seconds later the hub acknowledges in the crew's name and says that this
+        acknowledgement is simulated.
+        """
+        async def others(type_: str, payload: dict):
+            msg = envelope(type_, payload)
+            for ws in list(self.clients):
+                if ws is not sender:
+                    try:
+                        await ws.send_str(msg)
+                    except (ConnectionResetError, RuntimeError):
+                        self.clients.discard(ws)
+
+        if not p.get("active"):
+            if self.rescue:
+                log.warning("RESCUE SIGNAL from %s cancelled", peer)
+            self.rescue = None
+            await sender.send_str(envelope("rescue.state", {"active": False}))
+            await others("alert.clear", {"id": "crew-rescue"})
+            asyncio.create_task(self.say("Rescue signal cancelled."))
+            return
+        position = p.get("position") if isinstance(p.get("position"), list) else None
+        self.rescue = {"active": True, "from": peer, "at": time.strftime("%H:%M:%S"), "position": position,
+                       "suitTempC": p.get("suitTempC"), "batteryPct": p.get("batteryPct"),
+                       "acknowledged": False, "by": None}
+        signal = self.rescue
+        log.warning("RESCUE SIGNAL from %s: %s", peer, signal)
+        await sender.send_str(envelope("rescue.state", signal))
+        await others("alert.raise", {"id": "crew-rescue", "level": "warn",
+                                     "message": "Rescue signal from a crew member"})
+        asyncio.create_task(self.say("Rescue signal sent. Your position is shared with the crew.", "urgent"))
+
+        async def acknowledge():
+            await asyncio.sleep(5.0)
+            if self.rescue is signal:           # still the same signal, not cancelled meanwhile
+                signal.update(acknowledged=True, by="Base crew (simulated)")
+                try:
+                    await sender.send_str(envelope("rescue.state", signal))
+                except (ConnectionResetError, RuntimeError):
+                    pass
+                await self.say("Base has your signal.")
+        asyncio.create_task(acknowledge())
 
     async def handle_dev(self, type_: str, p: dict):
         """Dev-only messages (enabled with --dev). Not part of INTERFACES.md;

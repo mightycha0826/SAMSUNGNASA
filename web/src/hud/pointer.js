@@ -216,7 +216,8 @@ export function createPointer(ctx, K) {
 
   /**
    * One frame of pointing.
-   * targets: [{ id, panel, hits: () => [{ id, x, y, w, h }], press: (hitId) => void, enabled: () => boolean }]
+   * targets: [{ id, panel, hits: () => [{ id, x, y, w, h }], press: (hitId) => void, enabled: () => boolean,
+   *             hands: ['left'] (tracked hands that may press it; default K.hands) }]
    * Returns Map(target id -> { hoverId, engaged }) for every target.
    */
   function update(frame, targets, now, dt) {
@@ -225,8 +226,8 @@ export function createPointer(ctx, K) {
     if (xrFrame && refSpace && session) {
       for (const src of session.inputSources) {
         if (src.targetRayMode !== 'tracked-pointer') continue; // not gaze, not a tap on a phone screen
-        if (src.hand && !K.hands.includes(src.handedness)) continue; // the other hand holds the map
         const st = stateFor(`${src.handedness}:${src.hand ? 'hand' : 'controller'}`);
+        st.hand = src.hand ? src.handedness : null; // a tracked hand only reaches the menus meant for it
         if (!readRay(st, src, frame)) continue;
         if (src.hand) {
           readPinch(st, src, frame);
@@ -247,6 +248,7 @@ export function createPointer(ctx, K) {
       st.dir.fromArray(sim.dir).normalize();
       st.wantDown = !!sim.down;
       st.strength = sim.down ? 1 : 0;
+      st.hand = sim.hand ?? null;
       live.push(st);
     }
 
@@ -262,6 +264,8 @@ export function createPointer(ctx, K) {
       let bestHit = null;
       for (const t of targets) {
         if (!t.panel.mesh.visible || t.enabled?.() === false) continue;
+        // A menu is pressed by the hand that does not hold it: K.hands unless the menu says otherwise.
+        if (st.hand && !(t.hands ?? K.hands).includes(st.hand)) continue;
         const hit = rayOnPanel(t.panel, st.origin, st.dir, K.maxM, K.margin);
         if (hit && (!bestHit || hit.t < bestHit.t)) {
           best = t;

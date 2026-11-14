@@ -38,6 +38,7 @@ class Mirror:
         self.info: dict = {}
         self.source_peer: str | None = None
         self.fresh = asyncio.Condition()
+        self.extra = lambda: {}          # more state for /monitor.json (the hub adds the rescue signal)
 
     def routes(self, app: web.Application):
         app.router.add_get("/mirror", self.source_handler)
@@ -91,7 +92,7 @@ class Mirror:
         age = round(time.monotonic() - self.at, 2) if self.frame else None
         return web.json_response({"sources": len(self.sources), "viewers": self.viewers, "frames": self.seq,
                                   "ageS": age, "bytes": len(self.frame) if self.frame else 0,
-                                  "info": self.info, "from": self.source_peer},
+                                  "info": self.info, "from": self.source_peer, **self.extra()},
                                  headers={"Cache-Control": "no-store"})
 
     async def stream(self, request: web.Request):
