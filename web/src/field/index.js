@@ -14,6 +14,12 @@
 //   - Where the headset has scanned the room (`hazard:update` from scan/), the map is rewritten
 //     with what is really there: structure and clear floor. Outside the scanned area the map is
 //     still the Mars data. To the map it is as if a structure had appeared on Mars.
+//     The scan arrives at most twice a second, and with live depth (on by default in this mode,
+//     core/xr.js) it includes what was put down or taken away a moment ago: the map follows.
+//   - It is the same kind of object as the Mars map (core/hologram.js): a relief floating over
+//     the palm with a beam from the hand, the Mars terrain as its ground and the scanned
+//     structure standing on it, and everything written about it on the caption card that goes
+//     around the map's cylinder. Nothing is written on the map surface.
 //   - "Mark target" (voice or the command menu) sets the target where the wearer stands. Away
 //     from it, the way back is planned around the scanned structure and shown twice: as arrows
 //     on the real floor and as a line on the map. "Navigate" / "Stop" turn the guidance on and
@@ -25,8 +31,11 @@
 
 import * as THREE from 'three';
 import { mode } from '../core/mode.js';
-import { PALM, leftPalm, makePalmState } from '../core/palm.js';
-import { createGridFrame, cellToWorld } from '../nav/coordinates.js';
+import { makePalmState } from '../core/palm.js';
+import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm } from '../core/hologram.js';
+import { MAP } from '../map/config.js';
+import { sampleHeight } from '../map/terrain.js';
+import { createGridFrame, cellToWorld, worldToCell } from '../nav/coordinates.js';
 import { planPath } from './planner.js';
 
 const q = new URLSearchParams(location.search);
@@ -41,8 +50,12 @@ export const WALK = {
 
 export const FIELD = {
   spanM: 20, // the palm map shows spanM x spanM around the wearer
-  mapM: 0.25, // size of the palm map (m)
+  mapM: MAP.widthM, // size of the palm map (m): the same as the Mars map
   mapPx: 512,
+  segments: 128, // the map surface is a grid of this many quads per side, raised into a relief
+  structureM: 1.0, // scanned structure stands this tall on the map, in room metres (the scan has no heights)
+  reliefMaxM: 3, // the Mars terrain under the wearer rises and falls at most this much on the map (room metres)
+  redrawMs: 200,
   showRouteBeyondM: 1.0, // the route appears once the wearer is this far from the target
   arrivedM: 0.5,
   replanMs: 500,
@@ -55,7 +68,9 @@ let group; // everything this module draws in the room
 let arrows;
 let beacon;
 let beaconLabel;
-let palmMap; // { mesh, canvas, g, tex }
+let palmMap; // { root, surface, canvas, g, tex, caption, beam, mask }
+const floatState = { shownSince: null };
+let topo = null; // Float32Array of the Mars terrain heights (layers:ready grids.topo)
 const palmState = makePalmState();
 
 let layerSet = null;
@@ -80,9 +95,6 @@ let simulated = null; // PC testing: { x, z, heading }
 
 const v = new THREE.Vector3();
 const dummy = new THREE.Object3D();
-const tiltQuat = new THREE.Quaternion();
-const upAxis = new THREE.Vector3(0, 1, 0);
-const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 // ---------- scene objects ----------
 function makeArrows() {
@@ -165,18 +177,26 @@ function setBeaconLabel(text) {
 }
 
 function makePalmMap() {
+  const root = new THREE.Group();
+  root.name = 'field-map';
+  root.visible = false;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = FIELD.mapPx;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(FIELD.mapM, FIELD.mapM),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, side: THREE.DoubleSide, toneMapped: false }),
-  );
-  mesh.name = 'field-map';
-  mesh.renderOrder = 30;
-  mesh.visible = false;
-  return { mesh, canvas, g: canvas.getContext('2d'), tex };
+  // The surface lies flat: +x east, -z north, like the room it shows. Row 0 of its vertices is
+  // the north edge and the top of the canvas. Its heights are set in updateRelief.
+  const N = FIELD.segments;
+  const geometry = new THREE.PlaneGeometry(FIELD.mapM, FIELD.mapM, N, N).rotateX(-Math.PI / 2);
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array((N + 1) * (N + 1) * 3).fill(1), 3));
+  const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false }));
+  surface.name = 'field-map-surface';
+  surface.frustumCulled = false; // its heights change without the bounding sphere being recomputed
+  const beam = makeBeam('field-palm-beam');
+  beam.visible = false;
+  root.add(surface, beam);
+  const caption = makeCaption(root, 'field-map-caption');
+  return { root, surface, canvas, g: canvas.getContext('2d'), tex, caption, beam, mask: new Uint8Array((N + 1) * (N + 1)) };
 }
 
 // ---------- map drawing ----------
@@ -206,9 +226,6 @@ function drawPalmMap() {
   const toPx = (x, z) => [(x - head.x) * k + W / 2, (z - head.z) * k + W / 2];
   g.save();
   g.clearRect(0, 0, W, W);
-  g.beginPath();
-  g.roundRect(0, 0, W, W, 28);
-  g.clip();
   g.fillStyle = '#3a2a22';
   g.fillRect(0, 0, W, W);
 
@@ -299,24 +316,88 @@ function drawPalmMap() {
   g.stroke();
   g.restore();
 
-  // 5. Legend strip.
-  g.fillStyle = 'rgba(11, 13, 16, 0.82)';
-  g.fillRect(0, W - 58, W, 58);
-  g.font = '700 21px "Atkinson Hyperlegible", system-ui, sans-serif';
-  g.textBaseline = 'middle';
-  g.fillStyle = '#ffffff';
-  g.textAlign = 'left';
-  g.fillText(`Field map · ${span} m · N ↑`, 16, W - 40);
-  g.font = '500 17px "Atkinson Hyperlegible", system-ui, sans-serif';
-  const scanned = grid?.stats ? `${grid.stats.obstacles} structure cells scanned` : grid ? 'room scan' : 'no room scan yet';
-  g.fillStyle = '#ffa94d';
-  g.fillText(`■ ${scanned}`, 16, W - 17);
-  g.fillStyle = '#c3c9da';
-  g.textAlign = 'right';
-  g.fillText('elsewhere: MRO HiRISE', W - 16, W - 17);
-  if (target) g.fillText(`target ${Math.hypot(target.x - head.x, target.z - head.z).toFixed(1)} m`, W - 16, W - 40);
   g.restore();
   tex.needsUpdate = true;
+}
+
+// Is there scanned structure within `reach` metres of this room position?
+function structureNear(x, z, reach) {
+  const cell = grid.cellSizeM;
+  const c0 = Math.max(0, Math.floor((x - reach - grid.originXZ[0]) / cell));
+  const c1 = Math.min(grid.cols - 1, Math.floor((x + reach - grid.originXZ[0]) / cell));
+  const r0 = Math.max(0, Math.floor((z - reach - grid.originXZ[1]) / cell));
+  const r1 = Math.min(grid.rows - 1, Math.floor((z + reach - grid.originXZ[1]) / cell));
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (grid.cells[r * grid.cols + c] === 1) return true;
+  return false;
+}
+
+// Height of the Mars terrain under a room position, in metres as the data has it; NaN if unknown.
+const mapPoint = [0, 0, 0];
+function terrainHeight(x, z) {
+  mapPoint[0] = anchorMap[0] + (x - headStart.x);
+  mapPoint[2] = anchorMap[2] + (z - headStart.z);
+  // Beyond the edge of the Mars data the last known height carries on: no cliff at the map's rim.
+  const [c, r] = worldToCell(frameT, mapPoint);
+  return sampleHeight(topo, layerSet.grid, Math.max(0, Math.min(frameT.cols - 1, c)), Math.max(0, Math.min(frameT.rows - 1, r)));
+}
+
+// Raise the map surface into a relief: the Mars terrain as the ground, at true scale, and the
+// scanned structure standing on it. The ground right next to structure is darkened, so walls
+// and furniture read as solid shapes from above.
+function updateRelief() {
+  const { surface, mask } = palmMap;
+  const N = FIELD.segments;
+  const side = N + 1;
+  const step = FIELD.spanM / N;
+  const scale = FIELD.mapM / FIELD.spanM; // map metres per room metre
+  const pos = surface.geometry.attributes.position;
+  const col = surface.geometry.attributes.color;
+  const terrain = !!(topo && frameT && anchorMap && layerSet?.grid);
+  // The ground is drawn relative to where the wearer stands: the map's centre is at height 0.
+  const here = terrain ? terrainHeight(head.x, head.z) : NaN;
+  const ground = (x, z) => {
+    const h = terrainHeight(x, z) - here;
+    return Number.isFinite(h) ? Math.max(-FIELD.reliefMaxM, Math.min(FIELD.reliefMaxM, h)) : 0;
+  };
+  for (let r = 0; r < side; r++) {
+    const z = head.z + (r / N - 0.5) * FIELD.spanM;
+    for (let c = 0; c < side; c++) {
+      mask[r * side + c] = grid && structureNear(head.x + (c / N - 0.5) * FIELD.spanM, z, step / 2) ? 1 : 0;
+    }
+  }
+  for (let r = 0; r < side; r++) {
+    const z = head.z + (r / N - 0.5) * FIELD.spanM;
+    for (let c = 0; c < side; c++) {
+      const i = r * side + c;
+      const base = Number.isFinite(here) ? ground(head.x + (c / N - 0.5) * FIELD.spanM, z) : 0;
+      pos.setY(i, (base + (mask[i] ? FIELD.structureM : 0)) * scale);
+      const beside = !mask[i] && ((c > 0 && mask[i - 1]) || (c < N && mask[i + 1]) || (r > 0 && mask[i - side]) || (r < N && mask[i + side]));
+      const shade = beside ? 0.45 : 1;
+      col.setXYZ(i, shade, shade, shade);
+    }
+  }
+  pos.needsUpdate = true;
+  col.needsUpdate = true;
+}
+
+// Everything written about the field map: on the card around the map's cylinder, as on the Mars map.
+function writeFieldCaption() {
+  const stats = grid?.stats;
+  const live = grid?.source === 'room-scan+depth';
+  const source = !grid ? 'Waiting for the room scan' : grid.source ? `Room scan${live ? ' + live depth' : ''} · Quest 3` : 'Scan · simulated obstacle';
+  let note = 'Orange: scanned structure · say "Mark target" where you stand';
+  if (target) {
+    const d = Math.hypot(target.x - head.x, target.z - head.z).toFixed(1);
+    note = !guiding ? `Target ${d} m · guidance off` : lastStatus === 'blocked' ? `Target ${d} m · no clear way through` : `Target ${d} m · violet: the way back`;
+  }
+  writeCaption(palmMap.caption, [
+    `${layerSet?.mock ? 'SYNTHETIC · ' : ''}Field map · ${FIELD.spanM} m around you · N ↑`,
+    source,
+    `Map extent ${FIELD.spanM} × ${FIELD.spanM} m · ${grid ? grid.cellSizeM : 0.1} m/cell · 1 : 1 with the room`,
+    note,
+    stats ? `${stats.obstacles} structure cells${live ? `, ${stats.depth} seen by live depth just now` : ''} · teal: you` : 'Teal: you · orange diamond: target',
+    'Outside the scan: MRO HiRISE optical on the USGS 1 m terrain (orbital data)',
+  ]);
 }
 
 // ---------- guidance ----------
@@ -472,26 +553,22 @@ function emitPosition(now) {
 }
 
 function placePalmMap(frame) {
-  const presenting = !!frame.session;
-  if (!presenting) {
-    // PC view: a large copy standing in the scene, for checking the drawing.
-    palmMap.mesh.visible = true;
-    palmMap.mesh.position.set(-0.9, 1.25, 0.2);
-    palmMap.mesh.quaternion.copy(flat).premultiply(tiltQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 1.0));
-    palmMap.mesh.scale.setScalar(5);
-    return;
+  const { root, beam, caption } = palmMap;
+  if (!frame.session) {
+    // PC view: where the Mars map stands in Mars mode, at the same size and tilt.
+    floatState.shownSince = null;
+    beam.visible = false;
+    root.visible = true;
+    root.position.set(0, 0.85, 0);
+    root.quaternion.identity();
+    root.rotation.x = MAP.desktopTiltRad;
+    root.scale.setScalar(MAP.desktopScale);
+  } else {
+    // Headset: over the left palm, exactly as the Mars map floats (core/hologram.js).
+    root.scale.setScalar(1);
+    floatOverPalm(root, beam, frame, ctx.camera, palmState, floatState, { holdMs: MAP.holdMs, followRate: MAP.followRate, widthM: FIELD.mapM });
   }
-  palmMap.mesh.scale.setScalar(1);
-  if (!leftPalm(frame, ctx.camera, palmState) || !palmState.palmUp) {
-    palmMap.mesh.visible = false;
-    return;
-  }
-  palmMap.mesh.visible = true;
-  palmMap.mesh.position.copy(palmState.anchor);
-  // Flat like the room it shows (map up = room -z), leaning a little toward the wearer.
-  const tilt = THREE.MathUtils.degToRad(PALM.tiltDeg);
-  v.copy(upAxis).multiplyScalar(Math.cos(tilt)).addScaledVector(palmState.forward, -Math.sin(tilt));
-  palmMap.mesh.quaternion.copy(flat).premultiply(tiltQuat.setFromUnitVectors(upAxis, v));
+  placeCaption(caption, root, ctx.camera, FIELD.mapM);
 }
 
 // ---------- module interface ----------
@@ -502,11 +579,12 @@ export function init(context) {
   arrows = makeArrows();
   beacon = makeBeacon();
   palmMap = makePalmMap();
-  group.add(arrows, beacon, palmMap.mesh);
+  group.add(arrows, beacon, palmMap.root);
   ctx.scene.add(group);
 
-  ctx.bus.on('layers:ready', ({ layerSet: ls }) => {
+  ctx.bus.on('layers:ready', ({ layerSet: ls, grids }) => {
     layerSet = ls;
+    topo = grids?.topo?.length === ls.grid?.cols * ls.grid?.rows ? grids.topo : null;
     try {
       frameT = createGridFrame(ls);
     } catch {
@@ -533,6 +611,8 @@ export function init(context) {
   });
   ctx.xr.onSessionStart(() => {
     haveHead = false; // the room frame starts over with the session
+    floatState.shownSince = null;
+    palmMap.root.visible = false;
     clearTarget();
   });
 
@@ -544,6 +624,18 @@ export function init(context) {
     mark: markTarget,
     clear: clearTarget,
     state: () => ({ mode: mode.current, head: [head.x, head.z], target: target && [target.x, target.z], guiding, status: lastStatus, route: route.points.length, distanceM: route.distanceM, arrows: arrows.count }),
+    /** The map as drawn: caption text, how many surface vertices stand on structure, the tallest point (m on the map). */
+    map: () => {
+      const y = palmMap.surface.geometry.attributes.position;
+      let top = -Infinity;
+      let low = Infinity;
+      for (let i = 0; i < y.count; i++) {
+        top = Math.max(top, y.getY(i));
+        low = Math.min(low, y.getY(i));
+      }
+      const centre = y.getY((FIELD.segments / 2) * (FIELD.segments + 1) + FIELD.segments / 2);
+      return { visible: palmMap.root.visible, caption: palmMap.caption.userData.text.split('\n'), raised: palmMap.mask.reduce((n, m) => n + m, 0), topM: top, lowM: low, centreM: centre, source: grid?.source ?? null };
+    },
   };
 }
 
@@ -567,8 +659,10 @@ export function update(frame) {
 
   if (haveHead) guide(now);
   placePalmMap(frame);
-  if (palmMap.mesh.visible && now - lastDraw > 200) {
+  if (palmMap.root.visible && now - lastDraw > FIELD.redrawMs) {
     lastDraw = now;
     drawPalmMap();
+    updateRelief();
+    writeFieldCaption();
   }
 }

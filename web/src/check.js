@@ -3,7 +3,12 @@
 // AR 세션 안에서는 HTML이 보이지 않으므로, 세션 중에는 눈앞 패널에, 끝난 뒤에는 표에 결과를 적는다.
 
 import * as THREE from 'three';
-import { OPTIONAL_FEATURES, sessionInit, readEnabledFeatures } from './core/xr.js';
+import { optionalFeatures, sessionInit, readEnabledFeatures } from './core/xr.js';
+
+// The check asks for live depth as the field map does (it is what that mode starts with);
+// ?depth=0 leaves it out, as it does in the app.
+const WITH_DEPTH = new URLSearchParams(location.search).get('depth') !== '0';
+const OPTIONAL_FEATURES = optionalFeatures(WITH_DEPTH);
 
 const MEASURE_MS = 10000;
 
@@ -133,7 +138,7 @@ startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
   let session;
   try {
-    session = await navigator.xr.requestSession('immersive-ar', sessionInit());
+    session = await navigator.xr.requestSession('immersive-ar', sessionInit(WITH_DEPTH));
     await renderer.xr.setSession(session);
   } catch (err) {
     set('session', 'no', '실패', `${err.name}: ${err.message}`);
@@ -211,8 +216,8 @@ startBtn.addEventListener('click', async () => {
     else if (m.hands) set('hands', 'unk', `${m.hands}개, 관절 위치 없음`, '손은 잡혔지만 관절 자세를 받지 못함');
     else set('hands', 'no', '감지 안 됨', '손을 들었는데도 0이면 손 추적이 꺼져 있거나 컨트롤러를 쥐고 있음');
 
-    // depth-sensing이 없는 세션에서는 depthUsage를 읽기만 해도 오류가 난다 (주소에 ?depth=1 이 없을 때).
-    let usage = 'depth-sensing 없음. 주소에 ?depth=1 을 붙이면 요청한다';
+    // depth-sensing이 없는 세션에서는 depthUsage를 읽기만 해도 오류가 난다 (?depth=0 이거나 기기가 거절했을 때).
+    let usage = WITH_DEPTH ? 'depth-sensing was asked for and not granted' : 'depth-sensing not asked for (?depth=0)';
     try {
       usage = `usage ${session.depthUsage}, format ${session.depthDataFormat}, ${m.depthInfo ?? ''}`;
     } catch {

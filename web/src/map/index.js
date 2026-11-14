@@ -29,6 +29,7 @@ import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
 import { mapPoint, range, terrainArrays } from './terrain.js';
 import { PALM, leftPalm, makePalmState } from '../core/palm.js';
+import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption } from '../core/hologram.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
@@ -39,86 +40,28 @@ const palmState = makePalmState();
 const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
 let beam = null;
 
-// A faint cone of light from the palm up to the map, so the map reads as projected from the hand.
-function makeBeam() {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((BEAM_SEGMENTS + 2) * 3), 3));
-  const index = [];
-  for (let i = 1; i <= BEAM_SEGMENTS; i++) index.push(0, i, i + 1);
-  geometry.setIndex(index);
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x8ab4ff, transparent: true, opacity: 0.13,
-    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }));
-  mesh.name = 'palm-beam'; mesh.frustumCulled = false; mesh.renderOrder = -1;
-  return mesh;
-}
-const BEAM_SEGMENTS = 24;
-// Apex at the palm (given in the map's own frame), rim under the edge of the map.
-function updateBeam(apex) {
-  const p = beam.geometry.attributes.position, r = MAP.widthM * 0.42;
-  p.setXYZ(0, apex.x, apex.y, apex.z);
-  for (let i = 0; i <= BEAM_SEGMENTS; i++) {
-    const t = (i / BEAM_SEGMENTS) * Math.PI * 2;
-    p.setXYZ(i + 1, Math.cos(t) * r, -0.004, Math.sin(t) * r);
-  }
-  p.needsUpdate = true;
-}
-
+// The beam from the palm and the caption on the map's cylinder are shared with the field map
+// (core/hologram.js), so the two maps look and behave alike.
+const updateBeam = apex => aimBeam(beam, apex, MAP.widthM);
 function disposeObject(object) {
   object?.traverse(o => { o.geometry?.dispose(); if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose(); });
   object?.removeFromParent();
 }
-// The caption is a card standing on the side of an imaginary cylinder whose top face is the map:
-// it hangs just below the map's edge, tangent to the cylinder, on the side nearest the wearer,
-// and slides around the cylinder as the wearer moves so that it always faces them.
-// leanDeg tips the card outward: its top edge stays under the map's rim and its bottom swings
-// toward the wearer, so it is readable when looking down at the map.
-const CAPTION = { wM: 0.28, hM: 0.07, radiusM: MAP.widthM / 2 + 0.012, dropM: 0.006, leanDeg: 35 };
-function makeLabel() {
-  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const card = new THREE.Mesh(new THREE.PlaneGeometry(CAPTION.wM, CAPTION.hM),
-    new THREE.MeshBasicMaterial({ map: texture, depthTest: false, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
-  card.name = 'map-caption'; card.renderOrder = 8;
-  card.userData = { canvas, texture }; root.add(card); return card;
-}
-const capRadial = new THREE.Vector3(), capX = new THREE.Vector3(), capBasis = new THREE.Matrix4();
-const capUp = new THREE.Vector3(), capNormal = new THREE.Vector3();
-function placeCaption() {
-  if (!label || !root.visible) return;
-  // Direction from the map centre to the viewer, in the map's own frame, flattened onto the map.
-  root.updateWorldMatrix(true, false);
-  ctx.camera.getWorldPosition(capRadial);
-  root.worldToLocal(capRadial);
-  capRadial.y = 0;
-  if (capRadial.lengthSq() < 1e-8) capRadial.set(0, 0, 1);
-  capRadial.normalize();
-  capX.crossVectors(upAxis, capRadial).normalize(); // card right = up x radial
-  // Lean: the card's face turns up toward the eyes, hinged at its top edge.
-  const lean = THREE.MathUtils.degToRad(CAPTION.leanDeg);
-  capNormal.copy(capRadial).multiplyScalar(Math.cos(lean)).addScaledVector(upAxis, Math.sin(lean));
-  capUp.copy(upAxis).multiplyScalar(Math.cos(lean)).addScaledVector(capRadial, -Math.sin(lean));
-  label.quaternion.setFromRotationMatrix(capBasis.makeBasis(capX, capUp, capNormal));
-  // top edge on the cylinder just under the rim; the centre is half a card down from it
-  label.position.copy(capRadial).multiplyScalar(CAPTION.radiusM);
-  label.position.y = -CAPTION.dropM;
-  label.position.addScaledVector(capUp, -CAPTION.hM / 2);
-}
+// The caption is a card standing on the side of an imaginary cylinder whose top face is the map
+// (core/hologram.js: the same card, placed the same way, as on the field map).
+function makeLabel() { return makeCaption(root, 'map-caption'); }
+function placeCaption() { if (label) putCaption(label, root, ctx.camera, MAP.widthM); }
 function caption(note = '') {
   if (!label || !data) return;
-  const g = label.userData.canvas.getContext('2d'); g.clearRect(0, 0, 1024, 256);
-  g.fillStyle = 'rgba(20,24,32,.93)'; g.fillRect(0, 0, 1024, 256);
-  g.fillStyle = '#f2f2f2'; g.font = '600 32px system-ui';
-  g.fillText(`${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`, 24, 40, 976);
   const layer = data.layerSet.layers.find(l => l.id === activeLayer);
-  g.font = '26px system-ui'; g.fillStyle = '#c3c9da';
-  g.fillText(`${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`, 24, 78, 976);
-  g.fillText(`Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`, 24, 116, 976);
-  g.fillStyle = '#f4b575';
-  g.fillText(note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: start · orange: Curiosity · violet: planned route'), 24, 154, 976);
-  g.font = '22px system-ui'; g.fillStyle = '#c3c9da';
-  g.fillText('Route distances use map metres. Display size does not affect planning.', 24, 192, 976);
-  g.font = '20px system-ui'; g.fillText(layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'), 24, 230, 976);
-  label.userData.texture.needsUpdate = true;
+  writeCaption(label, [
+    `${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`,
+    `${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`,
+    `Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`,
+    note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: start · orange: Curiosity · violet: planned route'),
+    'Route distances use map metres. Display size does not affect planning.',
+    layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'),
+  ]);
 }
 function lineForCells(cells, color, name) {
   const vertices = []; let previous = null;
