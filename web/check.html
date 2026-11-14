@@ -1,3 +1,40 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8" /><title>기기 점검</title></head>
-<body>준비 중</body></html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>기기 점검 · Marswalk Visor</title>
+    <style>
+      html, body { margin: 0; background: #0b0d10; color: #e8eaed; font-family: system-ui, sans-serif; }
+      main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+      h1 { font-size: 40px; margin: 0 0 8px; }
+      p { font-size: 22px; color: #bdc1c6; margin: 8px 0 20px; }
+      .buttons { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+      button { padding: 20px 32px; font-size: 26px; font-weight: 700; border: 0; border-radius: 14px; background: #e8562a; color: #fff; cursor: pointer; }
+      button.second { background: #2f6fed; }
+      button:disabled { background: #3a3f47; color: #9aa0a6; }
+      table { width: 100%; border-collapse: collapse; }
+      td { font-size: 30px; padding: 12px 10px; border-bottom: 1px solid #2a2f36; vertical-align: top; }
+      td.v { font-weight: 700; }
+      td.d { font-size: 20px; color: #9aa0a6; }
+      .ok { color: #5bd57a; } .no { color: #ff6b5e; } .unk { color: #f6b26b; }
+      #app canvas { display: none; }
+      pre { font-size: 18px; white-space: pre-wrap; color: #9aa0a6; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>기기 점검</h1>
+      <p>① <b>AR 점검 시작</b>을 누르고 권한을 허용합니다. ② 10초 동안 방을 둘러보고 <b>두 손을 눈앞에 듭니다.</b> ③ 자동으로 끝나면 아래 표를 팀에 공유합니다. 마이크는 따로 누릅니다.</p>
+      <div class="buttons">
+        <button id="start" disabled>AR 점검 시작 (10초)</button>
+        <button id="mic" class="second">마이크 점검</button>
+        <button id="copy" class="second">결과 복사</button>
+      </div>
+      <table id="rows"></table>
+      <pre id="raw"></pre>
+    </main>
+    <div id="app"></div>
+    <script type="module" src="/src/check.js"></script>
+  </body>
+</html>
