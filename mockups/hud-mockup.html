@@ -11,7 +11,7 @@
   --primary:#2f45d8; --on-primary:#ffffff; --primary-text:#2f45d8; --point-text:#b85d08; --danger:#ce2f27;
   --badge-bg:#ffffff; --focus:#141414; --shadow-card:0 12px 32px rgba(17,17,17,.08); --shadow-seg:0 1px 3px rgba(0,0,0,.12);
   /* HUD: the system's dark theme, fixed, because the backdrop is the real room */
-  --h-surface:rgba(38,38,38,.90); --h-row:#2e2e2e; --h-track:#3d3d3d; --h-badge:#3b3b3b; --h-toast:rgba(63,63,63,.94);
+  --h-surface:rgba(38,38,38,.92); --h-row:#2e2e2e; --h-track:#3d3d3d; --h-badge:#3b3b3b; --h-toast:rgba(63,63,63,.94);
   --h-ink:#f2f2f2; --h-muted:#a8a8a8; --h-primary:#596ae0; --h-primary-icon:#7a88e6; --h-point:#f27a0a; --h-danger:#ed716b; --h-danger-line:#e5342b;
   --sans:"Atkinson Hyperlegible","Pretendard","Apple SD Gothic Neo",system-ui,sans-serif; --icon:"Material Symbols Rounded";
 }
@@ -39,66 +39,6 @@ a{color:var(--primary-text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .ms{font-family:var(--icon);font-weight:400;font-style:normal;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-variation-settings:"FILL" 1;-webkit-font-smoothing:antialiased}
 
-/* Device-adaptive outermost perimeter alert frame (flashes 0.1s AFTER beep fires) */
-.edge{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;--ed:clamp(10px,1.25vw,22px);--edge-col:var(--h-danger-line)}
-body.warn .edge{opacity:1;--edge-col:var(--h-point)}
-body.crit .edge{opacity:1;--edge-col:var(--h-danger-line)}
-
-/* 1) Rectangular Display Contour (Monitor / Laptop / Mobile viewport edge) */
-.edge .rect-layer{position:absolute;inset:0;display:none}
-.edge.shape-rect .rect-layer{display:block}
-.edge .rect-glow{
-  position:absolute;inset:0;
-  box-shadow:inset 0 0 calc(4.5*var(--ed)) calc(1.4*var(--ed)) var(--edge-col);
-  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
-}
-.edge .br{
-  position:absolute;width:calc(7*var(--ed));height:calc(7*var(--ed));
-  border:calc(.7*var(--ed)) solid var(--edge-col);border-radius:calc(1.6*var(--ed));
-  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
-  display:none;
-}
-.edge .br.a{left:max(calc(1.5*var(--ed)),env(safe-area-inset-left,0px));top:max(calc(1.5*var(--ed)),env(safe-area-inset-top,0px));border-right:0;border-bottom:0;border-radius:calc(1.6*var(--ed)) 0 0 0}
-.edge .br.b{right:max(calc(1.5*var(--ed)),env(safe-area-inset-right,0px));top:max(calc(1.5*var(--ed)),env(safe-area-inset-top,0px));border-left:0;border-bottom:0;border-radius:0 calc(1.6*var(--ed)) 0 0}
-.edge .br.c{left:max(calc(1.5*var(--ed)),env(safe-area-inset-left,0px));bottom:max(calc(1.5*var(--ed)),env(safe-area-inset-bottom,0px));border-right:0;border-top:0;border-radius:0 0 0 calc(1.6*var(--ed))}
-.edge .br.e{right:max(calc(1.5*var(--ed)),env(safe-area-inset-right,0px));bottom:max(calc(1.5*var(--ed)),env(safe-area-inset-bottom,0px));border-left:0;border-top:0;border-radius:0 0 calc(1.6*var(--ed)) 0}
-
-body.blink-bracket .edge.shape-rect .rect-glow{box-shadow:inset 0 0 0 calc(.25*var(--ed)) var(--edge-col);animation:none;opacity:.55}
-body.blink-bracket .edge.shape-rect .br{display:block}
-
-/* 2) Quest 3 Optical Lens Contour (Superellipse / Rounded Oval FOV boundary) */
-.edge .quest-layer{position:absolute;inset:0;display:none}
-.edge.shape-quest3 .quest-layer{display:block}
-.edge .oval-glow{
-  position:absolute;inset:0;
-  background:radial-gradient(ellipse 52% 50% at 50% 50%, transparent 64%, color-mix(in srgb, var(--edge-col) 46%, transparent) 87%, var(--edge-col) 100%);
-  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
-}
-.edge .oval-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-.edge .q3-rim{
-  fill:none;stroke:var(--edge-col);stroke-width:14;
-  filter:url(#ovalBlur);
-  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
-}
-.edge .q3-arcs{
-  fill:none;stroke:var(--edge-col);stroke-width:16;stroke-linecap:round;
-  stroke-dasharray:10 15;
-  filter:url(#ovalBlur);
-  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
-  display:none;
-}
-
-body.blink-bracket .edge.shape-quest3 .oval-glow{opacity:.22;animation:none}
-body.blink-bracket .edge.shape-quest3 .q3-rim{stroke-width:4;opacity:.45;animation:none}
-body.blink-bracket .edge.shape-quest3 .q3-arcs{display:block}
-
-/* Steady & Acknowledged overrides across both shapes */
-body.blink-steady .edge .rect-glow,body.blink-steady .edge .br,
-body.blink-steady .edge .oval-glow,body.blink-steady .edge .q3-rim,body.blink-steady .edge .q3-arcs,
-body.acked .edge .rect-glow,body.acked .edge .br,
-body.acked .edge .oval-glow,body.acked .edge .q3-rim,body.acked .edge .q3-arcs{animation:none;opacity:1}
-body.acked .edge{opacity:.42}
-
 @keyframes pulse{
   0%{opacity:1}
   48%{opacity:.16}
@@ -106,7 +46,7 @@ body.acked .edge{opacity:.42}
   100%{opacity:1}
 }
 @media (prefers-reduced-motion: reduce){
-  .edge .rect-glow,.edge .br,.edge .oval-glow,.edge .q3-rim,.edge .q3-arcs,.chev{animation:none!important}
+  .banner .b-glow,.banner .b-br,.chev{animation:none!important}
 }
 
 /* ---------- stage ---------- */
@@ -121,106 +61,133 @@ body.acked .edge{opacity:.42}
 .hud .ms{font-size:calc(1.7*var(--d));line-height:1}
 .tag{display:inline-block;font-size:calc(.95*var(--d));font-weight:700;padding:calc(.05*var(--d)) calc(.5*var(--d));background:var(--h-badge);border-radius:999px;color:var(--h-muted);vertical-align:middle;white-space:nowrap}
 
-/* status card: transparent background + high-contrast dual outline & crisp text */
+/* status card: default bottom-right, pulled inward for Quest 3's narrower FOV */
 .status{
-  position:absolute;left:calc(3.5*var(--d));top:calc(4.5*var(--d));width:calc(20.5*var(--d));
+  position:absolute;right:calc(5.5*var(--d));bottom:calc(7*var(--d));width:calc(19.5*var(--d));
   background:transparent;
   border:calc(.18*var(--d)) solid #ffffff;
-  border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d));
-  display:flex;flex-direction:column;gap:calc(.6*var(--d));
+  border-radius:calc(1.6*var(--d));padding:calc(.75*var(--d));
+  display:flex;flex-direction:column;gap:calc(.55*var(--d));
   box-shadow:0 0 0 calc(.12*var(--d)) rgba(0,0,0,.88),inset 0 0 0 calc(.1*var(--d)) rgba(0,0,0,.78);
   color:#ffffff;
   text-shadow:0 1px 2px rgba(0,0,0,.98),0 0 6px rgba(0,0,0,.92),0 0 12px rgba(0,0,0,.75);
 }
-.hud.pos-tr .status{left:auto;right:calc(3.5*var(--d))}
-.hud.pos-bl .status{top:auto;bottom:calc(4.5*var(--d))}
-.hud.pos-strip .status{left:50%;transform:translateX(-50%);width:max-content;max-width:calc(72*var(--d));flex-direction:row;align-items:stretch}
+.hud.pos-tl .status{left:calc(5.5*var(--d));right:auto;top:calc(6*var(--d));bottom:auto}
+.hud.pos-tr .status{left:auto;right:calc(5.5*var(--d));top:calc(6*var(--d));bottom:auto}
+.hud.pos-bl .status{left:calc(5.5*var(--d));right:auto;top:auto;bottom:calc(7*var(--d))}
+.hud.pos-strip .status{left:50%;right:auto;top:calc(6*var(--d));bottom:auto;transform:translateX(-50%);width:max-content;max-width:calc(68*var(--d));flex-direction:row;align-items:stretch}
 
 .st-main{
   background:transparent;
   border:calc(.13*var(--d)) solid rgba(255,255,255,.85);
   box-shadow:0 0 0 calc(.09*var(--d)) rgba(0,0,0,.78),inset 0 0 0 calc(.08*var(--d)) rgba(0,0,0,.68);
-  border-radius:calc(1.25*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));
-  display:flex;gap:calc(.7*var(--d));align-items:center;
+  border-radius:calc(1.25*var(--d));padding:calc(.65*var(--d)) calc(.85*var(--d));
+  display:flex;gap:calc(.65*var(--d));align-items:center;
 }
 .st-main.warn{border-color:var(--h-point)}
 .st-main.crit{border-color:var(--h-danger-line)}
-.st-main .ms{color:#ffffff;flex:none;font-size:calc(2*var(--d));filter:drop-shadow(0 1px 2px rgba(0,0,0,.98)) drop-shadow(0 0 4px rgba(0,0,0,.85))}
+.st-main .ms{color:#ffffff;flex:none;font-size:calc(1.9*var(--d));filter:drop-shadow(0 1px 2px rgba(0,0,0,.98)) drop-shadow(0 0 4px rgba(0,0,0,.85))}
 .st-body{flex:1;min-width:0}
-.st-lab{color:#f4f7fa;font-weight:700;font-size:calc(1.1*var(--d));display:flex;gap:calc(.5*var(--d));align-items:center;flex-wrap:wrap}
+.st-lab{color:#f4f7fa;font-weight:700;font-size:calc(1.05*var(--d));display:flex;gap:calc(.45*var(--d));align-items:center;flex-wrap:wrap}
 .st-val{display:flex;align-items:baseline;gap:calc(.35*var(--d));white-space:nowrap}
-.st-val b{font-size:calc(2.4*var(--d));font-weight:700;line-height:1.15;letter-spacing:-.02em;color:#ffffff}
-.st-val i{font-style:normal;font-size:calc(1.3*var(--d));font-weight:700;color:#f4f7fa}
-.st-val em{font-style:normal;font-weight:700;font-size:calc(1.2*var(--d));margin-left:calc(.5*var(--d));color:#8ce99a}
+.st-val b{font-size:calc(2.3*var(--d));font-weight:700;line-height:1.15;letter-spacing:-.02em;color:#ffffff}
+.st-val i{font-style:normal;font-size:calc(1.25*var(--d));font-weight:700;color:#f4f7fa}
+.st-val em{font-style:normal;font-weight:700;font-size:calc(1.15*var(--d));margin-left:calc(.45*var(--d));color:#8ce99a}
 .st-main.warn .ms,.st-main.warn .st-val em{color:#ffa94d}
 .st-main.crit .ms,.st-main.crit .st-val em{color:#ff8787}
 .st-main.stale .st-val b{color:#d0d7de}
 
-.gauge{position:relative;height:calc(.48*var(--d));margin:calc(.45*var(--d)) 0 calc(1.25*var(--d));background:rgba(255,255,255,.28);border-radius:999px;box-shadow:0 0 0 1px rgba(0,0,0,.88)}
+.gauge{position:relative;height:calc(.46*var(--d));margin:calc(.4*var(--d)) 0 calc(1.2*var(--d));background:rgba(255,255,255,.28);border-radius:999px;box-shadow:0 0 0 1px rgba(0,0,0,.88)}
 .gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:#748ffc}
 .st-main.warn .gauge .fill{background:var(--h-point)} .st-main.crit .gauge .fill{background:var(--h-danger-line)}
-.gauge s{position:absolute;top:calc(-.25*var(--d));width:calc(.16*var(--d));height:calc(.98*var(--d));background:#ffffff;box-shadow:0 0 2px #000}
-.gauge u{position:absolute;top:calc(.68*var(--d));font-size:calc(.95*var(--d));font-weight:700;text-decoration:none;color:#ffffff;transform:translateX(-50%)}
+.gauge s{position:absolute;top:calc(-.25*var(--d));width:calc(.16*var(--d));height:calc(.96*var(--d));background:#ffffff;box-shadow:0 0 2px #000}
+.gauge u{position:absolute;top:calc(.65*var(--d));font-size:calc(.9*var(--d));font-weight:700;text-decoration:none;color:#ffffff;transform:translateX(-50%)}
 
 .st-env{
   background:transparent;
   border:calc(.13*var(--d)) solid rgba(255,255,255,.85);
   box-shadow:0 0 0 calc(.09*var(--d)) rgba(0,0,0,.78),inset 0 0 0 calc(.08*var(--d)) rgba(0,0,0,.68);
-  border-radius:calc(1.25*var(--d));padding:calc(.6*var(--d)) calc(.9*var(--d));
-  display:grid;grid-template-columns:1fr auto auto;gap:calc(.3*var(--d)) calc(.6*var(--d));align-items:baseline;
+  border-radius:calc(1.25*var(--d));padding:calc(.55*var(--d)) calc(.85*var(--d));
+  display:grid;grid-template-columns:1fr auto auto;gap:calc(.25*var(--d)) calc(.55*var(--d));align-items:baseline;
 }
 .st-env .k{color:#f4f7fa;font-weight:700}
-.st-env .v{font-size:calc(1.4*var(--d));font-weight:700;text-align:right;white-space:nowrap;color:#ffffff}
-.st-env .v small{font-size:calc(1.05*var(--d));color:#f4f7fa;font-weight:700}
-.st-env .v .ms{font-size:calc(1.4*var(--d));vertical-align:-.2em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.98))}
+.st-env .v{font-size:calc(1.35*var(--d));font-weight:700;text-align:right;white-space:nowrap;color:#ffffff}
+.st-env .v small{font-size:calc(1.0*var(--d));color:#f4f7fa;font-weight:700}
+.st-env .v .ms{font-size:calc(1.35*var(--d));vertical-align:-.2em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.98))}
 .st-env .v.warn .ms{color:#ffa94d} .st-env .v.crit .ms{color:#ff8787}
 
 .status .tag{background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.88);color:#ffffff;text-shadow:none}
-.st-foot{color:#f4f7fa;font-weight:700;font-size:calc(1.05*var(--d));padding:0 calc(.9*var(--d)) calc(.2*var(--d));display:flex;justify-content:space-between;gap:calc(.6*var(--d));flex-wrap:wrap}
+.st-foot{color:#f4f7fa;font-weight:700;font-size:calc(1.0*var(--d));padding:0 calc(.85*var(--d)) calc(.15*var(--d));display:flex;justify-content:space-between;gap:calc(.5*var(--d));flex-wrap:wrap}
 .st-foot b{color:#ffffff;font-weight:700}
 .hud.pos-strip .gauge{display:none}
 .hud.pos-strip .st-foot{flex-direction:column;justify-content:center;padding:0 calc(.6*var(--d))}
 
 /* top centre: route toast */
-.topc{position:absolute;top:calc(4.5*var(--d));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:calc(.7*var(--d));width:calc(30*var(--d))}
-.hud.pos-strip .topc{top:calc(14*var(--d))}
+.topc{position:absolute;top:calc(6*var(--d));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:calc(.7*var(--d));width:calc(28*var(--d))}
+.hud.pos-strip .topc{top:calc(15.5*var(--d))}
 .toast{background:var(--h-toast);border-radius:calc(1.25*var(--d));padding:calc(.55*var(--d)) calc(1.2*var(--d));font-size:calc(1.3*var(--d));font-weight:700;display:flex;gap:calc(.5*var(--d));align-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
 .toast .ms{color:var(--h-primary-icon);font-size:calc(1.6*var(--d))}
 
-/* dead centre: warn & critical alert card */
+/* bottom centre: warn & critical alert card with integrated flashing light (0.1s after beep) */
 .banner{
-  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;
-  display:flex;gap:calc(.9*var(--d));align-items:center;
+  position:absolute;bottom:calc(7*var(--d));left:50%;transform:translateX(-50%);z-index:15;
+  display:flex;gap:calc(.85*var(--d));align-items:center;
   background:var(--h-surface);border-radius:calc(1.6*var(--d));
-  padding:calc(1*var(--d)) calc(1.5*var(--d));
-  width:max-content;max-width:calc(36*var(--d));
-  box-shadow:0 0 0 1.5px rgba(255,255,255,.16),0 calc(.8*var(--d)) calc(2.4*var(--d)) rgba(0,0,0,.65);
+  padding:calc(.95*var(--d)) calc(1.4*var(--d));
+  width:max-content;max-width:calc(26*var(--d));
+  --banner-col:var(--h-point);
+  box-shadow:0 calc(.8*var(--d)) calc(2.4*var(--d)) rgba(0,0,0,.72);
 }
-.banner > .ms{font-size:calc(2.6*var(--d));color:var(--h-point)}
-.banner .b-title{font-size:calc(1.6*var(--d));font-weight:700}
-.banner .b-sub{color:var(--h-muted)}
-.banner.crit > .ms{color:var(--h-danger);font-size:calc(3.4*var(--d))}
-.banner.crit .b-title{font-size:calc(1.9*var(--d));font-weight:700;letter-spacing:-.02em}
-.banner .more{margin-left:calc(.4*var(--d))}
+.banner.crit{--banner-col:var(--h-danger-line)}
+.banner .b-glow{
+  position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  border:calc(.24*var(--d)) solid var(--banner-col);
+  box-shadow:0 0 calc(1.8*var(--d)) calc(.4*var(--d)) var(--banner-col),inset 0 0 calc(.9*var(--d)) color-mix(in srgb, var(--banner-col) 50%, transparent);
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+}
+.banner .b-br{
+  position:absolute;width:calc(2.1*var(--d));height:calc(2.1*var(--d));
+  border:calc(.34*var(--d)) solid var(--banner-col);
+  pointer-events:none;display:none;
+  filter:drop-shadow(0 0 calc(.6*var(--d)) var(--banner-col));
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+}
+.banner .b-br.a{left:calc(-.35*var(--d));top:calc(-.35*var(--d));border-right:0;border-bottom:0;border-radius:calc(1.7*var(--d)) 0 0 0}
+.banner .b-br.b{right:calc(-.35*var(--d));top:calc(-.35*var(--d));border-left:0;border-bottom:0;border-radius:0 calc(1.7*var(--d)) 0 0}
+.banner .b-br.c{left:calc(-.35*var(--d));bottom:calc(-.35*var(--d));border-right:0;border-top:0;border-radius:0 0 0 calc(1.7*var(--d))}
+.banner .b-br.e{right:calc(-.35*var(--d));bottom:calc(-.35*var(--d));border-left:0;border-top:0;border-radius:0 0 calc(1.7*var(--d)) 0}
 
-/* palm map */
-.palm{position:absolute;left:calc(3.5*var(--d));bottom:calc(3.5*var(--d));display:flex;gap:calc(1*var(--d));align-items:flex-end}
-.hud.pos-bl .palm{left:calc(26*var(--d))}
-.palm .handwrap{position:relative;width:calc(14*var(--d));height:calc(15*var(--d))}
-.palm .hand{position:absolute;left:0;bottom:calc(-4*var(--d));width:100%;height:auto}
-.map3d{position:absolute;left:calc(.5*var(--d));top:0;width:calc(13*var(--d));height:calc(13*var(--d));perspective:calc(46*var(--d))}
+.hud.blink-bracket .banner .b-glow{box-shadow:none;opacity:.45;animation:none}
+.hud.blink-bracket .banner .b-br{display:block}
+.hud.blink-steady .banner .b-glow,.hud.blink-steady .banner .b-br{animation:none;opacity:1}
+.hud.acked .banner .b-glow,.hud.acked .banner .b-br{animation:none;opacity:.36;box-shadow:none;filter:none}
+
+.banner > .ms{position:relative;z-index:1;font-size:calc(2.5*var(--d));color:var(--h-point)}
+.banner > div{position:relative;z-index:1}
+.banner .b-title{font-size:calc(1.55*var(--d));font-weight:700}
+.banner .b-sub{color:var(--h-muted);font-size:calc(1.15*var(--d))}
+.banner.crit > .ms{color:var(--h-danger);font-size:calc(3.1*var(--d))}
+.banner.crit .b-title{font-size:calc(1.8*var(--d));font-weight:700;letter-spacing:-.02em}
+.banner .more{position:relative;z-index:1;margin-left:calc(.35*var(--d))}
+
+/* palm map: pulled slightly inward for Quest 3 FOV */
+.palm{position:absolute;left:calc(4.5*var(--d));bottom:calc(6.5*var(--d));display:flex;gap:calc(.85*var(--d));align-items:flex-end}
+.hud.pos-bl .palm{left:calc(26.5*var(--d))}
+.palm .handwrap{position:relative;width:calc(12.5*var(--d));height:calc(13.5*var(--d))}
+.palm .hand{position:absolute;left:0;bottom:calc(-3.6*var(--d));width:100%;height:auto}
+.map3d{position:absolute;left:calc(.45*var(--d));top:0;width:calc(11.6*var(--d));height:calc(11.6*var(--d));perspective:calc(44*var(--d))}
 .map3d canvas{width:100%;height:100%;transform:rotateX(54deg) rotateZ(-14deg);border-radius:calc(.8*var(--d));box-shadow:0 0 0 calc(.15*var(--d)) var(--h-ink),calc(.3*var(--d)) calc(.9*var(--d)) 0 rgba(0,0,0,.6)}
-.pcol{width:calc(16*var(--d));display:flex;flex-direction:column;gap:calc(.6*var(--d))}
+.pcol{width:calc(14.5*var(--d));display:flex;flex-direction:column;gap:calc(.55*var(--d))}
 .seg-hud{display:grid;grid-template-columns:1fr 1fr;gap:calc(.3*var(--d));background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.3*var(--d))}
-.tab{border:0;background:transparent;border-radius:calc(.8*var(--d));min-height:calc(3.2*var(--d));padding:calc(.4*var(--d)) calc(.6*var(--d));color:var(--h-muted)!important;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:calc(.4*var(--d))}
-.tab .ms{display:none;color:var(--h-primary-icon);font-size:calc(1.4*var(--d))}
+.tab{border:0;background:transparent;border-radius:calc(.8*var(--d));min-height:calc(3.0*var(--d));padding:calc(.35*var(--d)) calc(.5*var(--d));color:var(--h-muted)!important;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:calc(.35*var(--d))}
+.tab .ms{display:none;color:var(--h-primary-icon);font-size:calc(1.35*var(--d))}
 .tab[aria-pressed="true"]{background:var(--h-badge);color:var(--h-ink)!important;font-weight:700}
 .tab[aria-pressed="true"] .ms{display:inline}
-.legend{background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));display:flex;flex-direction:column;gap:calc(.3*var(--d));font-size:calc(1.05*var(--d))}
-.legend .ramp{height:calc(.8*var(--d));border-radius:999px}
+.legend{background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.65*var(--d)) calc(.85*var(--d));display:flex;flex-direction:column;gap:calc(.3*var(--d));font-size:calc(1.0*var(--d))}
+.legend .ramp{height:calc(.75*var(--d));border-radius:999px}
 .legend .mm{display:flex;justify-content:space-between;align-items:center}
 .legend .src,.legend .keys{color:var(--h-muted)}
-.legend .keys{display:flex;gap:calc(1*var(--d));flex-wrap:wrap}
+.legend .keys{display:flex;gap:calc(.85*var(--d));flex-wrap:wrap}
 
 /* ---------- controls (Point system: grey surfaces, one primary) ---------- */
 .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 24px}
@@ -246,29 +213,6 @@ td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
 .small{font-size:13px;line-height:18px;color:var(--ink-muted)}
 code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--row);border-radius:6px;padding:1px 5px}
 </style>
-
-<!-- Device-adaptive outermost perimeter alert frame -->
-<div class="edge shape-rect" id="edge" aria-hidden="true">
-  <!-- Rectangular Display Contour -->
-  <div class="rect-layer">
-    <div class="rect-glow"></div>
-    <div class="br a"></div><div class="br b"></div><div class="br c"></div><div class="br e"></div>
-  </div>
-  <!-- Quest 3 Optical Lens Contour (Superellipse / Rounded Oval) -->
-  <div class="quest-layer">
-    <div class="oval-glow"></div>
-    <svg class="oval-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-      <defs>
-        <filter id="ovalBlur" x="-10%" y="-10%" width="120%" height="120%">
-          <feGaussianBlur stdDeviation="6" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <path class="q3-rim" id="q3Rim" vector-effect="non-scaling-stroke"/>
-      <path class="q3-arcs" id="q3Arcs" pathLength="100" vector-effect="non-scaling-stroke"/>
-    </svg>
-  </div>
-</div>
 
 <div class="page">
   <header style="display:flex;flex-direction:column;gap:12px">
@@ -313,7 +257,13 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
             <div class="toast" id="toast" hidden></div>
           </div>
 
+          <!-- Bottom-centre alert message card with integrated flashing light -->
           <div class="banner" id="banner" hidden>
+            <div class="b-glow" aria-hidden="true"></div>
+            <div class="b-br a" aria-hidden="true"></div>
+            <div class="b-br b" aria-hidden="true"></div>
+            <div class="b-br c" aria-hidden="true"></div>
+            <div class="b-br e" aria-hidden="true"></div>
             <span class="ms" id="bIco">warning</span>
             <div><div class="b-title" id="bTitle"></div><div class="b-sub" id="bSub"></div></div>
             <span class="tag more" id="bMore" hidden></span>
@@ -344,7 +294,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         </div>
       </div>
     </div>
-    <p class="caption" style="margin-top:8px">The perimeter alert frame adapts to the active device’s outermost boundary (rounded-oval optical contour on Quest 3; rectangular screen edge on standard displays) and fires its audio cue 0.1 s ahead of each flash.</p>
+    <p class="caption" style="margin-top:8px">Compact Quest 3 visor layout: the status card sits bottom-right and alerts render at bottom-centre with an integrated flashing light (audio cue leads each flash by 0.1 s), keeping the central gaze clear and well within Quest 3’s effective field of view.</p>
   </div>
 
   <div class="controls" id="controls">
@@ -363,11 +313,9 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
     <div class="ctl"><span>Room</span>
       <div class="seg"><button id="c-bg-bright" data-k="bg" data-v="bright">Bright</button><button id="c-bg-dark" data-k="bg" data-v="dark">Dark</button><button id="c-bg-busy" data-k="bg" data-v="busy">Cluttered</button></div></div>
     <div class="ctl"><span>Status card position</span>
-      <div class="seg"><button id="c-pos-tl" data-k="pos" data-v="tl">Top left</button><button id="c-pos-tr" data-k="pos" data-v="tr">Top right</button><button id="c-pos-strip" data-k="pos" data-v="strip">Top strip</button><button id="c-pos-bl" data-k="pos" data-v="bl">Bottom left</button></div></div>
-    <div class="ctl"><span>Device contour</span>
-      <div class="seg"><button id="c-dev-auto" data-k="deviceMode" data-v="auto">Auto</button><button id="c-dev-quest" data-k="deviceMode" data-v="quest3">Quest 3 lens</button><button id="c-dev-rect" data-k="deviceMode" data-v="rect">Monitor rect</button></div></div>
-    <div class="ctl"><span>Alert frame</span>
-      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Edge glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner arcs</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
+      <div class="seg"><button id="c-pos-br" data-k="pos" data-v="br">Bottom right</button><button id="c-pos-bl" data-k="pos" data-v="bl">Bottom left</button><button id="c-pos-tr" data-k="pos" data-v="tr">Top right</button><button id="c-pos-tl" data-k="pos" data-v="tl">Top left</button><button id="c-pos-strip" data-k="pos" data-v="strip">Top strip</button></div></div>
+    <div class="ctl"><span>Alert flash</span>
+      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Border glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner brackets</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
     <div class="ctl"><label for="c-period">Pulse period <b id="periodOut"></b></label>
       <input type="range" id="c-period" min="0.8" max="3" step="0.1" value="1.6"></div>
     <div class="ctl"><span>Obstacle colour</span>
@@ -405,19 +353,19 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <ul>
         <li><b>Two accents only.</b> Cobalt marks what is current: floor arrows, the destination, your position, the active layer. Orange marks the one thing to watch: a warn alert.</li>
         <li><b>Transparent status HUD with high-contrast outlines.</b> The status card keeps a transparent background so passthrough surroundings remain unobstructed, relying on crisp white-and-black dual outlines and shadowed typography for legibility in bright or dark rooms.</li>
-        <li><b>Red is for critical errors.</b> Critical alerts and obstacles use red (and orange for warn perimeter frames), always with an icon and a word, never colour alone (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
+        <li><b>Red is for critical errors.</b> Critical alerts and obstacles use red (and orange for warn alerts), always with an icon and a word, never colour alone (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
         <li><b>High-legibility typography.</b> Atkinson Hyperlegible paired with Pretendard, tabular numerals, and −0.02em tracking on large values to prevent character ambiguity (such as 0/O or 1/I/l).</li>
         <li><b>Shape.</b> Cards 20, rows and toasts 16, segmented control 14 with a 10 selected cell, scaled to degrees.</li>
         <li><b>No explanatory sentences in the HUD.</b> Titles, data and state words only.</li>
-        <li><b>Audio-leading device-adaptive pulse.</b> Synthesized Web Audio piezo beeps (single 880 Hz tone for Warn, high-pitched 2350 Hz double pulse for Critical) fire 0.1 s ahead of each perimeter flash every 1.6 s, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
+        <li><b>Audio-leading alert card pulse.</b> Synthesized Web Audio piezo beeps (single 880 Hz tone for Warn, high-pitched 2350 Hz double pulse for Critical) fire 0.1 s ahead of each alert card flash every 1.6 s, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
       </ul>
     </div>
     <div class="card">
       <h2>Behaviour this mockup settles</h2>
       <ul>
-        <li><b>Status card</b> sits top left with a transparent face. Bottom left collides with the palm map; the top strip keeps route toasts clear below it.</li>
-        <li><b>Device-adaptive alert perimeter & centre-gaze alerts.</b> Automatically detects Quest 3 / WebXR headsets to trace the rounded-oval optical lens boundary, or conforms to the rectangular display perimeter on standard screens, while Warn and Critical alert cards render dead-centre.</li>
-        <li><b>Acknowledge alert</b> stops both the perimeter pulse and the alarm beep in Warn and Critical states. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
+        <li><b>Status card</b> defaults to bottom right with inward margins tailored to Quest 3’s narrower effective FOV, keeping clear of the bottom-centre alert banner and bottom-left palm map.</li>
+        <li><b>Bottom-centre alert card with integrated flashing light.</b> Alerts sit at bottom-centre rather than dead-centre so the central gaze stays unobstructed, while the card border/brackets pulse orange (Warn) or red (Critical) in lockstep with the alarm tone.</li>
+        <li><b>Acknowledge alert</b> stops both the alert card’s flashing pulse and the alarm beep in Warn and Critical states. The border stays dimly lit and the message remains readable until <code>alert:clear</code>.</li>
         <li><b>Several alerts.</b> The card shows the highest level and a “+1” tag for the rest.</li>
         <li><b>Critical clears.</b> The route returns to the previous target.</li>
         <li><b>Link lost.</b> The last suit temperature stays, greyed, tagged “last value”.</li>
@@ -464,31 +412,10 @@ var RAMPS={
   thermal:[[10,6,40],[110,30,120],[230,110,40],[252,240,150]]
 };
 var C={ink:"#f2f2f2",primary:"#596ae0",primaryIcon:"#7a88e6",point:"#f27a0a",danger:"#ed716b",dangerLine:"#e5342b",surface:"rgba(38,38,38,.92)"};
-var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"tl",deviceMode:"auto",blink:"glow",period:1.6,hazColor:"red",distMode:"room",sound:true,grid:false,fill:false,ack:false};
+var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"br",blink:"glow",period:1.6,hazColor:"red",distMode:"room",sound:true,grid:false,fill:false,ack:false};
 var $=function(id){return document.getElementById(id)};
 
-/* ---------- Device contour detection & Quest 3 superellipse builder ---------- */
-function detectDeviceContour(){
-  var ua=navigator.userAgent||"";
-  var isQuest=/OculusBrowser|Quest/i.test(ua);
-  var isXR=document.body.classList.contains("xr-active");
-  return (isQuest||isXR)?"quest3":"rect";
-}
-function buildQuestSuperellipse(rx,ry,n,startAngleDeg){
-  var pts=[],steps=160,exp=2/n,off=startAngleDeg*Math.PI/180;
-  for(var i=0;i<=steps;i++){
-    var t=off+(i/steps)*Math.PI*2;
-    var ct=Math.cos(t),st=Math.sin(t);
-    var x=500+rx*Math.sign(ct)*Math.pow(Math.abs(ct),exp);
-    var y=500+ry*Math.sign(st)*Math.pow(Math.abs(st),exp);
-    pts.push((i===0?"M":"L")+x.toFixed(2)+","+y.toFixed(2));
-  }
-  return pts.join(" ")+" Z";
-}
-$("q3Rim").setAttribute("d",buildQuestSuperellipse(492,488,2.6,0));
-$("q3Arcs").setAttribute("d",buildQuestSuperellipse(490,486,2.6,-32));
-
-/* ---------- Web Audio synthesized alarm (fires 0.1s BEFORE edge flash) ---------- */
+/* ---------- Web Audio synthesized alarm (fires 0.1s BEFORE banner flash) ---------- */
 var audioCtx=null,beepTimeout=null,lastAlarmKey="";
 function getAudioCtx(){
   if(!audioCtx){
@@ -540,29 +467,29 @@ function triggerBeep(level){
     playSoftTone(ctx,880.0,t,0.14,0.20);
   }
 }
-function restartEdgeAnimation(){
-  var nodes=document.querySelectorAll("#edge .rect-glow, #edge .br, #edge .oval-glow, #edge .q3-rim, #edge .q3-arcs");
+function restartBannerAnimation(){
+  var nodes=document.querySelectorAll("#banner .b-glow, #banner .b-br");
   nodes.forEach(function(el){el.style.animation="none";});
-  void $("edge").offsetWidth;
+  void $("banner").offsetWidth;
   nodes.forEach(function(el){el.style.animation="";});
 }
-function syncAlarm(activeShape){
-  var active=(S.level==="warn"||S.level==="critical")&&!S.ack&&S.sound;
-  var key=active?(S.level+"|"+S.alertId+"|"+S.blink+"|"+S.period+"|"+activeShape):"off";
+function syncAlarm(hasAlert,topLevel){
+  var active=hasAlert&&!S.ack&&S.sound;
+  var key=active?(topLevel+"|"+S.alertId+"|"+S.nav+"|"+S.blink+"|"+S.period):"off";
   if(key===lastAlarmKey)return;
   lastAlarmKey=key;
   if(beepTimeout){clearTimeout(beepTimeout);beepTimeout=null;}
   if(!active)return;
 
-  restartEdgeAnimation();
-  triggerBeep(S.level);
+  restartBannerAnimation();
+  triggerBeep(topLevel);
 
   if(S.blink!=="steady"){
     var periodMs=Math.round(S.period*1000);
     var nextAt=performance.now()+periodMs;
     var step=function(){
-      if(!((S.level==="warn"||S.level==="critical")&&!S.ack&&S.sound))return;
-      triggerBeep(S.level);
+      if(!(hasAlert&&!S.ack&&S.sound))return;
+      triggerBeep(topLevel);
       nextAt+=periodMs;
       var delay=Math.max(10,nextAt-performance.now());
       beepTimeout=setTimeout(step,delay);
@@ -687,19 +614,12 @@ function render(){
   if(nav==="blocked")alerts.push({id:"route-blocked",level:"warn"});
   alerts.sort(function(a,b){return (b.level==="critical")-(a.level==="critical")});
 
-  /* resolve active outermost contour based on device or manual override */
-  var detected=detectDeviceContour();
-  var activeShape=S.deviceMode==="auto"?detected:S.deviceMode;
-  $("c-dev-auto").textContent="Auto ("+(detected==="quest3"?"Quest 3":"Monitor")+")";
-  $("edge").className="edge shape-"+activeShape;
-
-  /* sync perimeter edge frame and HUD container */
-  document.body.className="blink-"+S.blink+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
+  var top=alerts[0];
   document.documentElement.style.setProperty("--period",S.period+"s");
-  syncAlarm(activeShape);
+  syncAlarm(!!top,top?top.level:"normal");
 
   var hud=$("hud");
-  hud.className="hud pos-"+S.pos+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
+  hud.className="hud pos-"+S.pos+" blink-"+S.blink+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
   $("periodOut").textContent=S.period.toFixed(1)+" s ("+(1/S.period).toFixed(2)+" Hz)";
 
   /* status card */
@@ -726,8 +646,8 @@ function render(){
   $("layName").textContent=layer.label;
   $("solLine").innerHTML='Sol — · —:— <span class="tag">TBD</span>';
 
-  /* alert card (dead centre) */
-  var bn=$("banner"),top=alerts[0];bn.hidden=!top;
+  /* alert card (bottom centre, with integrated flashing light) */
+  var bn=$("banner");bn.hidden=!top;
   if(top){var tc=top.level==="critical";bn.className="banner"+(tc?" crit":"");
     $("bIco").textContent=tc?"error":"warning";
     $("bTitle").textContent=ALERTS[top.id][top.level];
@@ -759,11 +679,10 @@ function render(){
   /* controls */
   document.querySelectorAll("#controls [data-k]").forEach(function(b){b.setAttribute("aria-pressed",String(S[b.dataset.k])===b.dataset.v);});
   document.querySelectorAll("#controls [data-tog]").forEach(function(b){b.setAttribute("aria-pressed",!!S[b.dataset.tog]);});
-  $("c-ack").disabled=!(crit||warn);$("c-ack").setAttribute("aria-pressed",S.ack);
+  $("c-ack").disabled=!top;$("c-ack").setAttribute("aria-pressed",S.ack);
 
   /* event log */
   var ts=Date.now(),L=[];
-  L.push("device:contour    "+JSON.stringify({mode:S.deviceMode,detected:detected,activeShape:activeShape}));
   L.push("telemetry:update  "+(linkLost?"(none since link lost; last) ":"")+JSON.stringify({suitTempC:suit,source:"mock",ts:ts}));
   L.push("env:update        "+JSON.stringify({sol:0,localTime:"12:00",pressurePa:0,airTempK:0,radiationUGyPerDay:0}));
   L.push("layer:toggle      "+JSON.stringify({id:S.layer,visible:true}));
@@ -771,20 +690,18 @@ function render(){
   L.push("nav:route         "+JSON.stringify({status:nav,targetId:target,points:nav==="ok"?route:[],distanceM:dist===null?0:dist,reason:nav==="blocked"?"no-path":""}));
   alerts.forEach(function(a){L.push("alert:raise       "+JSON.stringify({id:a.id,level:a.level,message:ALERTS[a.id][a.level],ts:ts}));});
   L.push("mode:change       "+JSON.stringify({mode:crit?"emergency":"normal"}));
-  if((crit||warn)&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"Acknowledge alert"}));
+  if(top&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"Acknowledge alert"}));
   $("log").textContent=L.join("\n");
 }
 
 document.addEventListener("click",function(e){
   getAudioCtx();
   var b=e.target.closest("button");if(!b)return;
-  if(b.dataset.k){var v=b.dataset.v;S[b.dataset.k]=v==="true"?true:v==="false"?false:v;if(b.dataset.k==="level"||b.dataset.k==="alertId")S.ack=false;render();}
+  if(b.dataset.k){var v=b.dataset.v;S[b.dataset.k]=v==="true"?true:v==="false"?false:v;if(b.dataset.k==="level"||b.dataset.k==="alertId"||b.dataset.k==="nav")S.ack=false;render();}
   else if(b.dataset.tog){S[b.dataset.tog]=!S[b.dataset.tog];render();}
   else if(b.dataset.act==="ack"){S.ack=!S.ack;render();}
 });
 $("c-period").addEventListener("input",function(e){getAudioCtx();S.period=parseFloat(e.target.value);render();});
-window.addEventListener("resize",render);
-document.addEventListener("fullscreenchange",render);
 render();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(render);
 })();
