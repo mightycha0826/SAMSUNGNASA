@@ -10,6 +10,8 @@ What we found by connecting to the five resources published on the challenge's R
 
 ## At a glance
 
+> **Status (2026-11-14): every resource below has been turned into files in the repository.** Section 8 lists what was built from which resource and where it is. Section 7 lists what we confirmed along the way. Sections 1–6 are the analysis as written before the hackathon, kept as the record of what we expected.
+
 - **Exploration site**: the **Gediz Vallis channel** on Mount Sharp, Gale Crater. It does not overlap the boxwork example in the challenge text.
 - **Six or more layers are usable**, from four different missions (MRO, Mars Odyssey, MGS, MSL Curiosity).
 - **At walking scale only HiRISE terrain and optical are sharp.** Thermal is about 100 m, and the geologic map shows the whole site as one unit. This limit is the gap the challenge text describes, and the reason the helmet sensor is needed.
@@ -226,15 +228,15 @@ Reference path: from sol 4098 to 4312 Curiosity drove about 1,001 m and climbed 
 
 | Rank | Layer | Kind (Q4) | Mission · instrument | Source | Status |
 |---|---|---|---|---|---|
-| 1 | Terrain elevation | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | USGS file | Address confirmed. Needs downloading |
-| 2 | Slope | (derived) | Same as above | Computed from terrain | After terrain |
-| 3 | Optical image | optical | MRO · HiRISE | Mars Trek tiles | Available now |
-| 4 | Thermal image (night) | thermal | Mars Odyssey · THEMIS | Mars Trek tiles | Available now. Blurry |
-| 5 | Rover traverse record | (ground truth) | MSL Curiosity | NASA JSON | Available now |
-| 6 | Rover point-of-view photos | optical (ground) | MSL Curiosity | NASA JSON | Available now |
-| 7 | Radiation | radiation | MSL Curiosity · RAD | PDS | Format needs interpreting. Otherwise a published value |
-| 8 | Geologic unit | geologic | USGS SIM 3292 | Mars Trek query | One line of text |
-| 9 | Atmosphere | atmospheric | MSL Curiosity · REMS | PDS | Not verified |
+| 1 | Terrain elevation | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | USGS file | **Done** → `topo.bin` |
+| 2 | Slope | (derived) | Same as above | Computed from terrain | **Done** → `slope.bin` |
+| 3 | Optical image | optical | MRO · HiRISE | Mars Trek tiles | **Done** → `optical.png` |
+| 4 | Thermal image (night) | thermal | Mars Odyssey · THEMIS | Mars Trek tiles | **Done** → `thermal.png`. Coarse: 25 source pixels across the map |
+| 5 | Rover traverse record | (ground truth) | MSL Curiosity | NASA JSON | **Done** → `traverse.json` |
+| 6 | Rover point-of-view photos | optical (ground) | MSL Curiosity | NASA JSON | **Done** → `pov.json`, `pov/*.jpg` |
+| 7 | Radiation | radiation | MSL Curiosity · RAD | PDS | **Done** → `env.json`. Real values from the RAD file, not a published value |
+| 8 | Geologic unit | geologic | USGS SIM 3292 | Mars Trek query | **Done** → `layerset.json` (`site.geologicUnit`) |
+| 9 | Atmosphere | atmospheric | MSL Curiosity · REMS | PDS | **Done** → `env.json` (pressure, air temperature) |
 
 Layers 1–6 alone satisfy the challenge text's "at least three kinds of data" and "data from multiple NASA science missions".
 
@@ -279,3 +281,59 @@ The results of actually doing the items in section 6. All are [checked directly]
 | Submission requirements | Read from the official Project Submission Guide. Summary at the top of [SUBMISSION.md](SUBMISSION.md). **Demo is a video of 30 seconds or less or 7 slides or fewer, in English, with no image or voice of anyone under 18; deadline November 15, 11:59 p.m. local time** |
 
 Still unknown: the exact position of the rock that was cracked open, and what slope a suited person can walk in Mars gravity.
+
+---
+
+## 8. What we built from these resources (C, 2026-11-14)
+
+Everything below is in the repository. One script (`data-pipeline/build_data.py`) rebuilds all the data files from the addresses in this document, and a second (`data-pipeline/validate.py`) runs 54 checks on them. File-by-file detail is in [DATA.md](DATA.md).
+
+### Data files, in `web/public/data/`
+
+| File | Size | Built from | Resource |
+|---|---|---|---|
+| `optical.png` | 7.8 MB, 4096×4096 | 182 tiles of `curiosity_hirise_mosaic`, zoom 16 | R1 Mars Trek |
+| `thermal.png` | 9 KB, 2048×2048 | 1 tile of `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018`, zoom 9 | R1 Mars Trek |
+| `topo.bin` | 1.0 MB, 512×512 float32 | The 2,048 m map window of `MSL_Gale_DEM_Mosaic_1m_v3.tif`, averaged to 4 m | USGS (section 3) |
+| `slope.bin` | 1.0 MB, 512×512 float32 | Computed from `topo.bin` | — |
+| `traverse.json` | 32 KB, 178 stops | `MSL_waypoints.json`, stops inside the map extent | NASA (section 3) |
+| `env.json` | 4 KB, 24 hourly samples | RAD RDR and REMS MODRDR files for sol 4200 | NASA PDS (section 3) |
+| `pov.json`, `pov/site1.jpg`, `pov/base.jpg` | 1.0 MB | Left Navigation Camera images at `RMC 107_2484` and `106_438` | NASA raw images, the Curiosity counterpart of R5 |
+| `layerset.json` | 3 KB | Layer list, grid, base and survey site, geologic unit `Htu` | R2 (geologic unit), all of the above |
+
+### How each of the five Resources tab entries was used
+
+| # | Resource | Used for |
+|---|---|---|
+| R1 | JPL Mars Trek | Optical and thermal layers (tiles); the geologic unit lookup; the layer index used to answer the "missing data" list in the README |
+| R2 | USGS-NASA Planetary Geologic Mapping Program | The geologic unit of the site, shown in the status panel and legend |
+| R3 | Curiosity's proposed path up Mount Sharp | Not data. The idea of drawing a route against regions of interest; we draw the rover's actual path instead |
+| R4 | NASA Worldview | Not Mars data. Reference for the layer switching screen |
+| R5 | Mars Perseverance Raw Images Gallery | The same NASA service for Curiosity gives the photos in `pov.json`, pinned to map positions |
+
+Outside the Resources tab, all from NASA or USGS: the USGS Gale terrain file, the Curiosity traverse record, and the RAD and REMS archives in the Planetary Data System.
+
+### Scripts, checks and figures
+
+| File | Content |
+|---|---|
+| `data-pipeline/build_data.py` | Downloads the sources and builds every file above. Rebuilding from an empty cache gives byte-identical files |
+| `data-pipeline/validate.py` | 54 checks: format against INTERFACES, layers against each other, slope criterion analysis |
+| `data-pipeline/validation_report.json` | The numbers the checks computed; the figures quoted in the docs come from here |
+| `data-pipeline/reference_route.json` | A route from base to the survey site computed from the slope layer, for comparison with D's route |
+| `data-pipeline/check_overlay.png` | The rover path laid over optical, terrain shading, slope and thermal |
+| `docs/figures/layers.png`, `docs/figures/route.png` | English figures for the submission page and slides |
+
+### Documents
+
+| File | Content |
+|---|---|
+| [DATA.md](DATA.md) | What each data file is, how it was made, how accurate it is, the legend, credits and terms of use |
+| [SUBMISSION.md](SUBMISSION.md) | The submission rules and the draft submission text, split by the form's fields |
+| This file, section 7 | What was confirmed while doing the work |
+
+### What the resources could not give us
+
+- **Spectral data at walking scale.** Mars Trek has no CRISM raster covering our site; what covers it is global and coarser than our whole map. The `spectral` kind stays empty.
+- **Anything sharper than HiRISE.** The best optical data is 0.64 m per pixel, and JPL reported that the sulfur stones at our survey site were too small for HiRISE to see. This is the gap the helmet's own sensor is meant to fill.
+- **A live feed.** The radiation and weather values are a recording of one Martian day.
