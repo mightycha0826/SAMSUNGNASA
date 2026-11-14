@@ -17,9 +17,9 @@ export const HUD = {
   stage: { wDeg: 80.26, hDeg: 50.16 },
   // Tuned on the Quest 3: cards near the stage corners were hard to see, so the status panel is
   // centred on the horizontal midline and everything sits a little closer to the middle of the
-  // view. The drawn status card is about 23.3 deg tall without the optional pressure / air
-  // temperature rows, so top = (50.16 - 23.3) / 2.
-  status: { leftDeg: 8, topDeg: 13.4, wDeg: 20, hDeg: 31 },
+  // view. With the real data (pressure and air temperature rows shown) the drawn status card
+  // is about 27 deg tall, so top = (50.16 - 27) / 2.
+  status: { leftDeg: 8, topDeg: 11.6, wDeg: 20, hDeg: 31 },
   banner: { topDeg: 8, wDeg: 38, hDeg: 11 },
   /** 경보 테두리 (critical 빨강, warn 주황): 가운데에서 좌우·상하 절반 크기 (도, 기본은 목업 화면 전체 = 실제 시야각 약 ±35° × ±23.5°), 밝아지는 주기 (초) */
   edge: { halfWDeg: 40.13, halfHDeg: 25.08, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },

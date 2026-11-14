@@ -7,6 +7,7 @@ import { createXR } from './core/xr.js';
 import { loadData, assetUrl } from './core/loader.js';
 import { initLink } from './core/link.js';
 import { initDebug } from './core/debug.js';
+import { initRadiation } from './core/radiation.js';
 import { MOCK_KEYS_HELP } from './mock/jetson.js';
 
 import * as scan from './scan/index.js';
@@ -47,6 +48,7 @@ async function main() {
     }
   }
 
+  initRadiation();
   core.run();
   await initLink();
   try {
