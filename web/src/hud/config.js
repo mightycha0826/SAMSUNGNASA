@@ -78,8 +78,7 @@ export const HUD = {
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
     /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다.
-     *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: core/palm.js 의 PALM.upDot 을 그대로 쓴다
-     *  (오른손 슈트 화면은 아래 suit.palmUpDot 에 자기 값을 따로 둔다) */
+     *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: core/palm.js 의 PALM.upDot 을 그대로 쓴다 */
     palmUpDot: PALM.upDot,
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
@@ -142,32 +141,32 @@ export const HUD = {
    *  the back of the left hand up, as when looking at a watch, and it appears. */
   commands: {
     wDeg: 26,
-    hDeg: 14.4, // two rows of buttons; a third row makes them lower, not smaller in width
+    hDeg: 19.8, // two rows of buttons and the red emergency bar under them; a third row makes the buttons lower, not narrower
     cols: 3,
     /** Back of the hand counts as up when its direction (wrist +Y) points this far up */
     backUpDot: 0.5,
-    /** Size factor: at 0.5 the card is about 23 cm wide and 12.5 cm tall */
+    /** Size factor: at 0.5 the card is about 23 cm wide and 17 cm tall */
     scale: 0.5,
     /** Height of the card's centre above the back of the hand (m): its lower edge is then
      *  about 8 cm above the hand */
-    liftM: 0.145,
+    liftM: 0.17,
     /** How far beyond the hand, away from the wearer, the card stands (m) */
     awayM: 0.08,
   },
-  /** Suit view over the right palm: a slowly turning figure of the suit with its readings
-   *  around it; a part turns orange or red when its reading is out of range (hud/suit.js). */
+  /** Vitals over the right palm: a slowly turning figure of the wearer, floating like the map
+   *  does over the left palm, with its readings on the caption card around its cylinder; a part
+   *  turns orange or red when a reading that belongs to it is out of range (hud/suit.js). */
   suit: {
-    wDeg: 32,
-    hDeg: 22,
-    /** Size factor: at 0.5 the card is 28 cm wide and 19 cm tall */
-    scale: 0.5,
-    /** Height of the figure (m), and how far its feet float above the palm */
-    figureM: 0.13,
-    liftM: 0.04,
+    /** Height of the figure (m) and width of the plate it stands on: the hologram's cylinder */
+    figureM: 0.15,
+    plateM: 0.16,
+    /** The caption card: larger than the map's, because here the text is the content (m) */
+    caption: { wM: 0.34, hM: 0.085 },
     /** Seconds for one turn of the figure */
     turnS: 14,
-    /** Right palm counts as up when the back-of-hand direction points this far down */
-    palmUpDot: -0.35,
+    /** The open palm must be up this long before the hologram appears (ms), and how fast it follows the hand (1/s) */
+    holdMs: 200,
+    followRate: 18,
     /** Out-of-range limits. Oxygen is the tank level in percent, pressure the suit pressure in
      *  kPa (an EMU runs at 29.6), battery the headset's own charge in percent. */
     o2: { warn: 30, crit: 15 },
@@ -178,19 +177,10 @@ export const HUD = {
     /** How much cooler than the torso sensor the parts without a sensor are shown (deg C) */
     cooler: { head: 0.6, arms: 1.4, legs: 1.9 },
   },
-  /** Emergency button over the back of the right hand, shown when the wearer looks at it the
-   *  way one looks at a watch. The LEFT hand points and pinches: once to arm it, again to send. */
-  sos: {
-    wDeg: 17,
-    hDeg: 15,
-    scale: 0.5,
-    liftM: 0.115,
-    /** The back of the hand must face the eyes this squarely (dot product) */
-    faceDot: 0.5,
-    /** and the fingers must not point away from the wearer more than this (a pointing hand does) */
-    maxAwayDot: 0.55,
-    /** An armed button goes back to idle after this long (ms) */
-    armMs: 6000,
-  },
+  /** Emergency button: the red bar on the command card (hud/rescue.js). Pressed once it is
+   *  armed for armMs; pressed again, or "Confirm" said, it sends. */
+  sos: { armMs: 8000 },
+  /** The card over a place picked on the palm map: "Navigate" and "Cancel". */
+  pick: { wDeg: 20, hDeg: 9.4, scale: 0.42, liftM: 0.07 },
   toastMs: 4000,
 };

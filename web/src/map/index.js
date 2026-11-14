@@ -27,18 +27,22 @@
 
 import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
-import { mapPoint, range, terrainArrays } from './terrain.js';
-import { makePalmState } from '../core/palm.js';
-import { makeBeam, floatOverPalm, makeCaption, writeCaption, placeCaption as putCaption } from '../core/hologram.js';
+import { mapPoint, range, sampleHeight, terrainArrays } from './terrain.js';
+import { PALM, leftPalm, handOpen, makePalmState } from '../core/palm.js';
+import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption } from '../core/hologram.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
-let activeLayer = null, request = 0, generation = 0, controllerShown = false;
+let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
 let routePoints = [], routeLine, off = [], textures = new Map();
-const position = new THREE.Vector3(), normal = new THREE.Vector3();
-const palmState = makePalmState(), floatState = { shownSince: null };
+const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
+const palmState = makePalmState();
+const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
 let beam = null;
 
+// The beam from the palm and the caption on the map's cylinder are shared with the field map
+// (core/hologram.js), so the two maps look and behave alike.
+const updateBeam = apex => aimBeam(beam, apex, MAP.widthM);
 function disposeObject(object) {
   object?.traverse(o => { o.geometry?.dispose(); if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose(); });
   object?.removeFromParent();
@@ -181,6 +185,74 @@ function load(payload) {
     label = makeLabel(); caption();
   } catch (err) { console.warn('[map] 지형을 표시할 수 없습니다:', err.message); }
 }
+// ---- picking a place on the map (hud/index.js points a hand's ray at it) ----
+const rayFrom = new THREE.Vector3(), rayStep = new THREE.Vector3(), probe = new THREE.Vector3(), toLocal = new THREE.Matrix4();
+let pin = null;
+/** The cell under a point of the map's own frame, and the terrain's height there (map frame), or null off the map. */
+function cellAt(x, z) {
+  const grid = data.layerSet.grid, depth = MAP.widthM * grid.rows / grid.cols;
+  const cell = [(x / MAP.widthM + 0.5) * grid.cols - 0.5, (0.5 - z / depth) * grid.rows - 0.5];
+  const h = sampleHeight(data.grids.topo, grid, cell[0], cell[1]);
+  return Number.isFinite(h) ? { cell, y: (h - arrays.min) * MAP.widthM / (grid.cols * grid.cellSizeM) } : null;
+}
+/**
+ * Where a ray meets the terrain of the map: { cell: [col, row], point: Vector3 in room
+ * coordinates, t: metres along the ray }, or null when the map is not shown or the ray misses.
+ * The terrain is a height field, so the ray is walked in small steps until it goes under the
+ * surface, and the crossing is then narrowed down: no triangle is tested.
+ */
+export function pickOnMap(origin, direction, maxM = 3) {
+  if (!root?.visible || !data || !arrays) return null;
+  root.updateWorldMatrix(true, false);
+  toLocal.copy(root.matrixWorld).invert();
+  rayFrom.copy(origin).applyMatrix4(toLocal);
+  rayStep.copy(origin).add(direction).applyMatrix4(toLocal).sub(rayFrom); // one metre of the ray, in the map's frame
+  const under = t => {
+    probe.copy(rayFrom).addScaledVector(rayStep, t);
+    const at = cellAt(probe.x, probe.z);
+    return at ? probe.y - at.y : NaN;
+  };
+  const STEPS = 160;
+  let before = NaN, tBefore = 0;
+  for (let i = 0; i <= STEPS; i++) {
+    const t = maxM * i / STEPS, gap = under(t);
+    if (before > 0 && gap <= 0) {
+      let a = tBefore, b = t;
+      for (let k = 0; k < 8; k++) { const mid = (a + b) / 2; if (under(mid) > 0) a = mid; else b = mid; }
+      probe.copy(rayFrom).addScaledVector(rayStep, b);
+      const at = cellAt(probe.x, probe.z);
+      if (!at) return null;
+      return { cell: at.cell, point: root.localToWorld(new THREE.Vector3(probe.x, at.y, probe.z)), t: b };
+    }
+    before = gap; tBefore = t;
+  }
+  return null;
+}
+/** Where a cell of the map is in the room right now (for a card that stands over it), or null. */
+export function mapCellInRoom(cell) {
+  if (!root?.visible || !data || !arrays) return null;
+  const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
+  return p ? root.localToWorld(new THREE.Vector3().fromArray(p)) : null;
+}
+/** Put the pin on a cell of the map, or take it away (null). */
+export function showPick(cell) {
+  if (!root || !data || !arrays) return;
+  if (pin && pin.parent !== root) pin = null; // the map was rebuilt
+  if (!cell) { if (pin) pin.visible = false; return; }
+  const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.001);
+  if (!p) return;
+  if (!pin) {
+    pin = new THREE.Group(); pin.name = 'map-pick';
+    const material = new THREE.MeshBasicMaterial({ color: 0xb9c3ff, depthTest: false, transparent: true });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.004, 12, 8), material); head.position.y = 0.016;
+    const stem = new THREE.Mesh(new THREE.ConeGeometry(0.0026, 0.014, 8).rotateX(Math.PI), material); stem.position.y = 0.007;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.006, 0.0075, 24).rotateX(-Math.PI / 2), material);
+    for (const m of [head, stem, ring]) { m.renderOrder = 7; pin.add(m); }
+    root.add(pin);
+  }
+  pin.position.fromArray(p); pin.visible = true;
+}
+
 export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
   root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
@@ -191,7 +263,7 @@ export function init(context) {
       routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
     }));
   off.push(ctx.xr.onSessionStart(session => {
-    floatState.shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
+    shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
     session.addEventListener('select', select);
     const cleanup = () => session.removeEventListener('select', select);
@@ -199,36 +271,59 @@ export function init(context) {
   }), ctx.xr.onSessionEnd(() => {
     if (beam) beam.visible = false;
     root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.rotation.x = MAP.desktopTiltRad;
-    root.scale.setScalar(MAP.desktopScale); floatState.shownSince = null;
+    root.scale.setScalar(MAP.desktopScale); shownSince = null;
   }));
 }
 export function update(frame) {
   if (root && data && !frame.session) placeCaption(); // PC view
   if (!root || !data || !arrays || !frame.session) return;
-  const { xrFrame, refSpace, session, dt } = frame;
+  const { xrFrame, refSpace, session, time, dt } = frame;
   if (!xrFrame || !refSpace) { root.visible = false; return; }
   const viewer = xrFrame.getViewerPose(refSpace);
   if (!viewer) { root.visible = false; return; }
   // A headset pose moves the displayed map, not the selected position on Mars.
-  if ([...session.inputSources].some(s => s.handedness === 'left' && s.hand)) {
-    // Over the left palm, exactly as the field map floats (core/hologram.js).
+  const left = [...session.inputSources].find(s => s.handedness === 'left' && s.hand);
+  const joint = left?.hand.get('wrist');
+  const wrist = joint ? xrFrame.getJointPose(joint, refSpace) : null;
+  if (left) {
+    if (!wrist) { root.visible = false; shownSince = null; return; }
+    const q = wrist.transform.orientation; wristQuat.set(q.x, q.y, q.z, q.w);
+    // The map shows over an open palm turned up; a hand that points or closes does not bring it up.
+    palmState.open = handOpen(left.hand, xrFrame, refSpace, palmState.open);
+    const up = normal.set(0, 1, 0).applyQuaternion(wristQuat).y < MAP.palmUpDot && palmState.open;
+    if (!up) { shownSince = null; root.visible = false; return; }
+    if (shownSince === null) shownSince = time;
+    if (time - shownSince < MAP.holdMs) { root.visible = false; return; }
+    // Float above and a little in front of the palm instead of sitting on the wrist.
+    if (leftPalm(frame, ctx.camera, palmState)) position.copy(palmState.anchor);
+    else { const p = wrist.transform.position; position.set(p.x, p.y + 0.06, p.z); }
     if (!beam) { beam = makeBeam(); root.add(beam); }
-    if (!floatOverPalm(root, beam, frame, ctx.camera, palmState, floatState, { holdMs: MAP.holdMs, followRate: MAP.followRate, widthM: MAP.widthM })) return;
   } else {
     if (beam) beam.visible = false;
-    floatState.shownSince = null;
+    shownSince = null;
     if (!controllerShown) { root.visible = false; return; }
     const source = [...session.inputSources].find(s => !s.hand && (s.gripSpace || s.targetRaySpace));
     const pose = source ? xrFrame.getPose(source.gripSpace ?? source.targetRaySpace, refSpace) : null;
     if (!pose) { root.visible = false; return; }
     const p = pose.transform.position; position.set(p.x, p.y + 0.08, p.z);
-    if (!root.visible) root.position.copy(position);
-    else root.position.lerp(position, 1 - Math.exp(-MAP.followRate * dt));
-    root.quaternion.identity(); root.visible = true;
+  }
+  if (!root.visible) root.position.copy(position);
+  else root.position.lerp(position, 1 - Math.exp(-MAP.followRate * dt));
+  root.quaternion.identity(); root.visible = true;
+  if (left) {
+    // Lean the map toward the wearer: its up direction tips back along the line of sight.
+    const tilt = THREE.MathUtils.degToRad(PALM.tiltDeg);
+    tiltAxis.copy(upAxis).multiplyScalar(Math.cos(tilt)).addScaledVector(palmState.forward, -Math.sin(tilt));
+    root.quaternion.copy(tiltQuat.setFromUnitVectors(upAxis, tiltAxis));
   }
   placeCaption();
+  if (beam && left) {
+    beam.visible = true;
+    // palm position in the map's own (tilted) frame
+    updateBeam(normal.copy(palmState.palm).sub(root.position).applyQuaternion(tiltQuat.invert()));
+  }
 }
 export function dispose() {
   off.forEach(fn => fn()); off = []; clearData();
-  beam = null; root?.removeFromParent(); root = null; ctx = null; floatState.shownSince = null; controllerShown = false;
+  beam = null; root?.removeFromParent(); root = null; ctx = null; shownSince = null; controllerShown = false;
 }

@@ -2,6 +2,7 @@
   "_help": [
     "Voice commands of the Marswalk hub. Edit this file and save: the hub reloads it by itself.",
     "Kept short on purpose: only what the demo needs. Every extra phrase is one more thing ordinary talk can trigger by accident.",
+    "The emergency button (the red bar on the headset's command card) can be spoken too: 'Emergency' arms it, 'Confirm' then sends the rescue signal, 'Cancel' disarms it, 'Cancel rescue' withdraws a signal that was sent.",
     "Each command has an intent (sent to the headset as voice.command), optional slots, and the phrases that trigger it.",
     "A phrase matches when its words appear in what was heard; close misspellings by the speech recognizer also match.",
     "When several phrases match, the longest one wins, so 'stop navigation' beats 'stop'.",
@@ -34,6 +35,11 @@
     { "intent": "nav.stop", "say": "Stop", "phrases": ["stop", "stop navigation", "cancel"] },
 
     { "intent": "alert.ack", "say": "Confirm", "phrases": ["confirm", "acknowledge"] },
+
+    { "intent": "sos.arm", "say": "Emergency", "menu": false,
+      "phrases": ["emergency", "mayday", "rescue signal"] },
+    { "intent": "sos.cancel", "menu": false,
+      "phrases": ["cancel rescue", "cancel emergency", "cancel the rescue signal"] },
 
     { "intent": "layer.show", "slots": { "id": "{layer}" }, "menu": false,
       "phrases": ["{layer}", "show {layer}", "{layer} map"] }

@@ -258,6 +258,8 @@ export function createPointer(ctx, K) {
       st.seen = true;
       const pressed = st.wantDown && !st.down && now - st.lastPressAt >= K.repeatMs;
       st.down = st.wantDown;
+      st.pressedNow = pressed; // for what is pointed at besides menus (free())
+      st.onMenu = false;
 
       // The nearest menu the ray meets.
       let best = null;
@@ -274,8 +276,10 @@ export function createPointer(ctx, K) {
       }
       if (!best) {
         hide(st);
+        st.target = null;
         continue;
       }
+      st.onMenu = true;
       // Smooth the cursor on the menu: firmly while it rests, barely while it travels.
       if (st.target !== best) {
         st.target = best;
@@ -321,6 +325,47 @@ export function createPointer(ctx, K) {
 
   return {
     update,
+    /** Which tracked hands have their pointer on a menu this frame: { left, right }. */
+    busy: () => {
+      const out = { left: false, right: false };
+      for (const st of states.values()) if (st.seen && st.onMenu && st.hand) out[st.hand] = true;
+      return out;
+    },
+    /**
+     * The pointers that are on no menu this frame, for pointing at other things (the map):
+     * [{ hand: 'left' | 'right' | null, origin, dir, pressed, strength, show(point, normal) }].
+     * `pressed` is true in the frame a pinch starts. show() draws that pointer's cursor and
+     * beam at a point in the room.
+     */
+    free: () =>
+      [...states.values()]
+        .filter((st) => st.seen && !st.onMenu)
+        .map((st) => ({
+          hand: st.hand,
+          origin: st.origin,
+          dir: st.dir,
+          pressed: st.pressedNow,
+          strength: st.down ? 1 : st.strength,
+          show(point, normal) {
+            const t = point.distanceTo(st.origin);
+            st.cursor.quaternion.setFromUnitVectors(a.set(0, 0, 1), normal);
+            st.cursor.position.copy(point).addScaledVector(normal, 0.002);
+            const s = st.down ? 1 : st.strength;
+            st.cursor.scale.setScalar(K.cursorM);
+            st.ring.scale.setScalar(1 - 0.5 * s);
+            st.shade.scale.setScalar(1 - 0.5 * s);
+            st.dot.scale.setScalar(st.down ? 1.9 : 1);
+            st.cursor.visible = true;
+            const length = t - K.beamStartM;
+            st.beam.visible = length > 0.02;
+            if (st.beam.visible) {
+              b.copy(point).sub(st.origin).normalize();
+              st.beam.position.copy(st.origin).addScaledVector(b, K.beamStartM);
+              st.beam.quaternion.setFromUnitVectors(Y, b);
+              st.beam.scale.set(1, length, 1);
+            }
+          },
+        })),
     /** Drive a pointer by hand (console, tests): simulate({ origin: [x,y,z], dir: [x,y,z], down }) or simulate(null). */
     simulate(next) {
       sim = next;

@@ -1,5 +1,5 @@
 export const MAP = Object.freeze({ widthM: 0.25, desktopScale: 8, maxVerticesPerSide: 129,
-  desktopTiltRad: 0.55, holdMs: 200, followRate: 18, textureMaxSize: 2048 });
+  desktopTiltRad: 0.55, palmUpDot: -0.35, holdMs: 200, followRate: 18, textureMaxSize: 2048 });
 // Published HUD legend colours; no import of another module's runtime.
 export const RAMPS = {
   topo: [[18, 42, 74], [32, 120, 128], [196, 170, 110], [250, 246, 232]],

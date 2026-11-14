@@ -238,8 +238,10 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `map:store` | A | B (to the Jetson) | The field map changed (at most every 2 s): `{ run, originXZ, cellSizeM, cols, rows, runs, source, stats }`. `runs` is the cells as `[value, count, ...]` |
 | `map:request` | A | B (to the Jetson) | A session started or the room coordinates were reset: ask the hub for the map it stored last |
 | `map:stored` | B (from the Jetson) | A | The hub's last stored map, same fields as `map:store` plus `savedAt` |
-| `rescue:signal` | F (`hud/suit.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
+| `rescue:signal` | F (`hud/rescue.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
 | `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
+| `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }`; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
+| `nav:waypoint` | F | D | A destination added or moved while running: `{ id: "pick", cell: [col, row], label }`. It joins `layerSet.waypoints`; request it with `nav:request` |
 
 ### Payload formats and mock data
 
@@ -459,8 +461,10 @@ E's hub turns speech into one of the `intent` values below. Speech is English. A
 | `nav.start` | `{ "targetId": "site1" }` | — (voice only) | "Take me to the survey site", "Sulfur rocks" | Mars map: D, to the survey site (390 m by route) |
 | `nav.home` | `{}` | "Base" | "Go back", "Return to base" | D (Mars map only) |
 | `nav.mark` | `{}` | "Mark target" | "Set target", "Mark here" | field (field map only): the target is where the wearer stands. Saying it again moves the target |
-| `nav.stop` | `{}` | "Stop" | "Stop navigation", "Cancel" | D, field |
-| `alert.ack` | `{}` | "Confirm" | "Acknowledge" | F |
+| `nav.stop` | `{}` | "Stop" | "Stop navigation", "Cancel" | D, field. Also closes the card over a picked place and disarms an armed emergency button |
+| `alert.ack` | `{}` | "Confirm" | "Acknowledge" | F. While the emergency button is armed it also sends the rescue signal |
+| `sos.arm` | `{}` | "Emergency" | "Mayday", "Rescue signal" | F: arms the emergency button, as pressing the red bar once does. Voice only |
+| `sos.cancel` | `{}` | "Cancel rescue" | "Cancel emergency" | F: withdraws a rescue signal that was sent. Voice only |
 | `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle`. Voice only: the layer tabs beside the map do the same by hand |
 
 **This is the whole list, and it is short on purpose** (pruned on 2026-11-14). Every phrase is one more thing ordinary talk can trigger by accident, so only what the demo needs is left. Removed: `layer.hide` (one layer is always shown; naming another switches to it), `nav.clear` ("Mark target" again moves the target, "Stop" ends the guidance), `mode.set` (night mode was never built), and the looser synonyms ("home", "return", "report", "copy", "roger", "let's go", "photo", "camera", "height" and others).

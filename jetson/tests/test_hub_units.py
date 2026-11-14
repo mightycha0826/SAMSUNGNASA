@@ -62,6 +62,11 @@ class IntentTest(unittest.TestCase):
         "thermal": ("layer.show", {"id": "thermal"}),
         "Elevation.": ("layer.show", {"id": "topo"}),
         "confirm": ("alert.ack", {}),
+        "Emergency": ("sos.arm", {}),
+        "Mayday, mayday.": ("sos.arm", {}),
+        "Cancel rescue": ("sos.cancel", {}),
+        "Cancel the rescue signal.": ("sos.cancel", {}),
+        "Cancel": ("nav.stop", {}),
         # full sentences still work
         "Take me to the survey site": ("nav.start", {"targetId": "site1"}),
         "Guide me to the sulfur rocks.": ("nav.start", {"targetId": "site1"}),

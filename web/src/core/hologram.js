@@ -9,7 +9,7 @@
 // be read when looking down at the map. Nothing is written on the map surface itself.
 
 import * as THREE from 'three';
-import { PALM, leftPalm } from './palm.js';
+import { PALM, palmOf } from './palm.js';
 
 export const CAPTION = {
   wM: 0.28,
@@ -34,29 +34,34 @@ const ROWS = [
   { y: 230, font: '20px system-ui', color: '#c3c9da' }, // credit
 ];
 
-/** A caption card, added to the map's root group. */
-export function makeCaption(root, name = 'map-caption') {
+/** A caption card, added to the map's root group. `size` { wM, hM } makes it another size than CAPTION (same 4 : 1 shape). */
+export function makeCaption(root, name = 'map-caption', size = CAPTION) {
   const canvas = document.createElement('canvas');
   canvas.width = CAPTION.pxW;
   canvas.height = CAPTION.pxH;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const card = new THREE.Mesh(
-    new THREE.PlaneGeometry(CAPTION.wM, CAPTION.hM),
+    new THREE.PlaneGeometry(size.wM, size.hM),
     new THREE.MeshBasicMaterial({ map: texture, depthTest: false, transparent: true, side: THREE.DoubleSide, toneMapped: false }),
   );
   card.name = name;
   card.renderOrder = 8;
-  card.userData = { canvas, texture, text: '' };
+  card.userData = { canvas, texture, text: '', hM: size.hM };
   root.add(card);
   return card;
 }
 
-/** Write up to six lines on a caption card. Empty lines are skipped; nothing is redrawn if the text is the same. */
-export function writeCaption(card, lines) {
+/**
+ * Write up to six lines on a caption card. Empty lines are skipped; nothing is redrawn if the
+ * text is the same. `colors` may give a line another colour than its usual one (by line index).
+ */
+export function writeCaption(card, lines, colors = {}) {
   const u = card.userData;
   const text = lines.join('\n');
-  if (u.text === text) return;
+  const key = `${text}\n${JSON.stringify(colors)}`;
+  if (u.key === key) return;
+  u.key = key;
   u.text = text;
   const g = u.canvas.getContext('2d');
   g.clearRect(0, 0, CAPTION.pxW, CAPTION.pxH);
@@ -65,7 +70,7 @@ export function writeCaption(card, lines) {
   lines.slice(0, ROWS.length).forEach((line, i) => {
     if (!line) return;
     g.font = ROWS[i].font;
-    g.fillStyle = ROWS[i].color;
+    g.fillStyle = colors[i] ?? ROWS[i].color;
     g.fillText(line, 24, ROWS[i].y, CAPTION.pxW - 48);
   });
   u.texture.needsUpdate = true;
@@ -97,7 +102,7 @@ export function placeCaption(card, root, camera, mapWidthM) {
   // top edge on the cylinder just under the rim; the centre is half a card down from it
   card.position.copy(radial).multiplyScalar(mapWidthM / 2 + CAPTION.gapM);
   card.position.y = -CAPTION.dropM;
-  card.position.addScaledVector(cardUp, -CAPTION.hM / 2);
+  card.position.addScaledVector(cardUp, -(card.userData.hM ?? CAPTION.hM) / 2);
 }
 
 const BEAM_SEGMENTS = 24;
@@ -136,12 +141,13 @@ const tiltQuat = new THREE.Quaternion();
 const apex = new THREE.Vector3();
 
 /**
- * Float a map over the left palm for this frame: shown once the palm has been up for `holdMs`,
+ * Float a map over a palm (`hand`, the left one unless said) for this frame: shown once the open palm has been up for `holdMs`,
  * gliding after the hand, leaning toward the wearer, with the beam from the palm.
  * `st` keeps the state between frames: { shownSince: null }. Returns true when the map is shown.
  */
-export function floatOverPalm(root, beam, frame, camera, palmState, st, { holdMs, followRate, widthM }) {
-  if (!leftPalm(frame, camera, palmState) || !palmState.palmUp) {
+export function floatOverPalm(root, beam, frame, camera, palmState, st, { holdMs, followRate, widthM, hand = 'left', allowed = true }) {
+  // Shown while that hand is held open with the palm up (and `allowed`: the caller's own veto).
+  if (!palmOf(frame, camera, palmState, hand) || !palmState.palmUp || !palmState.open || !allowed) {
     st.shownSince = null;
     root.visible = false;
     return false;

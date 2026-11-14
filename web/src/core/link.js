@@ -75,13 +75,21 @@ export function handleMessage(msg) {
   }
 }
 
+// A place is picked on the palm map and its card is up (hud): "Navigate" then means that place,
+// and the hud requests the route itself.
+let picked = false;
+bus.on('map:pick', (p) => {
+  picked = !!p;
+});
+
 function handleVoiceCommand({ intent, slots = {}, text = '' }) {
+  const toPicked = picked; // as it was before the command: the hud clears it while handling the event
   bus.emit('voice:command', { intent, slots, text });
   switch (intent) {
     // Routes on the Mars map are D's. In field mode "Navigate" means the marked target and the
     // field module answers the voice:command itself, so no Mars route is requested there.
     case 'nav.start':
-      if (mode.current === 'mars') bus.emit('nav:request', { targetId: navTarget(slots.targetId, waypointIds) });
+      if (mode.current === 'mars' && !toPicked) bus.emit('nav:request', { targetId: navTarget(slots.targetId, waypointIds) });
       break;
     case 'nav.home':
       if (mode.current === 'mars') bus.emit('nav:request', { targetId: 'base' });

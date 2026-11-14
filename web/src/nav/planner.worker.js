@@ -58,6 +58,12 @@ self.onmessage = ({ data: m }) => {
         }
         schedule();
       }
+    } else if (m.type === 'waypoint') {
+      // A destination added or moved while running (a point picked on the map). A route to it
+      // is found by the direct search at once; its tree fills in behind for later requests.
+      if (job?.targetId === m.id) job = null;
+      waypoints = waypoints.filter(w => w.id !== m.id).concat({ id: m.id, cell: m.cell });
+      if (field) { trees.set(m.id, new GoalTree(field, m.cell)); schedule(); }
     } else if (m.type === 'cancel') job = null; // Keep warming destination caches.
     else if (m.type === 'plan') {
       job = null;

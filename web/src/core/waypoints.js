@@ -80,3 +80,69 @@ export function navTarget(targetId, known = null) {
   if (targetId && known.has(targetId)) return targetId;
   return NAV_DEFAULTS.find((id) => known.has(id)) ?? targetId ?? NAV_DEFAULTS[0];
 }
+
+/**
+ * The walkable cell nearest to `cell`: the cell itself when its slope is at most maxSlopeDeg,
+ * else the closest one that is, within reachCells; null when there is none. The planner closes
+ * ground steeper than that, so a destination picked on a steep spot would have no route.
+ * @param {{ grid: { cols: number, rows: number } }} layerSet
+ * @param {Float32Array | null} slope degrees per cell (grids.slope); without it the cell is taken as it is
+ * @param {{ within?: Uint8Array | null }} opts within: only cells marked 1 count (reachableFrom): walkable
+ *        ground that cannot be reached from where the wearer is would have no route either
+ */
+export function walkableNear(layerSet, slope, cell, { maxSlopeDeg = 20, reachCells = 15, within = null } = {}) {
+  const { cols, rows } = layerSet.grid;
+  const c0 = Math.round(cell[0]);
+  const r0 = Math.round(cell[1]);
+  const ok = (c, r) => c >= 0 && r >= 0 && c < cols && r < rows && (!slope || slope[r * cols + c] <= maxSlopeDeg) && (!within || within[r * cols + c] === 1);
+  if (ok(c0, r0)) return [c0, r0];
+  let best = null;
+  let bestD = Infinity;
+  for (let dr = -reachCells; dr <= reachCells; dr++) {
+    for (let dc = -reachCells; dc <= reachCells; dc++) {
+      const d = dc * dc + dr * dr;
+      if (d < bestD && d <= reachCells * reachCells && ok(c0 + dc, r0 + dr)) {
+        best = [c0 + dc, r0 + dr];
+        bestD = d;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * The cells that can be walked to from `cell` over ground no steeper than maxSlopeDeg, moving
+ * to any of the eight neighbours: 1 where reachable. Much of a crater wall is walkable in
+ * patches that nothing leads to; a destination has to be on ground that is connected to the
+ * wearer. (The planner has the last word: it also knows hazards. This is the slope alone.)
+ */
+export function reachableFrom(layerSet, slope, cell, maxSlopeDeg = 20) {
+  const { cols, rows } = layerSet.grid;
+  const out = new Uint8Array(cols * rows);
+  const walk = (i) => !slope || slope[i] <= maxSlopeDeg;
+  const start = Math.round(cell[1]) * cols + Math.round(cell[0]);
+  if (!(start >= 0 && start < out.length)) return out;
+  const queue = new Int32Array(cols * rows);
+  let head = 0;
+  let tail = 0;
+  out[start] = 1; // where the wearer stands counts, whatever the slope under their feet
+  queue[tail++] = start;
+  while (head < tail) {
+    const i = queue[head++];
+    const c = i % cols;
+    const r = (i - c) / cols;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (!dc && !dr) continue;
+        const cc = c + dc;
+        const rr = r + dr;
+        if (cc < 0 || rr < 0 || cc >= cols || rr >= rows) continue;
+        const j = rr * cols + cc;
+        if (out[j] || !walk(j)) continue;
+        out[j] = 1;
+        queue[tail++] = j;
+      }
+    }
+  }
+  return out;
+}

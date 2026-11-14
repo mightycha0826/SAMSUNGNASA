@@ -1,9 +1,15 @@
-// The right hand: the suit at a glance, and the emergency button.
+// The right hand: the wearer's vital signs and the suit's, at a glance.
 //
-// Right palm up: a small figure of the suit turns slowly over the palm, as on the display of a
-// powered suit in the films, with its readings around it. Each reading belongs to a part of
-// the figure, and that part turns orange or red when the reading is out of range:
-//     helmet    oxygen (tank level, %)          simulated: there is no oxygen sensor
+// Open right palm turned up: a figure of the wearer turns slowly over the palm, as on the
+// display of a powered suit in the films. It is the same kind of object as the map over the
+// left palm (core/hologram.js): it floats a little above the palm, a little away from the
+// wearer and a little toward the middle of the body, a cone of light rises to it from the
+// palm, and everything written about it is on the caption card that goes around its
+// "cylinder", just under the plate the figure stands on, always on the side facing the wearer.
+//
+// Each reading belongs to a part of the figure, and that part turns orange or red when the
+// reading is out of range:
+//     head      oxygen (tank level, %)          simulated: there is no oxygen sensor
 //               head temperature                simulated
 //     torso     suit temperature (deg C)        the real sensor on the Jetson (telemetry:update)
 //               heart rate (bpm)                simulated: there is no pulse sensor
@@ -13,89 +19,171 @@
 //     backpack  battery (%)                     the headset's own battery (navigator.getBattery)
 //   There is one temperature sensor, on the torso. The other three temperatures follow it at a
 //   fixed distance (a head runs a little cooler than the chest, limbs cooler still), so they
-//   move when the real one moves, and they are marked "sim" like every other simulated reading.
+//   move when the real one moves. The caption marks every simulated reading "sim".
 //   ?simO2=12, ?simPressure=24 and ?simHeart=160 set values from the address,
 //   window.__hud.suit.set({ o2, pressureKpa, heart, battery, headC, armsC, legsC }) from the console.
 //
-// Back of the right hand turned to the eyes, as when reading a watch: the emergency button.
-//   The LEFT hand points at it and pinches (the right hand cannot point at its own back): the
-//   first pinch arms it, the second sends the rescue signal. Arming first keeps a stray pinch
-//   from calling for help. A hand that is pointing has its fingers away from the wearer, and a
-//   watch is read with the fingers across the body, which is how the two are told apart.
-//   Sending emits `rescue:signal`; link.js passes it to the hub, which tells the other headsets
-//   and the monitor page and answers with `rescue:state`. The crew is virtual: the hub's
-//   acknowledgement is simulated and says so. Without a hub (mock mode) it is simulated here.
+// The figure is built here from smooth solids (a turned profile for the trunk, tapered limbs
+// with round joints), not loaded from a file: the app has to work without any download.
 //
-// Receives: telemetry:update, nav:position, rescue:state
-// Sends:    rescue:signal { active, position, suitTempC, batteryPct }
+// Receives: telemetry:update
 
 import * as THREE from 'three';
 import { HUD } from './config.js';
 import { T } from './tokens.js';
-import { drawSuit, drawSos } from './draw.js';
-import { mock } from '../core/config.js';
 import { suitStates, worst } from './suit-limits.js';
+import { makePalmState } from '../core/palm.js';
+import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm } from '../core/hologram.js';
 
 const HOLO = '#7fd4ff'; // the figure when all is well
+const Y = new THREE.Vector3(0, 1, 0);
 
-const back = new THREE.Vector3();
-const fingers = new THREE.Vector3();
-const toHead = new THREE.Vector3();
-const headPos = new THREE.Vector3();
-const palm = new THREE.Vector3();
-const tmp = new THREE.Vector3();
-const quat = new THREE.Quaternion();
+// A hologram skin: bright where the surface turns away from the eye, faint where it faces it,
+// with fine lines drifting upward. Drawn additively, so the body looks lit from within.
+const SKIN_VERTEX = `
+varying vec3 vNormal;
+varying vec3 vToEye;
+varying float vHeight;
+void main() {
+  vec4 view = modelViewMatrix * vec4(position, 1.0);
+  vNormal = normalize(normalMatrix * normal);
+  vToEye = normalize(-view.xyz);
+  vHeight = (modelMatrix * vec4(position, 1.0)).y;
+  gl_Position = projectionMatrix * view;
+}`;
+const SKIN_FRAGMENT = `
+uniform vec3 colour;
+uniform float level;
+uniform float time;
+varying vec3 vNormal;
+varying vec3 vToEye;
+varying float vHeight;
+void main() {
+  float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vToEye))), 2.0);
+  float lines = 0.86 + 0.14 * sin(vHeight * 1100.0 - time * 5.0);
+  float alpha = (0.14 + 0.86 * rim) * level * lines;
+  gl_FragColor = vec4(colour * (0.6 + 0.8 * rim), alpha);
+  #include <colorspace_fragment>
+}`;
 
-/** The figure: simple solids with their edges drawn, one group per part that can change colour. */
+/**
+ * The figure: a standing person, feet at 0 and the top of the head at 1, facing +z.
+ * One material per part that can change colour: head, torso, arms, legs, pack.
+ */
 function makeFigure() {
   const root = new THREE.Group();
   root.name = 'suit-figure';
   const spinner = new THREE.Group();
   root.add(spinner);
   const parts = {};
-  const part = (name) => {
-    const fill = new THREE.MeshBasicMaterial({ color: HOLO, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
-    const line = new THREE.LineBasicMaterial({ color: HOLO, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
-    parts[name] = { fill, line, state: '' };
-    return (geometry, x, y, z, tiltZ = 0) => {
-      const mesh = new THREE.Mesh(geometry, fill);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 1), line);
-      for (const o of [mesh, edges]) {
-        o.position.set(x, y, z);
-        o.rotation.z = tiltZ;
-        o.renderOrder = 1002;
-        o.frustumCulled = false;
-        spinner.add(o);
-      }
+  const dir = new THREE.Vector3();
+  const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, depthTest: true });
+
+  function part(name) {
+    const material = new THREE.ShaderMaterial({
+      uniforms: { colour: { value: new THREE.Color(HOLO) }, level: { value: 1 }, time: { value: 0 } },
+      vertexShader: SKIN_VERTEX,
+      fragmentShader: SKIN_FRAGMENT,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthTest: true, // against the figure's own depth (below): only its outer skin is drawn
+      depthWrite: false,
+    });
+    parts[name] = { material, state: '' };
+    const add = (geometry) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = 9;
+      mesh.frustumCulled = false;
+      // The solids overlap at every joint. Drawn as they are, each overlap would glow twice as
+      // bright and the figure would look like a jointed doll. So every solid first writes only
+      // its depth, and the skin is then drawn where it is the nearest surface: one smooth body.
+      const depth = new THREE.Mesh(geometry, depthOnly);
+      depth.renderOrder = 8.5;
+      depth.frustumCulled = false;
+      mesh.add(depth);
+      spinner.add(mesh);
+      return mesh;
     };
-  };
-  // Heights are fractions of the figure: feet at 0, top of the helmet at 1.
-  part('head')(new THREE.IcosahedronGeometry(0.095, 1), 0, 0.9, 0);
+    return {
+      /** A rounded solid: a sphere stretched to the half-sizes given. */
+      blob(rx, ry, rz, x, y, z) {
+        const mesh = add(new THREE.SphereGeometry(1, 20, 14));
+        mesh.scale.set(rx, ry, rz);
+        mesh.position.set(x, y, z);
+      },
+      /** A limb segment from a to b, ra thick at a and rb at b, with a round joint at each end. */
+      limb(a, b, ra, rb) {
+        const from = new THREE.Vector3(...a);
+        const to = new THREE.Vector3(...b);
+        const length = from.distanceTo(to);
+        const mesh = add(new THREE.CylinderGeometry(rb, ra, length, 16, 1, true));
+        mesh.position.copy(from).add(to).multiplyScalar(0.5);
+        mesh.quaternion.setFromUnitVectors(Y, dir.subVectors(to, from).normalize());
+        this.blob(ra, ra, ra, ...a);
+        this.blob(rb, rb, rb, ...b);
+      },
+      /** A solid turned around the upright axis from a profile of [radius, height], then flattened front to back. */
+      turned(profile, depth) {
+        const mesh = add(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), 28));
+        mesh.scale.set(1, 1, depth);
+      },
+    };
+  }
+
+  const head = part('head');
+  head.blob(0.058, 0.072, 0.066, 0, 0.925, 0.004);
+
   const torso = part('torso');
-  torso(new THREE.BoxGeometry(0.3, 0.34, 0.17), 0, 0.63, 0);
-  torso(new THREE.BoxGeometry(0.26, 0.1, 0.15), 0, 0.41, 0);
-  part('pack')(new THREE.BoxGeometry(0.24, 0.3, 0.1), 0, 0.65, -0.14);
+  // Hips, waist, chest, shoulders, the base of the neck: wider at the shoulders than at the hips.
+  torso.turned(
+    [[0.001, 0.452], [0.07, 0.456], [0.1, 0.49], [0.103, 0.53], [0.094, 0.585], [0.092, 0.62], [0.104, 0.68], [0.12, 0.745], [0.122, 0.785], [0.1, 0.815], [0.05, 0.832], [0.03, 0.845], [0.001, 0.848]],
+    0.6,
+  );
+  torso.limb([0, 0.835, 0], [0, 0.872, 0.002], 0.028, 0.026); // neck
+
+  const pack = part('pack');
+  pack.blob(0.082, 0.115, 0.036, 0, 0.665, -0.088); // life support on the back
+
   const arms = part('arms');
-  arms(new THREE.CylinderGeometry(0.045, 0.04, 0.36, 6), -0.215, 0.6, 0, -0.12);
-  arms(new THREE.CylinderGeometry(0.045, 0.04, 0.36, 6), 0.215, 0.6, 0, 0.12);
   const legs = part('legs');
-  legs(new THREE.CylinderGeometry(0.06, 0.05, 0.36, 6), -0.08, 0.18, 0);
-  legs(new THREE.CylinderGeometry(0.06, 0.05, 0.36, 6), 0.08, 0.18, 0);
-  // A ring under the feet, like the plate a hologram stands on.
-  const plate = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CircleGeometry(0.36, 40).rotateX(-Math.PI / 2), 1), new THREE.LineBasicMaterial({ color: HOLO, transparent: true, opacity: 0.5, depthTest: false }));
-  plate.renderOrder = 1002;
-  plate.frustumCulled = false;
-  root.add(plate);
+  for (const side of [-1, 1]) {
+    // Arms hang a little away from the body, bent slightly at the elbow, hands by the thighs.
+    const shoulder = [side * 0.138, 0.782, 0];
+    const elbow = [side * 0.168, 0.605, -0.006];
+    const wrist = [side * 0.176, 0.452, 0.022];
+    arms.limb(shoulder, elbow, 0.038, 0.029);
+    arms.limb(elbow, wrist, 0.029, 0.021);
+    arms.blob(0.02, 0.042, 0.013, side * 0.178, 0.405, 0.028); // hand
+    const hip = [side * 0.056, 0.468, 0];
+    const knee = [side * 0.062, 0.262, 0.008];
+    const ankle = [side * 0.062, 0.058, 0];
+    legs.limb(hip, knee, 0.054, 0.038);
+    legs.limb(knee, ankle, 0.038, 0.027);
+    legs.blob(0.03, 0.022, 0.062, side * 0.064, 0.022, 0.032); // foot
+  }
   return { root, spinner, parts };
 }
 
+/** The plate the figure stands on: two rings, the top face of the hologram's cylinder. */
+function makePlate(widthM) {
+  const group = new THREE.Group();
+  for (const [r, opacity] of [[widthM / 2, 0.7], [widthM / 2 - 0.012, 0.3]]) {
+    const ring = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(Array.from({ length: 64 }, (_, i) => new THREE.Vector3(Math.cos((i / 64) * Math.PI * 2) * r, 0, Math.sin((i / 64) * Math.PI * 2) * r))),
+      new THREE.LineBasicMaterial({ color: HOLO, transparent: true, opacity, depthTest: false }),
+    );
+    ring.renderOrder = 8;
+    ring.frustumCulled = false;
+    group.add(ring);
+  }
+  return group;
+}
+
 /**
- * @param ctx the module context (bus, scene, camera, xr)
- * @param tools { makePanel, followMenu, aim, showToast } from hud/index.js
+ * @param ctx the module context (bus, scene, camera)
  */
-export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
+export function createSuit(ctx) {
   const K = HUD.suit;
-  const E = HUD.sos;
   const q = new URLSearchParams(location.search);
   const num = (name, fallback) => (q.has(name) && Number.isFinite(Number(q.get(name))) ? Number(q.get(name)) : fallback);
 
@@ -104,23 +192,23 @@ export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
   // Temperatures set by hand (set()), in place of the ones that follow the torso sensor.
   const fixed = { headC: null, armsC: null, legsC: null };
   const reading = { o2: base.o2, pressureKpa: base.pressureKpa, heart: base.heart, battery: null, charging: false, suitTempC: null, tempSource: null, headC: null, armsC: null, legsC: null };
+  let batteryNote = 'not reported by this browser';
+  let dirty = true;
+
   /** The three temperatures without a sensor: the torso's, less what that part usually runs cooler. */
   function followTorso() {
     for (const [key, below] of [['headC', K.cooler.head], ['armsC', K.cooler.arms], ['legsC', K.cooler.legs]]) {
       reading[key] = fixed[key] ?? (reading.suitTempC == null ? null : Number((reading.suitTempC - below).toFixed(1)));
     }
   }
-  let batteryNote = 'n/a'; // until the browser has answered
-  let position = null;
-  let bodyDirty = true;
 
   navigator.getBattery?.()
     .then((b) => {
       const read = () => {
         reading.battery = Math.round(b.level * 100);
         reading.charging = b.charging;
-        batteryNote = b.charging ? 'charging' : 'headset';
-        bodyDirty = true;
+        batteryNote = b.charging ? 'headset, charging' : 'headset';
+        dirty = true;
       };
       read();
       b.addEventListener('levelchange', read);
@@ -128,61 +216,64 @@ export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
     })
     .catch(() => {});
   ctx.bus.on('telemetry:update', ({ suitTempC, source }) => {
-    if (suitTempC !== reading.suitTempC || source !== reading.tempSource) bodyDirty = true;
+    if (suitTempC !== reading.suitTempC || source !== reading.tempSource) dirty = true;
     reading.suitTempC = suitTempC ?? null;
     reading.tempSource = source ?? null;
     followTorso();
   });
-  ctx.bus.on('nav:position', ({ point }) => {
-    position = point ? [Number(point[0].toFixed(1)), Number(point[2].toFixed(1))] : null;
-  });
 
-  // ---- the suit view ----
-  const pBody = makePanel(K.wDeg, K.hDeg);
-  pBody.mesh.visible = false;
-  pBody.mesh.name = 'suit-view';
-  ctx.scene.add(pBody.mesh);
+  // ---- the hologram ----
+  const root = new THREE.Group();
+  root.name = 'suit-view';
+  root.visible = false;
+  ctx.scene.add(root);
   const figure = makeFigure();
-  // A child of the card, so it goes where the card goes; sized in metres whatever the card's scale.
-  figure.root.scale.setScalar(K.figureM / K.scale);
-  figure.root.position.set(0, -K.figureM / 2 / K.scale, 0.03 / K.scale);
-  pBody.mesh.add(figure.root);
-  const colourOf = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : HOLO);
+  figure.root.scale.setScalar(K.figureM);
+  root.add(figure.root, makePlate(K.plateM));
+  const caption = makeCaption(root, 'suit-caption', K.caption);
+  const beam = makeBeam('suit-beam');
+  root.add(beam);
+  const palmState = makePalmState();
+  const floatState = { shownSince: null };
+  let pinned = false; // PC: shown without a hand
 
-  function bodyVM() {
-    const st8 = suitStates(reading, HUD.suit, HUD.suitGauge);
-    const show = (v, digits) => (v == null ? '—' : v.toFixed(digits));
+  const colourOf = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : HOLO);
+  const show = (v, digits) => (v == null ? '—' : v.toFixed(digits));
+
+  /** The six lines of the caption, and the states behind them. */
+  function describe() {
+    const z = suitStates(reading, HUD.suit, HUD.suitGauge);
+    const wrong = [];
+    const note = (state, text) => state && wrong.push(text);
+    note(z.o2, `oxygen ${show(reading.o2, 0)} %`);
+    note(z.heart, `heart rate ${show(reading.heart, 0)} bpm`);
+    note(z.pressure, `pressure ${show(reading.pressureKpa, 1)} kPa`);
+    note(z.headTemp, `head ${show(reading.headC, 1)} °C`);
+    note(z.temp, `torso ${show(reading.suitTempC, 1)} °C`);
+    note(z.armsTemp, `arms ${show(reading.armsC, 1)} °C`);
+    note(z.legsTemp, `legs ${show(reading.legsC, 1)} °C`);
+    note(z.battery, `battery ${show(reading.battery, 0)} %`);
+    const level = worst(...Object.values(z));
+    const torsoTag = reading.suitTempC == null ? '' : reading.tempSource === 'mock' ? ' (mock)' : ' (sensor)';
     return {
-      states: st8,
-      // toY: where each chip's line ends on the figure (helmet high, legs low).
-      left: [
-        { label: 'Oxygen', value: show(reading.o2, 0), unit: '%', tag: 'sim', state: st8.o2, toY: 0.24 },
-        { label: 'Heart rate', value: show(reading.heart, 0), unit: 'bpm', tag: 'sim', state: st8.heart, toY: 0.42 },
-        { label: 'Pressure', value: show(reading.pressureKpa, 1), unit: 'kPa', tag: 'sim', state: st8.pressure, toY: 0.66 },
-      ],
-      right: [
-        {
-          label: 'Temperature',
-          unit: '°C',
-          state: worst(st8.temp, st8.headTemp, st8.armsTemp, st8.legsTemp),
-          toY: 0.4,
-          rows: [
-            { label: 'Head', value: show(reading.headC, 1), tag: 'sim', state: st8.headTemp },
-            { label: 'Torso', value: show(reading.suitTempC, 1), tag: reading.tempSource === 'mock' ? 'mock' : reading.suitTempC == null ? '' : 'sensor', state: st8.temp },
-            { label: 'Arms', value: show(reading.armsC, 1), tag: 'sim', state: st8.armsTemp },
-            { label: 'Legs', value: show(reading.legsC, 1), tag: 'sim', state: st8.legsTemp },
-          ],
-        },
-        { label: 'Battery', value: show(reading.battery, 0), unit: '%', tag: batteryNote, state: st8.battery, toY: 0.5 },
+      states: z,
+      level,
+      lines: [
+        `VITALS · ${wrong.length ? `${wrong.length} out of range` : 'all in range'}`,
+        `Oxygen ${show(reading.o2, 0)} % · Heart ${show(reading.heart, 0)} bpm · Pressure ${show(reading.pressureKpa, 1)} kPa   (sim)`,
+        `Temp °C · head ${show(reading.headC, 1)} · torso ${show(reading.suitTempC, 1)}${torsoTag} · arms ${show(reading.armsC, 1)} · legs ${show(reading.legsC, 1)}`,
+        wrong.length ? `Check: ${wrong.join(' · ')}` : 'Helmet, torso, arms, legs, pack: nothing to report',
+        `Battery ${show(reading.battery, 0)} % · ${batteryNote}`,
+        'sim = simulated, no sensor. Head, arm and leg temperatures follow the torso sensor.',
       ],
     };
   }
 
-  function drawBody() {
-    const vm = bodyVM();
-    drawSuit(pBody.g, pBody.canvas.width / K.wDeg, vm);
-    pBody.tex.needsUpdate = true;
-    const z = vm.states;
+  function redraw() {
+    const d = describe();
+    // The line to notice is orange as on the map; red when something is critical, quiet when all is well.
+    writeCaption(caption, d.lines, { 3: d.level === 'crit' ? '#ff7a7a' : d.level === 'warn' ? '#f4b575' : '#8fd9a8' });
+    const z = d.states;
     const of = {
       head: worst(z.o2, z.headTemp),
       torso: worst(z.temp, z.heart),
@@ -192,190 +283,66 @@ export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
     };
     for (const [name, p] of Object.entries(figure.parts)) {
       p.state = of[name];
-      p.fill.color.set(colourOf(p.state));
-      p.line.color.set(colourOf(p.state));
+      p.material.uniforms.colour.value.set(colourOf(p.state));
     }
-    bodyDirty = false;
+    dirty = false;
   }
-
-  // ---- the emergency button ----
-  const pSos = makePanel(E.wDeg, E.hDeg);
-  pSos.mesh.visible = false;
-  pSos.mesh.name = 'sos-card';
-  ctx.scene.add(pSos.mesh);
-  const sos = { phase: 'idle', armedUntil: 0, sentAt: null, ack: null, hover: false, pressedUntil: 0, dirty: true, hits: [] };
-
-  function sosVM(now) {
-    const common = { title: 'Emergency', phase: sos.phase, hover: sos.hover, pressed: now < sos.pressedUntil, pulse: 0.5 + 0.5 * Math.sin(now / 160) };
-    if (sos.phase === 'armed') return { ...common, button: 'SEND', lines: ['Pinch again to send', `${Math.max(0, Math.ceil((sos.armedUntil - now) / 1000))} s`] };
-    if (sos.phase === 'sent') {
-      const at = sos.sentAt.toLocaleTimeString('en-GB', { hour12: false });
-      return { ...common, button: 'CANCEL', lines: [`Rescue signal sent ${at}`, sos.ack ?? 'Waiting for the crew…'] };
-    }
-    return { ...common, button: 'SOS', lines: ['Rescue signal', 'Left hand: point and pinch'] };
-  }
-
-  function setRescue(active, ack = null) {
-    sos.phase = active ? 'sent' : 'idle';
-    if (active && !sos.sentAt) sos.sentAt = new Date();
-    if (!active) sos.sentAt = null;
-    sos.ack = active ? ack : null;
-    sos.dirty = true;
-  }
-
-  function send() {
-    setRescue(true);
-    ctx.bus.emit('rescue:signal', { active: true, position, suitTempC: reading.suitTempC, batteryPct: reading.battery });
-    showToast('Rescue signal sent');
-    // No hub to answer (mock mode): play the crew's part here, and say that it is played.
-    if (mock.link) setTimeout(() => sos.phase === 'sent' && setRescue(true, 'Base crew notified (simulated)'), 4000);
-  }
-
-  function cancel() {
-    setRescue(false);
-    ctx.bus.emit('rescue:signal', { active: false, position });
-    showToast('Rescue signal cancelled');
-  }
-
-  function pressSos() {
-    const now = performance.now();
-    sos.pressedUntil = now + HUD.layers.pressFlashMs;
-    sos.dirty = true;
-    if (sos.phase === 'idle') {
-      sos.phase = 'armed';
-      sos.armedUntil = now + E.armMs;
-    } else if (sos.phase === 'armed') send();
-    else cancel();
-  }
-
-  // The hub's word on our own signal (it also tells the other headsets, as an alert).
-  ctx.bus.on('rescue:state', ({ active, acknowledged, by }) => {
-    setRescue(!!active, acknowledged ? `${by ?? 'Crew'} notified` : null);
-  });
-
-  // ---- placing both over the right hand ----
-  const st = { body: { shown: false, lastSeen: 0, moving: false }, sos: { shown: false, lastSeen: 0, moving: false } };
-  let pinned = null; // PC: 'body' | 'sos' shown without a hand
 
   /**
-   * @param right the right XRHand, or null
-   * @param crowded the two wrists are too close for the tracking to be trusted
-   * @param engaged a pointer is on the emergency button
+   * Place the hologram over the right palm for this frame.
+   * @param allowed false when the left hand has the say: the two hands are too close for the
+   *                tracking to be trusted, or the right hand is being used as the pointer
    */
-  function place(frame, now, dt, { right, crowded, engaged }) {
+  function place(frame, allowed) {
     if (pinned) return;
-    const { xrFrame, refSpace } = frame;
-    const wrist = right && xrFrame?.getJointPose?.(right.get('wrist'), refSpace);
-    let palmUp = false;
-    let watch = false;
-    if (crowded) {
-      palmUp = st.body.shown;
-      watch = st.sos.shown;
-    } else if (wrist) {
-      const o = wrist.transform.orientation;
-      const p = wrist.transform.position;
-      quat.set(o.x, o.y, o.z, o.w);
-      back.set(0, 1, 0).applyQuaternion(quat); // the back of the hand faces this way
-      fingers.set(0, 0, -1).applyQuaternion(quat); // the fingers point this way
-      palm.set(p.x, p.y, p.z);
-      const knuckle = xrFrame.getJointPose?.(right.get('middle-finger-phalanx-proximal'), refSpace);
-      if (knuckle) palm.lerp(tmp.set(knuckle.transform.position.x, knuckle.transform.position.y, knuckle.transform.position.z), 0.5);
-      ctx.camera.getWorldPosition(headPos);
-      toHead.subVectors(headPos, palm).normalize();
-      palmUp = back.y < (st.body.shown ? K.palmUpDot + HUD.follow.gestureSlack : K.palmUpDot);
-      // A watch is read with its face to the eyes and the fingers across the body; a hand that
-      // points has its fingers away from the wearer.
-      const slack = st.sos.shown ? 0.2 : 0;
-      const awayFlat = tmp.set(-toHead.x, 0, -toHead.z);
-      const away = awayFlat.lengthSq() > 1e-6 ? fingers.dot(awayFlat.normalize()) : 0;
-      watch = !palmUp && back.dot(toHead) > E.faceDot - slack && away < E.maxAwayDot + slack;
-    }
-    const seen = !!wrist && !crowded;
-
-    if (palmUp && seen) {
-      aim.position.copy(palm);
-      aim.position.y += K.liftM + K.figureM / 2;
-      aim.lookAt(headPos.x, aim.position.y, headPos.z); // upright, turned to the wearer
-    }
-    followMenu(pBody, st.body, palmUp, crowded && st.body.shown, K.scale, now, dt, { handSeen: seen, other: seen && watch });
-
-    if (watch && seen) {
-      aim.position.copy(palm);
-      aim.position.y += E.liftM;
-      aim.lookAt(headPos);
-    }
-    followMenu(pSos, st.sos, watch, engaged || (crowded && st.sos.shown), E.scale, now, dt, { handSeen: seen, other: seen && palmUp });
+    floatOverPalm(root, beam, frame, ctx.camera, palmState, floatState, { holdMs: K.holdMs, followRate: K.followRate, widthM: K.plateM, hand: 'right', allowed });
   }
 
   /** Every frame: turn the figure, let the simulated readings breathe, redraw what changed. */
   let lastWobble = 0;
-  let lastSosDraw = 0;
   function tick(now, dt) {
     if (now - lastWobble > 2000) {
       lastWobble = now;
       const o2 = Math.round(base.o2 + (Math.random() - 0.5) * 0.6);
       const kpa = Number((base.pressureKpa + (Math.random() - 0.5) * 0.08).toFixed(1));
       const heart = Math.round(base.heart + (Math.random() - 0.5) * 5);
-      if (o2 !== reading.o2 || kpa !== reading.pressureKpa || heart !== reading.heart) bodyDirty = true;
+      if (o2 !== reading.o2 || kpa !== reading.pressureKpa || heart !== reading.heart) dirty = true;
       reading.o2 = o2;
       reading.pressureKpa = kpa;
       reading.heart = heart;
     }
-    if (pBody.mesh.visible) {
-      figure.spinner.rotation.y += (dt * Math.PI * 2) / K.turnS;
-      if (bodyDirty) drawBody();
-      // A part in trouble pulses, so it is seen from whichever side the figure shows.
-      const beat = 0.55 + 0.45 * Math.sin(now / 180);
-      for (const p of Object.values(figure.parts)) {
-        p.fill.opacity = p.state === 'crit' ? 0.25 + 0.35 * beat : p.state === 'warn' ? 0.3 : 0.16;
-        p.line.opacity = p.state === 'crit' ? 0.6 + 0.4 * beat : 0.95;
-      }
-    }
-    if (sos.phase === 'armed' && now > sos.armedUntil) {
-      sos.phase = 'idle';
-      sos.dirty = true;
-    }
-    if (pSos.mesh.visible && (sos.dirty || (sos.phase === 'armed' && now - lastSosDraw > 100) || (sos.pressedUntil && now > sos.pressedUntil))) {
-      if (now > sos.pressedUntil) sos.pressedUntil = 0;
-      sos.hits = drawSos(pSos.g, pSos.canvas.width / E.wDeg, sosVM(now));
-      pSos.tex.needsUpdate = true;
-      sos.dirty = false;
-      lastSosDraw = now;
+    if (!root.visible) return;
+    figure.spinner.rotation.y += (dt * Math.PI * 2) / K.turnS;
+    if (dirty) redraw();
+    placeCaption(caption, root, ctx.camera, K.plateM);
+    // A part in trouble pulses, so it is noticed from whichever side the figure shows.
+    const beat = 0.5 + 0.5 * Math.sin(now / 180);
+    for (const p of Object.values(figure.parts)) {
+      p.material.uniforms.time.value = (now / 1000) % 1000;
+      p.material.uniforms.level.value = p.state === 'crit' ? 1.1 + 0.9 * beat : p.state === 'warn' ? 1.35 : 1;
     }
   }
 
   return {
     place,
     tick,
-    /** The emergency button as a pointer target: pressed by the left hand, or a controller. */
-    target: { id: 'sos', panel: pSos, hits: () => sos.hits, press: pressSos, hands: ['left'] },
-    setHover(on) {
-      if (on !== sos.hover) {
-        sos.hover = on;
-        sos.dirty = true;
-      }
-    },
-    get sosShown() {
-      return st.sos.shown;
-    },
-    /** No right hand in view any more (or no hands at all): both go, unless pinned. */
+    /** No right hand in view (or no hands at all): the hologram goes, unless pinned. */
     hide() {
-      if (pinned) return;
-      st.body.shown = st.sos.shown = false;
-      pBody.mesh.visible = pSos.mesh.visible = false;
+      if (!pinned) root.visible = false;
     },
+    /** The headset's battery in percent, or null (for the rescue signal). */
+    battery: () => reading.battery,
     // ---- console and tests ----
-    /** PC: show('body' | 'sos' | null, [x, y, z]) puts one of them in the scene without a hand. */
-    show(which, at = [0.6, 1.4, 0.3]) {
-      pinned = which || null;
-      for (const [name, panel, scale] of [['body', pBody, K.scale], ['sos', pSos, E.scale]]) {
-        panel.mesh.visible = which === name;
-        if (which !== name) continue;
-        panel.mesh.position.fromArray(at);
-        panel.mesh.lookAt(ctx.camera.getWorldPosition(headPos));
-        panel.mesh.scale.setScalar(scale * 3);
-      }
-      bodyDirty = sos.dirty = true;
+    /** PC: show(true, [x, y, z]) puts the hologram in the scene without a hand; show(false) takes it away. */
+    show(on, at = [0.6, 1.2, 0.3]) {
+      pinned = !!on;
+      root.visible = pinned;
+      if (!pinned) return;
+      root.position.fromArray(at);
+      root.quaternion.identity();
+      root.scale.setScalar(3);
+      beam.visible = false;
+      dirty = true;
     },
     /** Set readings by hand: set({ o2: 12, pressureKpa: 24, heart: 160, battery: 9, charging: false, legsC: 36 }). null gives a temperature back to the sensor. */
     set(values) {
@@ -384,7 +351,6 @@ export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
       if (values.heart != null) base.heart = values.heart;
       for (const key of ['headC', 'armsC', 'legsC']) if (values[key] !== undefined) fixed[key] = values[key];
       followTorso();
-      reading.heart = base.heart;
       if (values.battery !== undefined) {
         reading.battery = values.battery;
         batteryNote = 'set by hand';
@@ -392,9 +358,9 @@ export function createSuit(ctx, { makePanel, followMenu, aim, showToast }) {
       if (values.charging !== undefined) reading.charging = values.charging;
       reading.o2 = base.o2;
       reading.pressureKpa = base.pressureKpa;
-      bodyDirty = true;
+      reading.heart = base.heart;
+      dirty = true;
     },
-    press: pressSos,
-    state: () => ({ reading: { ...reading }, states: suitStates(reading, HUD.suit, HUD.suitGauge), sos: { phase: sos.phase, ack: sos.ack }, body: pBody.mesh.visible, sosCard: pSos.mesh.visible }),
+    state: () => ({ reading: { ...reading }, ...describe(), shown: root.visible }),
   };
 }
