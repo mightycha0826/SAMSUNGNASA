@@ -20,6 +20,7 @@
 //     the palm with a beam from the hand, the Mars terrain as its ground and the scanned
 //     structure standing on it, and everything written about it on the caption card that goes
 //     around the map's cylinder. Nothing is written on the map surface.
+//   - What moves on the map (the wearer, the target, the route) floats above its surface.
 //   - "Mark target" (voice or the command menu) sets the target where the wearer stands. Away
 //     from it, the way back is planned around the scanned structure and shown twice: as arrows
 //     on the real floor and as a line on the map. "Navigate" / "Stop" turn the guidance on and
@@ -38,12 +39,17 @@ import { MAP } from '../map/config.js';
 import { sampleHeight } from '../map/terrain.js';
 import { createGridFrame, cellToWorld, worldToCell } from '../nav/coordinates.js';
 import { planPath } from './planner.js';
+import { createGuide, makeRibbon, GUIDE } from './guide.js';
 
 const q = new URLSearchParams(location.search);
 
 export const WALK = {
-  /** Mars mode: one real metre moves the map marker this many metres */
+  /** Mars mode: one real metre moves the map marker at most this many metres. Without
+   *  ?walkScale= the scale is set for each route so that it is routeRoomM of real walking
+   *  (fitRoute): a 20 m route and a 390 m route are both a few steps across the room. */
   marsScale: Number(q.get('walkScale')) || 100,
+  scaleFixed: q.has('walkScale'),
+  routeRoomM: 3,
   /** Which waypoint the wearer stands on when the session starts */
   startAt: q.get('fieldAt') || 'base',
   emitMs: 200,
@@ -60,15 +66,16 @@ export const FIELD = {
   showRouteBeyondM: 1.0, // the route appears once the wearer is this far from the target
   arrivedM: 0.5,
   replanMs: 500,
-  arrowEveryM: 0.4,
-  maxArrows: 160,
+  markerLiftM: 0.014, // the wearer's arrow and the target float this far above the map's surface (m on the map)
 };
 
 let ctx;
 let group; // everything this module draws in the room
-let arrows;
-let beacon;
-let beaconLabel;
+let fx; // guidance in the room: the path on the floor and the marker at its end (guide.js)
+let marsScale = WALK.marsScale; // Mars mode: map metres per real metre, as it is now (fitRoute)
+let marsRoute = null; // Mars mode: the planned route, { points: [[x, z] map metres], targetId, distanceM }
+let fitNext = false; // the next Mars route is a new request: set the scale for it
+let lastMarsLay = 0;
 let palmMap; // { root, surface, canvas, g, tex, caption, beam, mask }
 const floatState = { shownSince: null };
 let topo = null; // Float32Array of the Mars terrain heights (layers:ready grids.topo)
@@ -98,83 +105,91 @@ const v = new THREE.Vector3();
 const dummy = new THREE.Object3D();
 
 // ---------- scene objects ----------
-function makeArrows() {
-  // A chevron lying on the floor, pointing along -z before it is rotated.
-  const s = new THREE.Shape();
-  s.moveTo(0, 0.11);
-  s.lineTo(0.13, -0.05);
-  s.lineTo(0.13, -0.11);
-  s.lineTo(0, 0.05);
-  s.lineTo(-0.13, -0.11);
-  s.lineTo(-0.13, -0.05);
-  s.closePath();
-  const geometry = new THREE.ShapeGeometry(s);
-  geometry.rotateX(-Math.PI / 2); // shape +y -> world -z
-  const material = new THREE.MeshBasicMaterial({ color: 0x8e9dff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide });
-  const mesh = new THREE.InstancedMesh(geometry, material, FIELD.maxArrows);
-  mesh.name = 'field-arrows';
-  mesh.count = 0;
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 20;
-  return mesh;
-}
+// What moves on the map floats above it as objects of its own: the wearer's arrow, the target,
+// the route. Painted into the map's picture they were draped over the relief like a slide
+// projected onto a hand: half on a wall's top, half on the floor beside it.
+function makeMapMarkers(root) {
+  const flat = (material) => Object.assign(material, { depthTest: false, transparent: true });
+  // The wearer: an arrowhead pointing where they face (north on the map is -z), with a dark rim.
+  const head_ = new THREE.Shape();
+  head_.moveTo(0, 0.0085);
+  head_.lineTo(0.006, -0.0065);
+  head_.lineTo(0, -0.003);
+  head_.lineTo(-0.006, -0.0065);
+  head_.closePath();
+  const arrowShape = new THREE.ShapeGeometry(head_).rotateX(-Math.PI / 2);
+  const you = new THREE.Group();
+  you.name = 'field-map-you';
+  const rim = new THREE.Mesh(arrowShape, flat(new THREE.MeshBasicMaterial({ color: 0x0b0d10, side: THREE.DoubleSide })));
+  rim.scale.setScalar(1.3);
+  rim.position.y = -0.0003;
+  const body = new THREE.Mesh(arrowShape, flat(new THREE.MeshBasicMaterial({ color: 0x5bdbba, side: THREE.DoubleSide })));
+  const youStem = new THREE.Mesh(new THREE.CylinderGeometry(0.0004, 0.0004, 1, 6).translate(0, -0.5, 0), flat(new THREE.MeshBasicMaterial({ color: 0x5bdbba, opacity: 0.7 })));
+  you.add(rim, body, youStem);
 
-function makeBeacon() {
-  const g = new THREE.Group();
-  g.name = 'field-target';
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.22, 0.3, 40).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0xf27a0a, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }),
-  );
-  ring.position.y = 0.012;
-  const dot = new THREE.Mesh(
-    new THREE.CircleGeometry(0.06, 24).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0xf27a0a, transparent: true, depthTest: false, side: THREE.DoubleSide }),
-  );
-  dot.position.y = 0.012;
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.02, 0.02, 1.5, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xf27a0a, transparent: true, opacity: 0.45, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
-  );
-  pillar.position.y = 0.75;
-  for (const m of [ring, dot, pillar]) {
-    m.renderOrder = 21;
-    g.add(m);
+  // The target: a diamond on a stem, the colour of the marker in the room.
+  const goal = new THREE.Group();
+  goal.name = 'field-map-target';
+  const gemShape = new THREE.OctahedronGeometry(0.0055).scale(0.75, 1.2, 0.75);
+  const gem = new THREE.Mesh(gemShape, flat(new THREE.MeshBasicMaterial({ color: GUIDE.target })));
+  const gemRim = new THREE.LineSegments(new THREE.EdgesGeometry(gemShape), flat(new THREE.LineBasicMaterial({ color: 0xffffff })));
+  const goalStem = new THREE.Mesh(new THREE.CylinderGeometry(0.0004, 0.0004, 1, 6).translate(0, -0.5, 0), flat(new THREE.MeshBasicMaterial({ color: GUIDE.target, opacity: 0.8 })));
+  goal.add(gem, gemRim, goalStem);
+
+  // The route: a band just above the surface, rising and falling with it.
+  const route_ = makeRibbon(96, flat(new THREE.MeshBasicMaterial({ color: GUIDE.path, opacity: 0.95, side: THREE.DoubleSide })));
+  route_.mesh.name = 'field-map-route';
+
+  for (const [object, order] of [[route_.mesh, 21], [goal, 23], [you, 24]]) {
+    object.traverse((o) => {
+      o.renderOrder = order;
+      o.frustumCulled = false;
+    });
+    object.visible = false;
+    root.add(object);
   }
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  beaconLabel = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-  beaconLabel.scale.set(0.5, 0.125, 1);
-  beaconLabel.position.y = 1.62;
-  beaconLabel.renderOrder = 22;
-  beaconLabel.userData = { canvas, tex, text: '' };
-  g.add(beaconLabel);
-  g.visible = false;
-  return g;
+  return { you, youStem, goal, goalStem, route: route_ };
 }
 
-function setBeaconLabel(text) {
-  const u = beaconLabel.userData;
-  if (u.text === text) return;
-  u.text = text;
-  const g = u.canvas.getContext('2d');
-  g.clearRect(0, 0, 512, 128);
-  g.fillStyle = 'rgba(20, 24, 32, 0.9)';
-  g.beginPath();
-  g.roundRect(4, 14, 504, 100, 30);
-  g.fill();
-  g.strokeStyle = '#f27a0a';
-  g.lineWidth = 5;
-  g.stroke();
-  g.fillStyle = '#ffffff';
-  g.font = '700 56px "Atkinson Hyperlegible", system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 256, 66);
-  u.tex.needsUpdate = true;
+/** Put the floating markers where they belong on the map as it is drawn now. Every frame while the map shows. */
+function placeMapMarkers() {
+  const { you, youStem, goal, goalStem, route: band } = palmMap.markers;
+  const centre = palmMap.centre;
+  if (!centre) return;
+  const perRoomM = FIELD.mapM / FIELD.spanM;
+  const edge = FIELD.mapM / 2 - 0.006;
+  const lift = FIELD.markerLiftM;
+  // Room position -> map position, kept inside the map, and the surface's height there.
+  const onMap = (x, z) => {
+    const mx = Math.max(-edge, Math.min(edge, (x - centre[0]) * perRoomM));
+    const mz = Math.max(-edge, Math.min(edge, (z - centre[1]) * perRoomM));
+    const y = surfaceY(mx, mz);
+    return [mx, Number.isFinite(y) ? y : 0, mz];
+  };
+
+  const [hx, hy, hz] = onMap(head.x, head.z);
+  you.visible = true;
+  you.position.set(hx, hy + lift, hz);
+  you.rotation.y = -heading;
+  youStem.scale.y = lift;
+
+  goal.visible = !!target;
+  if (target) {
+    const [tx, ty, tz] = onMap(target.x, target.z);
+    goal.position.set(tx, ty + lift + 0.006, tz);
+    goal.rotation.y = performance.now() / 900;
+    goalStem.scale.y = lift + 0.006;
+    goalStem.rotation.y = -goal.rotation.y;
+  }
+
+  const shown = guiding && route.points.length > 1;
+  band.mesh.visible = shown;
+  if (shown) {
+    band.set(route.points.map(([x, z]) => {
+      const [mx, my, mz] = onMap(x, z);
+      return [mx, my + lift * 0.45, mz];
+    }), 0.0024);
+  }
 }
 
 function makePalmMap() {
@@ -197,7 +212,7 @@ function makePalmMap() {
   beam.visible = false;
   root.add(surface, beam);
   const caption = makeCaption(root, 'field-map-caption');
-  return { root, surface, canvas, g: canvas.getContext('2d'), tex, caption, beam, mask: new Uint8Array((N + 1) * (N + 1)) };
+  return { root, surface, canvas, g: canvas.getContext('2d'), tex, caption, beam, mask: new Uint8Array((N + 1) * (N + 1)), markers: makeMapMarkers(root) };
 }
 
 // ---------- map drawing ----------
@@ -270,52 +285,7 @@ function drawPalmMap() {
     g.drawImage(gridCanvas, gx, gz, grid.cols * grid.cellSizeM * k, grid.rows * grid.cellSizeM * k);
   }
 
-  // 3. Route and target.
-  if (guiding && route.points.length > 1) {
-    g.strokeStyle = '#8e9dff';
-    g.lineWidth = 7;
-    g.lineJoin = g.lineCap = 'round';
-    g.beginPath();
-    route.points.forEach(([x, z], i) => {
-      const [px, pz] = toPx(x, z);
-      if (i) g.lineTo(px, pz);
-      else g.moveTo(px, pz);
-    });
-    g.stroke();
-  }
-  if (target) {
-    const [tx, tz] = toPx(target.x, target.z);
-    const px = Math.max(16, Math.min(W - 16, tx));
-    const pz = Math.max(16, Math.min(W - 16, tz));
-    g.fillStyle = '#f27a0a';
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(px, pz - 15);
-    g.lineTo(px + 13, pz);
-    g.lineTo(px, pz + 15);
-    g.lineTo(px - 13, pz);
-    g.closePath();
-    g.fill();
-    g.stroke();
-  }
-
-  // 4. The wearer: always in the middle, pointing where they face.
-  g.save();
-  g.translate(W / 2, W / 2);
-  g.rotate(heading);
-  g.fillStyle = '#5bdbba';
-  g.strokeStyle = '#0b0d10';
-  g.lineWidth = 3;
-  g.beginPath();
-  g.moveTo(0, -17);
-  g.lineTo(12, 13);
-  g.lineTo(0, 6);
-  g.lineTo(-12, 13);
-  g.closePath();
-  g.fill();
-  g.stroke();
-  g.restore();
+  // The route, the target and the wearer are not painted here: they float above the map (makeMapMarkers).
 
   g.restore();
   tex.needsUpdate = true;
@@ -428,8 +398,7 @@ function markTarget() {
   }
   target = new THREE.Vector3(head.x, 0, head.z);
   guiding = true;
-  beacon.position.copy(target);
-  beacon.visible = true;
+  fx.target(target);
   lastPlan = 0;
   say('Target marked.');
 }
@@ -438,8 +407,7 @@ function markTarget() {
 function setTargetAt(x, z) {
   target = new THREE.Vector3(x, 0, z);
   guiding = true;
-  beacon.position.copy(target);
-  beacon.visible = true;
+  fx.target(target);
   lastPlan = 0;
   say('Target set.');
 }
@@ -548,8 +516,8 @@ export function showFieldPick(room) {
 function clearTarget() {
   target = null;
   guiding = false;
-  beacon.visible = false;
-  arrows.count = 0;
+  fx.target(null);
+  fx.clear();
   route = { points: [], distanceM: 0, blocked: false };
   publishRoute('cancelled', performance.now(), true);
 }
@@ -565,50 +533,18 @@ function onVoice({ intent }) {
     }
   } else if (intent === 'nav.stop') {
     guiding = false;
-    arrows.count = 0;
+    fx.clear();
     publishRoute('cancelled', performance.now(), true);
   }
-}
-
-function layArrows(now) {
-  const pts = route.points;
-  let n = 0;
-  if (guiding && pts.length > 1) {
-    // Walk along the path and drop a chevron every arrowEveryM, starting a step ahead.
-    let carried = FIELD.arrowEveryM * 0.8;
-    const phase = ((now / 1000) * 1.2) % 1; // a slow ripple toward the target
-    for (let i = 1; i < pts.length && n < FIELD.maxArrows; i++) {
-      const [ax, az] = pts[i - 1];
-      const [bx, bz] = pts[i];
-      const len = Math.hypot(bx - ax, bz - az);
-      if (len < 1e-4) continue;
-      const yaw = Math.atan2(-(bx - ax), -(bz - az)); // rotation about +y that turns -z toward the step
-      let d = carried;
-      while (d < len && n < FIELD.maxArrows) {
-        const t = d / len;
-        dummy.position.set(ax + (bx - ax) * t, 0.015, az + (bz - az) * t);
-        dummy.rotation.set(0, yaw, 0);
-        const pulse = 0.85 + 0.25 * Math.max(0, Math.sin((n * 0.35 - phase) * Math.PI * 2));
-        dummy.scale.setScalar(pulse);
-        dummy.updateMatrix();
-        arrows.setMatrixAt(n++, dummy.matrix);
-        d += FIELD.arrowEveryM;
-      }
-      carried = d - len;
-    }
-  }
-  arrows.count = n;
-  arrows.instanceMatrix.needsUpdate = true;
 }
 
 function guide(now) {
   if (!target) return;
   const dist = Math.hypot(target.x - head.x, target.z - head.z);
-  setBeaconLabel(`TARGET · ${dist.toFixed(1)} m`);
-  beaconLabel.visible = dist > 0.8;
+  fx.label('Target', `${dist.toFixed(1)} m`, dist <= 0.8);
   if (!guiding) return;
   if (dist < FIELD.arrivedM) {
-    arrows.count = 0;
+    fx.clear();
     if (lastStatus === 'ok') {
       publishRoute('arrived', now, true);
       say('You have arrived at the target.');
@@ -620,7 +556,7 @@ function guide(now) {
     lastPlan = now;
     route = planPath(grid, [head.x, head.z], [target.x, target.z]);
     if (route.blocked) {
-      arrows.count = 0;
+      fx.clear();
       if (lastStatus !== 'blocked') say('No clear way to the target.');
       publishRoute('blocked', now);
       return;
@@ -628,7 +564,58 @@ function guide(now) {
     if (lastStatus !== 'ok') say(`Target is ${Math.max(1, Math.round(dist))} metres away. Follow the arrows.`);
     publishRoute('ok', now);
   }
-  layArrows(now);
+  fx.lay(route.points);
+}
+
+// ---------- Mars mode: the planned route on the real floor ----------
+// The route D plans on the Mars map (slope and terrain only: the room's furniture plays no part)
+// is laid on the floor the same way as in field mode. One real metre stands for marsScale
+// metres on Mars; the scale is set for each new route so that it is a few steps long.
+
+/**
+ * Set the scale so that a route of `distanceM` is WALK.routeRoomM of real walking (at most
+ * WALK.marsScale to one). The wearer's place on Mars stays where it is: tracking is anchored
+ * again at this spot.
+ */
+function fitRoute(distanceM) {
+  if (WALK.scaleFixed || !haveHead || !anchorMap || !(distanceM > 0)) return;
+  const next = Math.max(1, Math.min(WALK.marsScale, distanceM / WALK.routeRoomM));
+  if (Math.abs(next - marsScale) < marsScale * 0.05) return;
+  anchorMap = [anchorMap[0] + (head.x - headStart.x) * marsScale, 0, anchorMap[2] + (head.z - headStart.z) * marsScale];
+  headStart.copy(head);
+  marsScale = next;
+  console.info('[field] Mars walking scale: 1 m here is', marsScale.toFixed(1), 'm on Mars');
+}
+
+function onMarsRoute({ status, targetId, points, distanceM, frame }) {
+  if (frame === 'room' || mode.current !== 'mars') return;
+  if (status === 'ok' && points?.length > 1) {
+    if (fitNext) {
+      fitNext = false;
+      fitRoute(distanceM);
+    }
+    marsRoute = { points: points.map((q_) => [q_[0], q_[2]]), targetId, distanceM };
+    return;
+  }
+  marsRoute = null;
+  fx.clear();
+  if (status !== 'arrived') fx.target(null); // on arrival the marker stays, at the wearer's feet
+}
+
+/** Mars map metres -> where that is in the room, at the scale in use. */
+const marsToRoom = ([x, z]) => [headStart.x + (x - anchorMap[0]) / marsScale, headStart.z + (z - anchorMap[2]) / marsScale];
+
+function layMarsRoute(now) {
+  if (!marsRoute || !haveHead || !anchorMap || now - lastMarsLay < 100) return;
+  lastMarsLay = now;
+  const pts = marsRoute.points.map(marsToRoom);
+  pts[0] = [head.x, head.z]; // the route starts where the wearer is
+  fx.lay(pts);
+  const [ex, ez] = pts[pts.length - 1];
+  fx.target({ x: ex, z: ez });
+  const wp = layerSet?.waypoints?.find((w) => w.id === marsRoute.targetId);
+  const name = String(wp?.labelEn ?? wp?.label ?? marsRoute.targetId ?? 'Destination').split(' · ')[0];
+  fx.label(name, `${Math.round(marsRoute.distanceM)} m`, Math.hypot(ex - head.x, ez - head.z) <= 0.8);
 }
 
 // ---------- position ----------
@@ -657,7 +644,7 @@ function startTracking() {
 function emitPosition(now) {
   if (!anchorMap || now - lastEmitPos < WALK.emitMs) return;
   lastEmitPos = now;
-  const s = mode.current === 'field' ? 1 : WALK.marsScale;
+  const s = mode.current === 'field' ? 1 : marsScale;
   ctx.bus.emit('nav:position', {
     point: [anchorMap[0] + (head.x - headStart.x) * s, 0, anchorMap[2] + (head.z - headStart.z) * s],
     source: 'headset',
@@ -689,11 +676,10 @@ export function init(context) {
   ctx = context;
   group = new THREE.Group();
   group.name = 'field';
-  arrows = makeArrows();
-  beacon = makeBeacon();
+  fx = createGuide();
   palmMap = makePalmMap();
-  group.add(arrows, beacon, palmMap.root);
-  ctx.scene.add(group);
+  group.add(palmMap.root);
+  ctx.scene.add(group, fx.group); // the guidance is shown in both modes, the rest in field mode only
 
   ctx.bus.on('layers:ready', ({ layerSet: ls, grids }) => {
     layerSet = ls;
@@ -719,15 +705,23 @@ export function init(context) {
     lastPlan = 0; // the structure changed: plan again
   });
   ctx.bus.on('voice:command', onVoice);
+  ctx.bus.on('nav:route', onMarsRoute);
+  ctx.bus.on('nav:request', () => {
+    fitNext = true;
+  });
   ctx.bus.on('field:target', ({ point }) => mode.current === 'field' && setTargetAt(point[0], point[1]));
   ctx.bus.on('app:mode', () => {
     if (mode.current !== 'field') clearTarget();
+    marsRoute = null;
+    marsScale = WALK.marsScale;
   });
   ctx.xr.onSessionStart(() => {
     haveHead = false; // the room frame starts over with the session
     floatState.shownSince = null;
     palmMap.root.visible = false;
     clearTarget();
+    marsRoute = null;
+    marsScale = WALK.marsScale;
   });
 
   // PC testing without a headset: __field.walk(x, z, headingDeg), __field.mark(), __field.state()
@@ -739,7 +733,7 @@ export function init(context) {
     },
     mark: markTarget,
     clear: clearTarget,
-    state: () => ({ mode: mode.current, head: [head.x, head.z], target: target && [target.x, target.z], guiding, status: lastStatus, route: route.points.length, distanceM: route.distanceM, arrows: arrows.count }),
+    state: () => ({ mode: mode.current, head: [head.x, head.z], target: target && [target.x, target.z], guiding, status: lastStatus, route: route.points.length, distanceM: route.distanceM, arrows: fx.arrows, targetShown: fx.targetShown, marsScale, marsRoute: marsRoute && { targetId: marsRoute.targetId, distanceM: marsRoute.distanceM, points: marsRoute.points.length } }),
     /** The map as drawn: caption text, how many surface vertices stand on structure, the tallest point (m on the map). */
     map: () => {
       const y = palmMap.surface.geometry.attributes.position;
@@ -765,9 +759,13 @@ export function update(frame) {
   if (!tracked) haveHead = haveHead && !!simulated;
   if (haveHead) emitPosition(now);
 
+  fx.tick(now);
   const field = mode.current === 'field';
   group.visible = field;
-  if (!field) return;
+  if (!field) {
+    layMarsRoute(now); // Mars mode: the route D planned, on the floor
+    return;
+  }
 
   // In field mode the palm shows the field map, so the whole-Mars map steps aside.
   const mars = ctx.scene.getObjectByName('palm-map');
@@ -781,4 +779,5 @@ export function update(frame) {
     updateRelief();
     writeFieldCaption();
   }
+  if (palmMap.root.visible) placeMapMarkers();
 }

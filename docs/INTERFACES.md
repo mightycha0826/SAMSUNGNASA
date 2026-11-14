@@ -222,7 +222,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `layers:ready` | B (core) | D, F | Once, when `layerset.json` and the files are loaded |
 | `layer:toggle` | F, B (from voice) | D | A layer is turned on or off |
 | `env:update` | B (core) | F | The next `env.json` sample is replayed |
-| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second). An obstacle stays in it until clear floor is seen where it stood |
+| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second). The grid is a window of 256 × 256 cells that moves with the wearer in steps of a tile (6.4 m): **read `originXZ` from every event**. An obstacle stays in it until clear floor is seen where it stood, or the wearer walks there |
 | `nav:request` | F, B (from voice) | D | A route is requested |
 | `nav:route` | D | F | A route was computed |
 | `telemetry:update` | B (from the Jetson) | F | Suit temperature arrives (once a second) |
@@ -232,12 +232,12 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `voice:say` | All modules | B (to the Jetson) | Something should be said aloud |
 | `mode:change` | F | All modules | The display mode changes |
 | `app:mode` | B (core) | All modules | The wearer chose the Mars map or the field map on the start page |
-| `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second) |
+| `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second). `scale` says how many map metres one real metre is: 1 on the field map; on the Mars map it is set for each route so that the route is about 3 m of walking |
 | `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu above the back of the hand |
 | `voice:text` | F | B (to the Jetson) | A command was picked from that menu; it runs like a spoken one |
-| `map:store` | A | B (to the Jetson) | The field map changed (at most every 2 s): `{ run, originXZ, cellSizeM, cols, rows, runs, source, stats }`. `runs` is the cells as `[value, count, ...]` |
+| `map:store` | A | B (to the Jetson) | Tiles of the field map changed (at most every 2 s): `{ run, cellSizeM, tileCells: 64, tiles: [{ x, z, runs }], source, stats }`. A tile is 64 × 64 cells; tile (x, z) starts at room position (x, z) × 6.4 m; `runs` is its cells as `[value, count, ...]` |
 | `map:request` | A | B (to the Jetson) | A session started or the room coordinates were reset: ask the hub for the map it stored last |
-| `map:stored` | B (from the Jetson) | A | The hub's last stored map, same fields as `map:store` plus `savedAt` |
+| `map:stored` | B (from the Jetson) | A | The hub's newest run: `{ run, cellSizeM, tileCells, tiles: [{ x, z, runs }], startedAt, savedAt, updates }` |
 | `rescue:signal` | F (`hud/rescue.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
 | `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
 | `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }` on the Mars map, `{ room: [x, z] }` on the field map; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
@@ -387,7 +387,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B prepares playback) |
 | (binary) | 16-bit PCM, mono | (B plays it) |
 | `tts.end` | `{}` | (B ends playback) |
-| `map.stored` | the fields of `map.store` plus `startedAt`, `savedAt`, `updates` | `map:stored`. The answer to `map.request`; nothing is sent when no map is stored |
+| `map.stored` | `{ run, cellSizeM, tileCells, tiles: [{ x, z, runs }], startedAt, savedAt, updates }` | `map:stored`. The answer to `map.request`: every tile of the newest run; nothing is sent when no map is stored |
 | `rescue.state` | `{ "active": true, "from", "at", "position", "acknowledged": false, "by": null }` | `rescue:state`. To the headset that sent the signal. The other headsets get `alert.raise` `{ "id": "crew-rescue", "level": "warn", "message": "Rescue signal from a crew member" }` and `alert.clear` when it is cancelled |
 
 ### Headset → Jetson
@@ -403,7 +403,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `client.log` | `{ "kind": "error", "message": "..." }` | Headset diagnostics: errors, AR session events, a position heartbeat every 5 s. Written to `jetson/logs/headset.log` |
 | `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
 | `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
-| `map.store` | `{ "run": "abc-0", "originXZ": [-8, -8], "cellSizeM": 0.1, "cols": 160, "rows": 160, "runs": [255, 25300, 1, 100, 0, 200], "source": "room-scan+depth", "stats": {} }` | The field map changed, at most every 2 s. The hub writes it to `jetson/maps/field-<time>-<run>.json` (one file per run, replaced whole). A run is one stretch in one set of room coordinates |
+| `map.store` | `{ "run": "abc-0", "cellSizeM": 0.1, "tileCells": 64, "tiles": [{ "x": -1, "z": 0, "runs": [255, 3996, 1, 100] }], "source": "room-scan+depth", "stats": {} }` | Tiles of the field map that changed, at most every 2 s. The hub keeps one file per run (`jetson/maps/field-<time>-<run>.json`) with every tile the run has sent; a later tile replaces an earlier one. A run is one stretch in one set of room coordinates. At most 4096 tiles a run |
 | `map.request` | `{}` | After connecting, and when a session starts or the room coordinates are reset |
 | `rescue.signal` | `{ "active": true, "position": [12.0, -3.5], "suitTempC": 24.5, "batteryPct": 76 }` | The emergency button. `"active": false` withdraws it. The crew is virtual: the hub acknowledges after 5 s and marks the acknowledgement as simulated |
 
