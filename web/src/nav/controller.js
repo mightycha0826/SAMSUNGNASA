@@ -17,6 +17,8 @@ export class Navigation {
     const on = (name, fn) => this.off.push(bus.on(name, fn));
     on('layers:ready', data => this.load(data));
     on('nav:request', ({ targetId }) => this.request(targetId));
+    // The wearer's position in map metres, from the headset's tracking (field/index.js).
+    on('nav:position', ({ point }) => this.setPosition(point));
     on('hazard:update', h => this.updateHazard(h));
     on('voice:command', ({ intent }) => { if (intent === 'nav.stop') this.cancel(); });
     on('alert:raise', ({ id, level }) => {

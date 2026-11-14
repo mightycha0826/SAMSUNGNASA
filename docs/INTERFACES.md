@@ -231,6 +231,10 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `voice:command` | B (from the Jetson) | All modules | A voice command was understood |
 | `voice:say` | All modules | B (to the Jetson) | Something should be said aloud |
 | `mode:change` | F | All modules | The display mode changes |
+| `app:mode` | B (core) | All modules | The wearer chose the Mars map or the field map on the start page |
+| `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second) |
+| `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu over the back of the hand |
+| `voice:text` | F | B (to the Jetson) | A command was picked from that menu; it runs like a spoken one |
 
 ### Payload formats and mock data
 
@@ -263,6 +267,8 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 ```
 `cells` values: `0` passable, `1` obstacle, `255` unknown. The index is `row * cols + col`; `originXZ` is the room coordinate of cell `[0, 0]`.
 
+The real scan (`web/src/scan/`) sends a 16 m × 16 m grid (160 × 160 cells) built from the room geometry the headset keeps (WebXR `mesh-detection` and `plane-detection`), with two extra fields: `"source": "room-scan"` and `"stats": { "meshes", "planes", "obstacles", "floor" }`. It is the room as last scanned by the headset, not live depth.
+
 **`nav:request`**
 ```json
 { "targetId": "site1" }
@@ -281,6 +287,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 - `status`: `ok`, `blocked` (no path), `arrived`, `cancelled`
 - `points`: room coordinates where the floor arrows go
 - `distanceM`: remaining distance in the room
+- In field mode the route to the marked target is sent with `"targetId": "mark"` and `"frame": "room"`. D's own routes are in map metres and carry no `frame`.
 
 **`telemetry:update`**
 ```json
@@ -314,6 +321,29 @@ The `intent` list is in [section 6](#6-voice-commands).
 ```
 `priority`: `normal` or `urgent` (interrupts what is being said)
 
+**`app:mode`**
+```json
+{ "mode": "field" }
+```
+`mode`: `mars` (NASA map on the palm, route between base and survey site) or `field` (the room scan rewrites the map around the wearer; "Mark target" and arrows on the floor). `import { mode } from '../core/mode.js'` gives the current value.
+
+**`nav:position`** — where the wearer is, in D's map metre frame (`web/src/nav/coordinates.js`)
+```json
+{ "point": [-36.0, 0, 404.0], "source": "headset", "scale": 100 }
+```
+The session starts on the `base` waypoint. In Mars mode one real metre moves the point `scale` metres (100 by default, `?walkScale=`), so that crossing a room crosses a visible part of the 2 km map; in field mode `scale` is 1.
+
+**`voice:commands`**
+```json
+{ "commands": [{ "say": "Status", "intent": "status.report", "slots": {} }] }
+```
+
+**`voice:text`**
+```json
+{ "text": "Status", "intent": "status.report", "slots": {} }
+```
+B sends the text to the hub, which treats it as speech. Without a hub, B emits `voice:command` from `intent` and `slots` directly.
+
 **`mode:change`**
 ```json
 { "mode": "emergency" }
@@ -342,6 +372,7 @@ The `intent` list is in [section 6](#6-voice-commands).
 | `alert.raise` | `{ "id": "suit-temp", "level": "critical", "message": "..." }` | `alert:raise` |
 | `alert.clear` | `{ "id": "suit-temp" }` | `alert:clear` |
 | `voice.command` | `{ "intent": "...", "slots": {}, "text": "..." }` | `voice:command` |
+| `voice.commands` | `{ "commands": [{ "say", "intent", "slots" }] }` | `voice:commands`. Sent after `hello` and whenever `commands.json` changes |
 | `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B prepares playback) |
 | (binary) | 16-bit PCM, mono | (B plays it) |
 | `tts.end` | `{}` | (B ends playback) |
@@ -355,6 +386,8 @@ The `intent` list is in [section 6](#6-voice-commands).
 | (binary) | 16-bit PCM, mono, 16 kHz | Continuously. The hub finds the utterances itself (voice activity detection) and ignores the microphone while it is speaking |
 | `mic.end` | `{}` | Microphone stream ends. Without `"stream": true` in `mic.begin`, everything between `mic.begin` and `mic.end` is one utterance |
 | `voice.status` | `{ "mic": "on", "audio": "running", "inputRate": 48000, "level": 0.02 }` | When the microphone or audio state changes, and every 10 s. Shows in the hub log why a headset is silent |
+| `voice.text` | `{ "text": "Status" }` | A command picked from the headset's menu. The hub handles it exactly like recognized speech |
+| `client.log` | `{ "kind": "error", "message": "..." }` | Headset diagnostics: errors, AR session events, a position heartbeat every 5 s. Written to `jetson/logs/headset.log` |
 | `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
 | `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
 
@@ -399,6 +432,8 @@ E's hub turns speech into one of the `intent` values below. Speech is English. A
 | `nav.stop` | `{}` | "Stop" | "Stop navigation" | D |
 | `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle` |
 | `layer.hide` | `{ "id": "thermal" }` | "Thermal off" | "Hide the thermal map" | B → `layer:toggle` |
+| `nav.mark` | `{}` | "Mark target" | "Set target", "Mark here" | field (field mode): the target is where the wearer stands |
+| `nav.clear` | `{}` | "Clear target" | | field |
 | `alert.ack` | `{}` | "Confirm" | "Acknowledge alert" | F |
 | `mode.set` | `{ "mode": "night" }` | "Night mode" (P2) | | F |
 

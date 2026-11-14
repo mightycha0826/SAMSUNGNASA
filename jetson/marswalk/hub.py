@@ -50,6 +50,7 @@ class Hub:
         self.say_epoch = 0          # bumped by every urgent utterance
         self.mute_until = 0.0       # monotonic time until which microphones are ignored
         self.heard_log = (JETSON_DIR / "logs" / "heard.log")
+        self.menu_version = -1      # command menu version last sent to the headsets
         self.state = {"mode": "normal", "navStatus": None, "targetId": None}
         self.active_alerts: dict[str, dict] = {}
         self.tts_lock = asyncio.Lock()
@@ -75,6 +76,11 @@ class Hub:
         while True:
             r = self.suit.reading()
             await self.broadcast("telemetry", r)
+            # commands.json changed: give the headsets the new menu
+            version, menu = intents.menu()
+            if version != self.menu_version:
+                self.menu_version = version
+                await self.broadcast("voice.commands", {"commands": menu})
             for type_, payload in self.alert.update(r["suitTempC"]):
                 log.info("%s %s", type_, payload)
                 if type_ == "alert.raise":
@@ -143,6 +149,16 @@ class Hub:
         except OSError:
             pass
 
+    def _note_client(self, peer, kind: str, p: dict):
+        """Headset diagnostics (errors, AR session events, a position heartbeat) in logs/headset.log."""
+        try:
+            path = JETSON_DIR / "logs" / "headset.log"
+            path.parent.mkdir(exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%H:%M:%S')}\t{peer}\t{kind}\t{json.dumps(p, ensure_ascii=False)}\n")
+        except OSError:
+            pass
+
     async def handle_utterance(self, samples, rate: int):
         try:
             text = await asyncio.to_thread(self.stt.transcribe, samples, rate)
@@ -193,6 +209,7 @@ class Hub:
 
                 if type_ == "hello":
                     log.info("hello from %s: %s", peer, p)
+                    await ws.send_str(envelope("voice.commands", {"commands": intents.menu()[1]}))
                 elif type_ == "mic.begin":
                     mic_rate = int(p.get("sampleRate", 16000))
                     if p.get("stream"):
@@ -217,6 +234,14 @@ class Hub:
                         audio = bytes(mic_buf)
                         mic_buf.clear()
                         await self.handle_utterance(audio, mic_rate)
+                elif type_ == "voice.text":
+                    # A command picked from the headset's menu: same path as a spoken one.
+                    asyncio.create_task(self.handle_text_command(str(p.get("text", ""))))
+                elif type_ == "client.log":
+                    kind = p.pop("kind", "?")
+                    (log.debug if kind == "beat" else log.warning if kind in
+                     ("error", "rejection", "console.error") else log.info)("headset %s [%s] %s", peer, kind, p)
+                    self._note_client(peer, kind, p)
                 elif type_ == "voice.status":
                     log.info("voice status from %s: %s", peer, p)
                 elif type_ == "voice.say":

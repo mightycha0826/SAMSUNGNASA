@@ -8,14 +8,18 @@ import { loadData, assetUrl } from './core/loader.js';
 import { initLink } from './core/link.js';
 import { initDebug } from './core/debug.js';
 import { initRadiation } from './core/radiation.js';
+import { mode, setMode } from './core/mode.js';
+import { diagFrame } from './core/diag.js';
 import { MOCK_KEYS_HELP } from './mock/jetson.js';
 
 import * as scan from './scan/index.js';
 import * as map from './map/index.js';
 import * as nav from './nav/index.js';
 import * as hud from './hud/index.js';
+import * as field from './field/index.js';
 
-const MODULES = { scan, map, nav, hud };
+// Order matters: field runs after map (it hides the whole-Mars map in field mode).
+const MODULES = { scan, map, nav, hud, field };
 
 async function main() {
   const debugEl = document.getElementById('debug');
@@ -26,6 +30,29 @@ async function main() {
     container: document.getElementById('app'),
     button: document.getElementById('xr-button'),
   });
+  // Two ways in: the Mars map (the main button) or the field map (scan the room, mark a target).
+  // ?mode=field starts the PC view in field mode.
+  if (new URLSearchParams(location.search).get('mode') === 'field') setMode('field');
+  const marsButton = document.getElementById('xr-button');
+  const fieldButton = document.getElementById('xr-field-button');
+  marsButton.addEventListener('click', () => { if (!core.xr.session) setMode('mars'); }, { capture: true });
+  fieldButton?.addEventListener('click', () => {
+    if (core.xr.session) return;
+    setMode('field');
+    core.xr.start().catch((err) => {
+      console.error('[main] could not start the field map session', err);
+      fieldButton.textContent = `Field map failed: ${err.name}`;
+    });
+  });
+  const syncFieldButton = () => {
+    if (!fieldButton) return;
+    fieldButton.hidden = !!core.xr.session;
+    fieldButton.disabled = marsButton.disabled && !core.xr.session;
+  };
+  core.xr.onSessionStart(syncFieldButton);
+  core.xr.onSessionEnd(syncFieldButton);
+  new MutationObserver(syncFieldButton).observe(marsButton, { attributes: true, childList: true });
+  core.addModule('diag', { update: (frame) => diagFrame(frame, core.camera) });
 
   const ctx = {
     bus,
@@ -50,7 +77,7 @@ async function main() {
 
   initRadiation();
   core.run();
-  await initLink();
+  await initLink(core.xr);
   try {
     await loadData();
   } catch (err) {

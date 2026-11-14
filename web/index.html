@@ -10,6 +10,12 @@
       #xr-button { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 16px 32px; font-size: 20px; font-weight: 700;
         border: 0; border-radius: 12px; background: #e8562a; color: #fff; cursor: pointer; z-index: 10; }
       #xr-button:disabled { background: #3a3f47; color: #9aa0a6; cursor: default; }
+      /* Two start buttons side by side: the Mars map and the field map */
+      #xr-button { transform: translateX(calc(-100% - 8px)); }
+      #xr-field-button { position: fixed; left: 50%; bottom: 28px; transform: translateX(8px); padding: 16px 32px; font-size: 20px; font-weight: 700;
+        border: 0; border-radius: 12px; background: #596ae0; color: #fff; cursor: pointer; z-index: 10; }
+      #xr-field-button:disabled { background: #3a3f47; color: #9aa0a6; cursor: default; }
+      #xr-field-button[hidden] { display: none; }
       #debug { position: fixed; top: 12px; left: 12px; width: 360px; max-height: calc(100% - 24px); overflow: auto; z-index: 9;
         background: rgba(11, 13, 16, 0.82); border: 1px solid #2a2f36; border-radius: 10px; padding: 10px 12px; font: 12px/1.5 ui-monospace, monospace; }
       #debug h1 { font-size: 13px; margin: 0 0 6px; }
@@ -29,7 +35,8 @@
     <div id="app"></div>
     <div id="debug"></div>
     <div id="voice-status"></div>
-    <button id="xr-button" disabled>확인 중…</button>
+    <button id="xr-button" disabled>Checking…</button>
+    <button id="xr-field-button" disabled title="Scan the room into the map, mark a target by voice, follow the arrows back to it">Field map</button>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

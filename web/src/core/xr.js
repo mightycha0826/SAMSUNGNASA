@@ -9,9 +9,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+// 'depth-sensing' is left out unless ?depth=1: when it is granted, three.js hides virtual
+// objects behind real surfaces, and nothing reads the depth data yet (the room scan uses
+// mesh-detection and plane-detection).
+const WANT_DEPTH = new URLSearchParams(location.search).get('depth') === '1';
 export const OPTIONAL_FEATURES = [
   'hand-tracking',
-  'depth-sensing',
+  ...(WANT_DEPTH ? ['depth-sensing'] : []),
   'mesh-detection',
   'plane-detection',
   'anchors',
@@ -29,7 +33,7 @@ export function sessionInit() {
   return {
     requiredFeatures: ['local-floor'],
     optionalFeatures: OPTIONAL_FEATURES,
-    depthSensing: DEPTH_SENSING_INIT,
+    ...(WANT_DEPTH ? { depthSensing: DEPTH_SENSING_INIT } : {}),
   };
 }
 
@@ -152,13 +156,13 @@ export function createXR({ container, button }) {
   function updateButton() {
     if (!button) return;
     if (xr.session) {
-      button.textContent = 'AR 종료';
+      button.textContent = 'Exit AR';
       button.disabled = false;
     } else if (xr.supported) {
-      button.textContent = 'AR 시작';
+      button.textContent = 'Mars map';
       button.disabled = false;
     } else if (xr.supported === false) {
-      button.textContent = 'AR 미지원 · PC 3D 보기';
+      button.textContent = 'No AR here · PC 3D view';
       button.disabled = true;
     }
   }
@@ -167,7 +171,7 @@ export function createXR({ container, button }) {
     if (xr.session) xr.end();
     else startSession().catch((err) => {
       console.error('[xr] 세션 시작 실패', err);
-      button.textContent = `AR 시작 실패: ${err.name}`;
+      button.textContent = `Start failed: ${err.name}`;
     });
   });
 

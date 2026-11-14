@@ -42,6 +42,8 @@ class CommandSet:
         self.wake_word: str | None = None
         self.min_score = 0.8
         self.entries: list[tuple[list[str], dict]] = []  # (phrase words, command)
+        self.menu: list[dict] = []   # for the headset's command menu
+        self.version = 0             # bumped on every successful (re)load
         self.reload_if_changed()
 
     def reload_if_changed(self):
@@ -57,6 +59,7 @@ class CommandSet:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             entries = self._expand(data)
+            menu = self._menu(data)
         except (ValueError, KeyError, TypeError) as e:
             # Keep the commands that were working; a typo must not silence the assistant.
             log.error("could not load %s (%s); keeping the previous commands", self.path, e)
@@ -64,6 +67,8 @@ class CommandSet:
             return
         self._mtime = mtime
         self.entries = entries
+        self.menu = menu
+        self.version += 1
         self.wake_word = data.get("wake_word") or None
         self.min_score = float(data.get("min_score", 0.8))
         log.info("loaded %d phrases for %d commands from %s",
@@ -90,6 +95,28 @@ class CommandSet:
                                   if isinstance(v, str) else v) for k, v in slots.items()}
                     out.append((words, {"intent": cmd["intent"], "slots": filled,
                                         "reply": cmd.get("reply")}))
+        return out
+
+    @staticmethod
+    def _menu(data: dict) -> list[dict]:
+        """What the headset lists in its command menu: one entry per command and variable value,
+        labelled with "say" or the first phrase."""
+        vars_ = data.get("vars", {})
+        out = []
+        for cmd in data["commands"]:
+            if cmd.get("menu") is False:
+                continue
+            label = cmd.get("say") or cmd["phrases"][0]
+            names = list(dict.fromkeys(_VAR.findall(label) + [n for v in cmd.get("slots", {}).values()
+                                                              if isinstance(v, str) for n in _VAR.findall(v)]))
+            combos = product(*[[(n, value, forms[0]) for value, forms in vars_[n].items()] for n in names])
+            for combo in combos:
+                said = {n: s for n, _, s in combo}
+                value = {n: v for n, v, _ in combo}
+                say = _VAR.sub(lambda m: said[m.group(1)], label)
+                slots = {k: (_VAR.sub(lambda m: value.get(m.group(1), m.group(0)), v)
+                             if isinstance(v, str) else v) for k, v in cmd.get("slots", {}).items()}
+                out.append({"say": say[:1].upper() + say[1:], "intent": cmd["intent"], "slots": slots})
         return out
 
     def _score(self, phrase: list[str], heard: list[str], heard_joined: str) -> float:
@@ -145,3 +172,12 @@ def parse(text: str, wake: str | None = None) -> dict | None:
     if _default is None:
         _default = CommandSet()
     return _default.parse(text, wake)
+
+
+def menu() -> tuple[int, list[dict]]:
+    """(version, entries) of the command menu; the version changes when the file is reloaded."""
+    global _default
+    if _default is None:
+        _default = CommandSet()
+    _default.reload_if_changed()
+    return _default.version, _default.menu

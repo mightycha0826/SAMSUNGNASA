@@ -23,8 +23,9 @@ import * as THREE from 'three';
 import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
 import { T, loadFont } from './tokens.js';
-import { drawStatus, drawBanner, drawAlert, drawLayers, drawEdge } from './draw.js';
+import { drawStatus, drawBanner, drawAlert, drawLayers, drawEdge, drawCommands } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
+import { mode } from '../core/mode.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -44,12 +45,12 @@ const state = {
   baseMode: 'normal',
   mode: 'normal',
 };
-const dirty = { status: true, banner: true, layers: true };
+const dirty = { status: true, banner: true, layers: true, commands: true };
 
 // ---- 패널 ----
 let rigid; // 카메라에 붙는 묶음 (비상 테두리, 그리고 followRate가 0이면 카드도)
 let cards; // 상태창·경보 카드 묶음
-let pStatus, pBanner, pAlert, pLayers, pEdge;
+let pStatus, pBanner, pAlert, pLayers, pEdge, pCommands;
 let layerHits = [];
 let layersOnPalm = false;
 const palmState = makePalmState();
@@ -57,7 +58,25 @@ const palmState = makePalmState();
 let mapInView = false;
 // Fingertip feedback on the layer menu: which tab is under the finger, how close it is, and
 // which tab was just pressed.
-const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0 };
+const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, trail: [] };
+// The same for the voice command menu over the back of the hand.
+const cmdTouch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, trail: [] };
+let commandHits = [];
+// What the hub can be told. The hub sends its own list (jetson/commands.json) when it connects;
+// until then, and in mock mode, this short list is shown.
+let commands = [
+  { say: 'Status', intent: 'status.report', slots: {} },
+  { say: 'Navigate', intent: 'nav.start', slots: { targetId: 'site1' } },
+  { say: 'Base', intent: 'nav.home', slots: {} },
+  { say: 'Stop', intent: 'nav.stop', slots: {} },
+  { say: 'Thermal', intent: 'layer.show', slots: { id: 'thermal' } },
+  { say: 'Optical', intent: 'layer.show', slots: { id: 'optical' } },
+  { say: 'Slope', intent: 'layer.show', slots: { id: 'slope' } },
+  { say: 'Elevation', intent: 'layer.show', slots: { id: 'topo' } },
+  { say: 'Confirm', intent: 'alert.ack', slots: {} },
+];
+// Right-hand pinch, shared by both menus: true while thumb and index are closed.
+const pinch = { closed: false, armed: true };
 let audio = null;
 
 function audioCtx() {
@@ -134,8 +153,25 @@ function clickSound() {
   }
 }
 
-function tabAt(x, y) {
-  return layerHits.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) ?? null;
+function hitAt(hits, x, y) {
+  return hits.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) ?? null;
+}
+const tabAt = (x, y) => hitAt(layerHits, x, y);
+
+function commandsVM() {
+  const pressedId = performance.now() < cmdTouch.pressedUntil ? cmdTouch.pressedId : null;
+  return {
+    title: S.voiceTitle ?? 'Voice commands',
+    hint: S.voiceHint ?? 'Say it, or pinch to select',
+    items: commands.map((c, i) => ({ id: String(i), label: c.say, hover: String(i) === cmdTouch.hoverId, pressed: String(i) === pressedId })),
+    cursor: cmdTouch.cursor,
+  };
+}
+
+/** Run a command from the menu exactly as if it had been spoken. */
+function runCommand(id) {
+  const c = commands[Number(id)];
+  if (c) ctx.bus.emit('voice:text', { text: c.say, intent: c.intent, slots: c.slots ?? {} });
 }
 
 function makePanel(wDeg, hDeg, pxW = Math.round(wDeg * HUD.pxPerDeg), pxH = Math.round(hDeg * HUD.pxPerDeg)) {
@@ -348,14 +384,22 @@ function wire(bus) {
     dirty.status = dirty.banner = true;
     updateMode();
   });
-  bus.on('nav:route', ({ status, targetId, distanceM }) => {
+  bus.on('nav:route', ({ status, targetId, distanceM, frame }) => {
     const prev = state.nav;
     if (status === 'arrived' && prev.status !== 'arrived') showToast(S.arrivedAt(waypointLabel(targetId ?? prev.targetId)));
     else if (status === 'cancelled' && prev.status !== 'cancelled') showToast(S.guidanceEnded);
     // 같은 목적지로 가는 길이 눈에 띄게 길어졌으면 돌아가는 길로 바뀐 것이다.
-    else if (status === 'ok' && prev.status === 'ok' && prev.targetId === targetId && distanceM > prev.distanceM + 0.3) showToast(S.recalculated);
+    // (Not for the field map: there the distance grows simply because the wearer walks away.)
+    else if (frame !== 'room' && status === 'ok' && prev.status === 'ok' && prev.targetId === targetId && distanceM > prev.distanceM + 0.3) showToast(S.recalculated);
     state.nav = { status, targetId: targetId ?? prev.targetId, distanceM: distanceM ?? 0 };
     dirty.status = true;
+  });
+  // The hub's own command list (jetson/commands.json), for the menu over the back of the hand.
+  bus.on('voice:commands', ({ commands: list }) => {
+    if (Array.isArray(list) && list.length) {
+      commands = list.filter((c) => c?.say && c?.intent).slice(0, 16);
+      dirty.commands = true;
+    }
   });
   bus.on('voice:command', ({ intent, slots, text }) => {
     // Show what the voice assistant heard, so the wearer knows the command was taken.
@@ -377,9 +421,7 @@ const v2 = new THREE.Vector3();
 const q1 = new THREE.Quaternion();
 let pokeArmed = true;
 
-function pressAtUV(u, v) {
-  const x = u * pLayers.canvas.width;
-  const y = (1 - v) * pLayers.canvas.height;
+function pressLayerAt(x, y) {
   const hit = tabAt(x, y);
   if (hit) {
     touch.pressedId = hit.id;
@@ -391,14 +433,28 @@ function pressAtUV(u, v) {
   return !!hit;
 }
 
+function pressCommandAt(x, y) {
+  const hit = hitAt(commandHits, x, y);
+  if (hit) {
+    cmdTouch.pressedId = hit.id;
+    cmdTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
+    dirty.commands = true;
+    clickSound();
+    runCommand(hit.id);
+  }
+  return !!hit;
+}
+
 function pressAlongRay() {
-  if (!pLayers.mesh.visible) return;
-  const hit = raycaster.intersectObject(pLayers.mesh, false)[0];
-  if (hit?.uv) pressAtUV(hit.uv.x, hit.uv.y);
+  for (const [panel, press] of [[pLayers, pressLayerAt], [pCommands, pressCommandAt]]) {
+    if (!panel.mesh.visible) continue;
+    const hit = raycaster.intersectObject(panel.mesh, false)[0];
+    if (hit?.uv && press(hit.uv.x * panel.canvas.width, (1 - hit.uv.y) * panel.canvas.height)) return;
+  }
 }
 
 function initInput() {
-  // PC: 마우스 클릭
+  // PC: mouse click
   const el = ctx.renderer.domElement;
   el.addEventListener('click', (ev) => {
     if (ctx.xr.presenting) return;
@@ -407,10 +463,13 @@ function initInput() {
     raycaster.setFromCamera(v1, ctx.camera);
     pressAlongRay();
   });
-  // AR: 컨트롤러 방아쇠 또는 손 집기 (가리키는 방향으로 누른다)
+  // AR with controllers: the trigger presses where the controller points.
+  // Hands are handled in updateHands: a hand's own "select" ray points somewhere else than the
+  // cursor shown on the menu, so a pinch used to click the wrong item.
   for (const i of [0, 1]) {
     const c = ctx.renderer.xr.getController(i);
-    c.addEventListener('select', () => {
+    c.addEventListener('select', (ev) => {
+      if (ev.data?.hand) return;
       c.updateWorldMatrix(true, false);
       raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
       raycaster.ray.direction.set(0, 0, -1).transformDirection(c.matrixWorld);
@@ -419,9 +478,68 @@ function initInput() {
   }
 }
 
-// 손 추적: 왼손 손바닥이 위를 보면 탭을 손목 옆에 띄우고, 오른손 검지 끝으로 누른다.
+const tipPos = new THREE.Vector3();
+const thumbPos = new THREE.Vector3();
+const v3 = new THREE.Vector3();
+
+/**
+ * Cursor, hover, pinch-click and poke for one floating menu.
+ * finger: { tip: Vector3, pinchM: number } or null. Returns true when this menu has the cursor.
+ */
+function touchMenu(panel, scale, hits, st, finger, press, now) {
+  const K = HUD.touch;
+  let cursor = null;
+  let hoverId = null;
+  if (finger && panel.mesh.visible) {
+    panel.mesh.updateWorldMatrix(true, false);
+    v3.copy(finger.tip);
+    panel.mesh.worldToLocal(v3);
+    const dist = Math.abs(v3.z) * scale;
+    const inside = Math.abs(v3.x) <= panel.wM / 2 && Math.abs(v3.y) <= panel.hM / 2;
+    if (inside && dist < K.hoverDistM) {
+      const x = (v3.x / panel.wM + 0.5) * panel.canvas.width;
+      const y = (0.5 - v3.y / panel.hM) * panel.canvas.height;
+      const closing = finger.pinchM < K.lockDistM;
+      if (!closing) {
+        // open hand: the cursor follows the fingertip; remember where it has been
+        st.trail.push({ t: now, x, y });
+        while (st.trail.length > 1 && now - st.trail[0].t > 400) st.trail.shift();
+        st.locked = null;
+        cursor = { x, y, near: 1 - Math.min(1, dist / K.hoverDistM), locked: false };
+        if (dist < K.pokeDistM) {
+          if (st.pokeArmed !== false) press(x, y);
+          st.pokeArmed = false;
+        } else if (dist > K.pokeDistM * 2.5) st.pokeArmed = true;
+      } else {
+        // fingers closing: freeze the cursor where it was before the hand started to move
+        if (!st.locked) {
+          const settled = [...st.trail].reverse().find((p) => now - p.t >= K.settleMs) ?? st.trail[0] ?? { x, y };
+          st.locked = { x: settled.x, y: settled.y };
+        }
+        cursor = { x: st.locked.x, y: st.locked.y, near: 1, locked: true };
+        if (pinch.closed && pinch.armed) {
+          pinch.armed = false;
+          press(cursor.x, cursor.y);
+        }
+      }
+      hoverId = hitAt(hits, cursor.x, cursor.y)?.id ?? null;
+    }
+  }
+  if (!cursor) {
+    st.trail.length = 0;
+    st.locked = null;
+  }
+  const changed = !!cursor || !!st.cursor || hoverId !== st.hoverId;
+  st.hoverId = hoverId;
+  st.cursor = cursor;
+  return changed;
+}
+
+// Hand tracking. Left palm up: the layer menu floats beside the map. Left back-of-hand up: the
+// voice command menu floats over the hand. The right hand points and pinches.
 function updateHands(frame) {
   const { xrFrame, refSpace, session } = frame;
+  const now = performance.now();
   let left = null;
   let right = null;
   if (xrFrame && refSpace && session) {
@@ -432,69 +550,82 @@ function updateHands(frame) {
     }
   }
   if (!left && !right) {
-    // 손 추적이 없으면(PC, 컨트롤러) 화면 고정 자리에 둔다.
+    // No hand tracking (PC, controllers): the layer menu sits at its fixed place.
     if (layersOnPalm) placeLayersFixed();
-    pLayers.mesh.visible = true;
+    pLayers.mesh.visible = mode.current !== 'field';
+    pCommands.mesh.visible = false;
     mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
   }
 
   const L = HUD.layers;
+  const C = HUD.commands;
   const wrist = left && xrFrame.getJointPose?.(left.get('wrist'), refSpace);
   let palmUp = false;
+  let backUp = false;
   if (wrist) {
     const o = wrist.transform.orientation;
-    v1.set(0, 1, 0).applyQuaternion(q1.set(o.x, o.y, o.z, o.w)); // 손등 방향
+    v1.set(0, 1, 0).applyQuaternion(q1.set(o.x, o.y, o.z, o.w)); // back-of-hand direction
     palmUp = v1.y < L.palmUpDot;
+    backUp = v1.y > C.backUpDot;
   }
+  // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
+  palmUp = palmUp && mode.current !== 'field';
   pLayers.mesh.visible = palmUp;
+  pCommands.mesh.visible = backUp;
   mapInView = palmUp;
-  if (!palmUp) return;
 
-  if (!layersOnPalm) {
-    ctx.scene.add(pLayers.mesh);
-    layersOnPalm = true;
-  }
-  // To the right of the floating map (core/palm.js), with a gap, facing the wearer.
   ctx.camera.getWorldPosition(v2);
-  if (leftPalm(frame, ctx.camera, palmState)) {
-    pLayers.mesh.position.copy(palmState.anchor).addScaledVector(palmState.right, L.palmOffsetRightM);
-    pLayers.mesh.position.y += L.palmOffsetUpM;
-  } else {
+  if (palmUp) {
+    if (!layersOnPalm) {
+      ctx.scene.add(pLayers.mesh);
+      layersOnPalm = true;
+    }
+    // To the right of the floating map (core/palm.js), with a gap, facing the wearer.
+    if (leftPalm(frame, ctx.camera, palmState)) {
+      pLayers.mesh.position.copy(palmState.anchor).addScaledVector(palmState.right, L.palmOffsetRightM);
+      pLayers.mesh.position.y += L.palmOffsetUpM;
+    } else {
+      const p = wrist.transform.position;
+      pLayers.mesh.position.set(p.x, p.y + 0.1, p.z);
+    }
+    pLayers.mesh.lookAt(v2);
+    pLayers.mesh.scale.setScalar(L.palmScale);
+  }
+  if (backUp) {
+    // Over the back of the hand, a little toward the knuckles, facing the wearer.
     const p = wrist.transform.position;
-    pLayers.mesh.position.set(p.x, p.y + 0.1, p.z);
+    pCommands.mesh.position.set(p.x, p.y, p.z);
+    const knuckle = xrFrame.getJointPose?.(left.get('middle-finger-phalanx-proximal'), refSpace);
+    if (knuckle) {
+      const k = knuckle.transform.position;
+      pCommands.mesh.position.lerp(v1.set(k.x, k.y, k.z), 0.5);
+    }
+    pCommands.mesh.position.y += C.liftM + (pCommands.hM * C.scale) / 2;
+    pCommands.mesh.lookAt(v2);
+    pCommands.mesh.scale.setScalar(C.scale);
   }
-  pLayers.mesh.lookAt(v2);
-  pLayers.mesh.scale.setScalar(L.palmScale);
 
-  // Right index fingertip: show where it points while it approaches, press when it touches.
+  // Right hand: index fingertip and how far it is from the thumb tip.
+  let finger = null;
   const tip = right && xrFrame.getJointPose?.(right.get('index-finger-tip'), refSpace);
-  let hoverId = null;
-  let cursor = null;
+  const thumb = right && xrFrame.getJointPose?.(right.get('thumb-tip'), refSpace);
   if (tip) {
-    pLayers.mesh.updateWorldMatrix(true, false);
-    v1.set(tip.transform.position.x, tip.transform.position.y, tip.transform.position.z);
-    pLayers.mesh.worldToLocal(v1);
-    const dist = Math.abs(v1.z) * L.palmScale;
-    const inside = Math.abs(v1.x) <= pLayers.wM / 2 && Math.abs(v1.y) <= pLayers.hM / 2;
-    const u = v1.x / pLayers.wM + 0.5;
-    const v = v1.y / pLayers.hM + 0.5;
-    if (inside && dist < L.hoverDistM) {
-      const x = u * pLayers.canvas.width;
-      const y = (1 - v) * pLayers.canvas.height;
-      cursor = { x, y, near: 1 - Math.min(1, dist / L.hoverDistM) };
-      hoverId = tabAt(x, y)?.id ?? null;
+    tipPos.set(tip.transform.position.x, tip.transform.position.y, tip.transform.position.z);
+    let pinchM = Infinity;
+    if (thumb) pinchM = thumbPos.set(thumb.transform.position.x, thumb.transform.position.y, thumb.transform.position.z).distanceTo(tipPos);
+    finger = { tip: tipPos, pinchM };
+    const K = HUD.touch;
+    if (pinchM < K.pinchOnM) pinch.closed = true;
+    else if (pinchM > K.pinchOffM) {
+      pinch.closed = false;
+      pinch.armed = true; // fingers opened again: the next pinch may click
     }
-    if (inside && dist < L.pokeDistM) {
-      if (pokeArmed) pressAtUV(u, v);
-      pokeArmed = false;
-    } else if (!inside || dist > L.pokeDistM * 2) {
-      pokeArmed = true; // the finger has to pull back before it can press again
-    }
+  } else {
+    pinch.closed = false;
   }
-  if (cursor || touch.cursor || hoverId !== touch.hoverId) dirty.layers = true;
-  touch.hoverId = hoverId;
-  touch.cursor = cursor;
+  if (touchMenu(pLayers, L.palmScale, layerHits, touch, palmUp ? finger : null, pressLayerAt, now)) dirty.layers = true;
+  if (touchMenu(pCommands, C.scale, commandHits, cmdTouch, backUp ? finger : null, pressCommandAt, now)) dirty.commands = true;
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -527,6 +658,10 @@ export function init(context) {
   pBanner = makePanel(HUD.banner.wDeg, HUD.banner.hDeg);
   place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
   pLayers = makePanel(HUD.layers.wDeg, HUD.layers.hDeg);
+  // Voice command menu: lives in the room (over the back of the left hand), hidden until then.
+  pCommands = makePanel(HUD.commands.wDeg, HUD.commands.hDeg);
+  pCommands.mesh.visible = false;
+  ctx.scene.add(pCommands.mesh);
   // Alert card: dead centre of the view.
   pAlert = makePanel(HUD.alert.wDeg, HUD.alert.hDeg);
   place(pAlert, (HUD.stage.wDeg - HUD.alert.wDeg) / 2, (HUD.stage.hDeg - HUD.alert.hDeg) / 2, HUD.alert.wDeg, HUD.alert.hDeg);
@@ -547,7 +682,7 @@ export function init(context) {
   });
 
   // 테스트와 콘솔에서 상태를 볼 수 있게 열어 둔다.
-  window.__hud = { state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel, statusOpacity: () => pStatus.mat.opacity };
+  window.__hud = { commandsVM, runCommand, showCommands: (on) => { pCommands.mesh.visible = on; dirty.commands = true; }, state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel, statusOpacity: () => pStatus.mat.opacity };
 }
 
 export function update(frame) {
@@ -580,6 +715,10 @@ export function update(frame) {
   if (touch.pressedId && now > touch.pressedUntil) {
     touch.pressedId = null;
     dirty.layers = true;
+  }
+  if (cmdTouch.pressedId && now > cmdTouch.pressedUntil) {
+    cmdTouch.pressedId = null;
+    dirty.commands = true;
   }
 
   if (state.toast && now > state.toast.until) {
@@ -650,5 +789,10 @@ export function update(frame) {
     layerHits = drawLayers(pLayers.g, HUD.pxPerDeg, layersVM());
     pLayers.tex.needsUpdate = true;
     dirty.layers = false;
+  }
+  if (dirty.commands && pCommands.mesh.visible) {
+    commandHits = drawCommands(pCommands.g, HUD.pxPerDeg, commandsVM());
+    pCommands.tex.needsUpdate = true;
+    dirty.commands = false;
   }
 }
