@@ -27,6 +27,8 @@ python validate.py          # 만든 파일을 검사한다 (실패하면 종료
 | `validate.py` | 형식 검사, 레이어 교차 검사, 경사 기준 분석 |
 | `validation_report.json` | `validate.py`가 계산한 숫자. 문서의 수치는 여기서 왔다 |
 | `check_overlay.png` | 광학·지형 음영·경사도·열 위에 로버 경로를 얹은 그림 |
+| `reference_route.json` | 경사 레이어로 계산한 기지 → 조사 지점 참고 경로(칸 목록). D의 경로와 견줄 비교용 |
+| `../docs/figures/` | 제출 페이지·슬라이드용 영어 그림 (`layers.png`, `route.png`). `validate.py --figure`가 만든다 |
 
 ## 자주 바꿀 것
 

@@ -74,6 +74,19 @@
    "route_m": 386
   }
  },
+ "reference_route": {
+  "prefer_deg": 15,
+  "block_deg": 20,
+  "length_m": 390,
+  "cells": 86,
+  "mean_sep_from_rover_m": 16.0,
+  "max_sep_from_rover_m": 43.3,
+  "slope_median_deg": 6.8,
+  "slope_max_deg": 14.9,
+  "rover_stops_slope_median_deg": 8.6,
+  "rover_stops_slope_max_deg": 14.5,
+  "climb_m": 44.8
+ },
  "demo_region": {
   "cells": [
    265,

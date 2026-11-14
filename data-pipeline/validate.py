@@ -185,37 +185,85 @@ report["straight_m"] = round(straight)
 print(f"  직선 거리: {straight:.0f}m")
 
 
-def shortest(limit):
-    """경사가 limit 이하인 칸만 밟고 가는 가장 짧은 길(m). 길이 없으면 None."""
+PREFER_DEG, BLOCK_DEG = 15, 20      # 근거는 docs/DATA.md 7장 (Apollo 보행 경험, Artemis 보행 계획)
+
+
+def shortest(limit, weighted=False):
+    """경사가 limit 이하인 칸만 밟고 가는 길. (길이 m, 칸 목록). 길이 없으면 (None, []).
+
+    weighted=False: 가장 짧은 길.
+    weighted=True : 가파를수록 비싸게 치는 길. 한 걸음의 비용 = 거리 × (1 + (경사/PREFER_DEG)²).
+    """
     ok = slope <= limit
     if not (ok[base_c[1], base_c[0]] and ok[site_c[1], site_c[0]]):
-        return None
-    dist = np.full((rows, cols), np.inf)
-    dist[base_c[1], base_c[0]] = 0
+        return None, []
+    cost = np.full((rows, cols), np.inf)
+    cost[base_c[1], base_c[0]] = 0
+    prev = {}
     heap = [(0.0, base_c[0], base_c[1])]
     while heap:
         d, c, r = heapq.heappop(heap)
         if (c, r) == site_c:
-            return d
-        if d > dist[r, c]:
+            path = [site_c]
+            while path[-1] != base_c:
+                path.append(prev[path[-1]])
+            path.reverse()
+            length = sum(cell * math.hypot(a[0] - b_[0], a[1] - b_[1]) for a, b_ in zip(path, path[1:]))
+            return length, [list(p) for p in path]
+        if d > cost[r, c]:
             continue
         for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
             nc, nr = c + dc, r + dr
             if 0 <= nc < cols and 0 <= nr < rows and ok[nr, nc]:
-                nd = d + cell * math.hypot(dc, dr)
-                if nd < dist[nr, nc]:
-                    dist[nr, nc] = nd
+                step = cell * math.hypot(dc, dr)
+                if weighted:
+                    step *= 1 + (slope[nr, nc] / PREFER_DEG) ** 2
+                nd = d + step
+                if nd < cost[nr, nc]:
+                    cost[nr, nc] = nd
+                    prev[(nc, nr)] = (c, r)
                     heapq.heappush(heap, (nd, nc, nr))
-    return None
+    return None, []
+
+
+def dist_to_polyline(p, line):
+    """점 p(칸)에서 꺾은선 line(칸)까지의 가장 짧은 거리(칸)."""
+    best_d = math.inf
+    for (x1, y1), (x2, y2) in zip(line, line[1:]):
+        dx, dy = x2 - x1, y2 - y1
+        t = 0 if dx == dy == 0 else max(0, min(1, ((p[0] - x1) * dx + (p[1] - y1) * dy) / (dx * dx + dy * dy)))
+        best_d = min(best_d, math.hypot(p[0] - x1 - t * dx, p[1] - y1 - t * dy))
+    return best_d
 
 
 report["slope_limits"] = {}
+routes = {}
 for lim in SLOPE_LIMITS:
     frac = float((slope <= lim).mean())
-    d = shortest(lim)
+    d, routes[lim] = shortest(lim)
     report["slope_limits"][str(lim)] = {"walkable_fraction": round(frac, 3), "route_m": None if d is None else round(d)}
     print(f"  경사 {lim:2d}도 이하: 지도의 {frac:5.1%} 를 걸을 수 있음, " + ("기지에서 조사 지점까지 길 없음" if d is None else f"가장 짧은 길 {d:.0f}m"))
 check(any(v["route_m"] for v in report["slope_limits"].values()), "어느 기준에서든 기지에서 조사 지점까지 길이 있다")
+
+# 참고 경로: 가파를수록 비싸게 치고 BLOCK_DEG 를 넘는 칸은 막은 길. 로버가 실제로 간 길과 견준다.
+# D 의 경로를 대신하는 것이 아니라, 경사 레이어로 말이 되는 길이 나오는지 보는 비교용이다.
+ref_m, ref = shortest(BLOCK_DEG, weighted=True)
+rover_line = [p["cell"] for p in seg] if rover_m else []
+if ref and rover_line:
+    sep = np.array([dist_to_polyline(p, rover_line) for p in ref]) * cell
+    on_route = np.array([slope[r, c] for c, r in ref])
+    on_rover = np.array([slope[p["cell"][1], p["cell"][0]] for p in seg])
+    report["reference_route"] = {"prefer_deg": PREFER_DEG, "block_deg": BLOCK_DEG, "length_m": round(ref_m), "cells": len(ref),
+                                 "mean_sep_from_rover_m": round(float(sep.mean()), 1), "max_sep_from_rover_m": round(float(sep.max()), 1),
+                                 "slope_median_deg": round(float(np.median(on_route)), 1), "slope_max_deg": round(float(on_route.max()), 1),
+                                 "rover_stops_slope_median_deg": round(float(np.median(on_rover)), 1), "rover_stops_slope_max_deg": round(float(on_rover.max()), 1),
+                                 "climb_m": round(float(topo[site_c[1], site_c[0]] - topo[base_c[1], base_c[0]]), 1)}
+    print(f"  참고 경로 ({PREFER_DEG}도부터 비싸게, {BLOCK_DEG}도 넘으면 막음): {ref_m:.0f}m, 경사 중앙값 {np.median(on_route):.1f}도, 최대 {on_route.max():.1f}도")
+    print(f"  로버가 간 길에서 평균 {sep.mean():.0f}m, 최대 {sep.max():.0f}m 떨어져 있다. 로버 정차 지점의 경사는 중앙값 {np.median(on_rover):.1f}도, 최대 {on_rover.max():.1f}도")
+    check(on_route.max() <= BLOCK_DEG, f"참고 경로가 {BLOCK_DEG}도를 넘는 칸을 밟지 않는다")
+    (HERE / "reference_route.json").write_text(json.dumps(
+        {"note": f"Slope-weighted path from base to site1: step cost = distance x (1 + (slope/{PREFER_DEG})^2), cells steeper than {BLOCK_DEG} deg blocked. For comparison only.",
+         "preferDeg": PREFER_DEG, "blockDeg": BLOCK_DEG, "lengthM": round(ref_m), "cells": ref}, ensure_ascii=False) + "\n", encoding="utf-8")
 
 dr_ = slope[r0:r1, c0:c1]
 dt_ = topo[r0:r1, c0:c1]
@@ -252,6 +300,78 @@ if "--figure" in sys.argv:
         out.paste(overlay(p), ((i % 2) * N, (i // 2) * N))
     out.save(HERE / "check_overlay.png", optimize=True)
     print("check_overlay.png: 광학 | 지형 음영 / 경사도(밝을수록 가파름) | 열. 하늘색 = 로버가 간 길, 초록 = 기지, 빨강 = 조사 지점, 노랑 = demo 구역")
+
+    # ---- 제출 페이지·슬라이드에 쓸 영어 그림 (docs/figures/) ----
+    from PIL import ImageFont
+    FIG = HERE.parent / "docs" / "figures"
+    FIG.mkdir(parents=True, exist_ok=True)
+
+    def font(size):
+        for name in ("arial.ttf", "DejaVuSans.ttf"):
+            try:
+                return ImageFont.truetype(name, size)
+            except OSError:
+                pass
+        return ImageFont.load_default()
+
+    def label(d, xy, text, size=22, fill=(255, 255, 255)):
+        f = font(size)
+        x0, y0, x1, y1 = d.textbbox(xy, text, font=f)
+        d.rectangle([x0 - 6, y0 - 4, x1 + 6, y1 + 4], fill=(0, 0, 0))
+        d.text(xy, text, font=f, fill=fill)
+
+    CYAN, YELLOW, GREEN, RED = (0, 229, 255), (255, 214, 0), (60, 255, 90), (255, 70, 70)
+    NOTE = "Marswalk Visor - built from NASA data by the team's pipeline (code written with AI assistance)"
+
+    # 1) 네 레이어를 한 장에
+    P = 720
+    titles = ["Optical - MRO HiRISE (0.64 m/px)", "Terrain shading - from USGS Gale DEM (1 m)",
+              "Slope - brighter is steeper", "Thermal, night - Mars Odyssey THEMIS (81 m/px)"]
+    fig = Image.new("RGB", (P * 2, P * 2 + 44), (0, 0, 0))
+    for i, p in enumerate(panels):
+        im = p.convert("RGB").resize((P, P), Image.NEAREST if i == 3 else Image.LANCZOS)
+        d = ImageDraw.Draw(im)
+        d.line([((q["lon"] - b["west"]) / (b["east"] - b["west"]) * P, (b["north"] - q["lat"]) / (b["north"] - b["south"]) * P) for q in pts], fill=CYAN, width=3)
+        for wid, color in (("base", GREEN), ("site1", RED)):
+            x, y = (wp[wid]["cell"][0] + .5) / cols * P, P - (wp[wid]["cell"][1] + .5) / rows * P
+            d.ellipse([x - 9, y - 9, x + 9, y + 9], outline=color, width=4)
+        label(d, (14, 12), titles[i])
+        fig.paste(im, ((i % 2) * P, (i // 2) * P))
+    d = ImageDraw.Draw(fig)
+    d.text((14, P * 2 + 10), "Gediz Vallis channel, Gale Crater, Mars - 2 km x 2 km.  Cyan: Curiosity's path.  Green: base.  Red: sulfur stone field.   " + NOTE,
+           font=font(15), fill=(200, 200, 200))
+    fig.save(FIG / "layers.png", optimize=True)
+
+    # 2) 기지 -> 조사 지점: 계산한 길과 로버가 실제로 간 길
+    if ref:
+        xs = [c for c, _ in ref + rover_line] + [base_c[0], site_c[0]]
+        ys = [r for _, r in ref + rover_line] + [base_c[1], site_c[1]]
+        half = max(max(xs) - min(xs), max(ys) - min(ys)) // 2 + 14
+        cx, cy = (max(xs) + min(xs)) // 2, (max(ys) + min(ys)) // 2
+        x0, y0 = min(max(cx - half, 0), cols - 2 * half), min(max(cy - half, 0), rows - 2 * half)
+        S = 1200
+        k = S / (2 * half)                                  # 칸 하나가 몇 픽셀인지
+        opt_full = Image.open(DATA / "optical.png")
+        m = opt_full.size[0] / cols
+        im = opt_full.crop((x0 * m, (rows - y0 - 2 * half) * m, (x0 + 2 * half) * m, (rows - y0) * m)).resize((S, S), Image.LANCZOS).convert("RGB")
+        d = ImageDraw.Draw(im)
+        px = lambda c, r: ((c + .5 - x0) * k, S - (r + .5 - y0) * k)
+        d.line([px(c, r) for c, r in rover_line], fill=CYAN, width=5)
+        d.line([px(c, r) for c, r in ref], fill=YELLOW, width=5)
+        for cell_, color, name in ((base_c, GREEN, "Base"), (site_c, RED, "Sulfur stone field")):
+            x, y = px(*cell_)
+            d.ellipse([x - 13, y - 13, x + 13, y + 13], outline=color, width=5)
+            label(d, (x + 20, y - 14), name, 24)
+        label(d, (16, 14), "Route check: planned route vs. the path Curiosity actually drove", 26)
+        rr = report["reference_route"]
+        label(d, (16, 58), f"Yellow: route from our slope layer (avoids steep ground, never above {BLOCK_DEG} deg) - {rr['length_m']} m", 22, YELLOW)
+        label(d, (16, 94), f"Cyan: Curiosity's path, sols 4098-4200 - {report['rover_path_m']} m between stops", 22, CYAN)
+        bar = 100 / cell * k                                # 100 m
+        d.line([(S - 40 - bar, S - 60), (S - 40, S - 60)], fill=(255, 255, 255), width=6)
+        label(d, (S - 40 - bar, S - 100), "100 m", 22)
+        d.text((16, S - 28), "Image: NASA/JPL-Caltech/University of Arizona (HiRISE).  " + NOTE, font=font(14), fill=(220, 220, 220))
+        im.save(FIG / "route.png", optimize=True)
+    print("docs/figures/layers.png, route.png: 제출 페이지·슬라이드용 영어 그림")
 
 print(f"\n{'실패 ' + str(len(fails)) + '건' if fails else '모두 통과'}  (validation_report.json)")
 sys.exit(1 if fails else 0)

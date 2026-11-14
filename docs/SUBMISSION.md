@@ -21,6 +21,7 @@
 - [ ] "Use of Super Intelligence" 칸에 팀원별로 쓴 도구와 용도를 적는다.
 - [ ] 데모 링크와 최종 결과물 링크를 시크릿 창에서 열어 본다.
 - [ ] 프로젝트 이름을 확정한다 (가칭 Marswalk Visor).
+- [ ] 제출 페이지에 올릴 그림을 고른다. `docs/figures/layers.png`(네 레이어)와 `route.png`(경로 비교)가 준비되어 있다. 이미지는 10MB까지 직접 올릴 수 있다.
 
 수치의 근거: 본문의 숫자는 모두 `data-pipeline/validate.py`가 실제 파일에서 계산한 값입니다(`data-pipeline/validation_report.json`). 파일별 설명은 [DATA.md](DATA.md), 원본 자료 분석은 [RESOURCES.md](RESOURCES.md)에 있습니다.
 
@@ -69,7 +70,7 @@ We chose a site Curiosity explored so that orbital data, ground-truth positions,
 ### What it does
 
 - **Palm map.** Raising the left palm shows the 3D terrain of the site. The astronaut switches between optical, thermal and slope layers. Curiosity's actual path is drawn on the map in its own color.
-- **Route.** The route is computed from the slope layer, so it bends around steep ground, and is drawn as arrows on the floor. `[TODO: 팀이 정한 경사 기준과 근거]`
+- **Route.** The route is computed from the slope layer and drawn as arrows on the floor. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. `[TODO: D의 경로가 이 기준을 쓰는지 확인. 다르면 실제 값으로 고친다]`
 - **Field obstacles.** `[TODO]` When the depth sensor finds an obstacle on the route, that cell is marked blocked and the route is recomputed. In the demo a chair stands in for a boulder.
 - **Safety.** A status panel shows radiation, air pressure and temperature, suit temperature, elevation and the geologic unit. When the suit temperature sensor crosses its limit, the edges of the view flash red and the route changes to lead back to base.
 - **Destination preview.** `[TODO]` Near the survey site the display shows the photo Curiosity took from that exact spot, so the astronaut knows what to expect on arrival.
@@ -131,7 +132,8 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
   - Shading computed from the terrain lines up with the optical image to within one 4 m grid cell.
   - On the ground Curiosity stood on, our slope layer has a median of 8.8°, close to the rover's own recorded median tilt of 9.1°.
   - The weather record behaves as expected: temperature peaks in the early afternoon, and radiation rises when air pressure falls (correlation −0.74), as it should when there is less atmosphere overhead.
-- **Reproducibility:** one script rebuilds every data file from the NASA sources, and a second script runs 53 checks on the result. Rebuilding from an empty cache gives byte-identical files.
+- **Checking the route against a real one:** a route computed from our slope layer with the limits above runs 390 m from base to the survey site and never crosses ground steeper than 14.9°. It stays on average 16 m (at most 43 m) from the path Curiosity actually drove between the same two points. An astronaut's planned route and a rover's real route pick the same corridor. (Figure: `docs/figures/route.png`.) `[TODO: D의 실제 경로로 다시 계산하거나, 이 문장이 참고용 계산이라는 점을 유지]`
+- **Reproducibility:** one script rebuilds every data file from the NASA sources, and a second script runs 54 checks on the result. Rebuilding from an empty cache gives byte-identical files.
 
 **Limits we want to be clear about**
 
@@ -163,4 +165,6 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - NASA JPL, "NASA's Curiosity Rover Discovers a Surprise in a Martian Rock" (July 18, 2024) — https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/
 - NASA JPL, "NASA's Curiosity Mars Rover Takes a Last Look at Mysterious Sulfur" (Nov. 18, 2024) — https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/
 - NASA, Curiosity's Proposed Path up Mount Sharp — https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
+- W. Iqbal, J. W. Head et al., "Astronaut experiences on the slopes along Apollo EVAs," EPSC Abstracts Vol. 17, EPSC2024-196, 2024 — https://doi.org/10.5194/epsc2024-196 (slope limit for walking)
+- Universe Today, "Lunar Astronauts Will Need Easy Walking Trails Around the Moon's South Pole" (2023), quoting David A. Kring — https://www.universetoday.com/articles/lunar-astronauts-will-need-easy-walking-trails-around-the-moons-south-pole (slope limit for Artemis walking traverses)
 - Software: Three.js, Vite, NumPy, Rasterio, Pillow `[TODO: 실제 쓴 것만, 라이선스 확인]`
