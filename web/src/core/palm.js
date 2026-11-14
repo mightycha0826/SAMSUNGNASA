@@ -11,6 +11,8 @@ export const PALM = {
   liftM: 0.14,
   /** How far it sits in front of the palm, away from the wearer (m) */
   forwardM: 0.18,
+  /** How far it sits to the wearer's right of the palm (m) */
+  rightM: 0.06,
   /** The palm counts as facing up when the back-of-hand direction (wrist +Y) points this far down */
   upDot: -0.35,
 };
@@ -50,7 +52,7 @@ export function leftPalm(frame, camera, out) {
   out.forward.normalize();
   out.right.set(-out.forward.z, 0, out.forward.x);
 
-  out.anchor.copy(out.palm).addScaledVector(out.forward, PALM.forwardM);
+  out.anchor.copy(out.palm).addScaledVector(out.forward, PALM.forwardM).addScaledVector(out.right, PALM.rightM);
   out.anchor.y += PALM.liftM;
   return out;
 }

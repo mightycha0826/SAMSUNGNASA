@@ -5,6 +5,8 @@
 #   tools/arduino.sh flash [/dev/ttyACM0]  # compile and upload (stop the hub first: it holds the port)
 #   tools/arduino.sh watch [/dev/ttyACM0]  # print the serial lines
 # Other board: FQBN=arduino:avr:uno tools/arduino.sh build
+# Skip sensor detection: SENSOR=pot tools/arduino.sh flash   (pot = demo dial; also ds18b20, dht11,
+#   dht22, lm35, tmp36, ntc)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 T=$PWD/.tools
@@ -12,6 +14,10 @@ export ARDUINO_DIRECTORIES_DATA=$T/arduino15 ARDUINO_DIRECTORIES_USER=$T/sketchb
 CLI=$T/arduino-cli
 SKETCH=../arduino/suit_temp
 FQBN=${FQBN:-arduino:avr:mega}   # the team board is a Mega 2560
+EXTRA=()
+if [ -n "${SENSOR:-}" ]; then
+  EXTRA=(--build-property "compiler.cpp.extra_flags=-DFORCE_SENSOR=S_$(echo "$SENSOR" | tr a-z A-Z)")
+fi
 port() { echo "${1:-$(ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -1)}"; }
 
 case "${1:-}" in
@@ -22,10 +28,10 @@ case "${1:-}" in
     "$CLI" core update-index
     "$CLI" core install arduino:avr
     "$CLI" lib install OneWire DallasTemperature "DHT sensor library" ;;
-  build) "$CLI" compile --fqbn "$FQBN" "$SKETCH" ;;
+  build) "$CLI" compile --fqbn "$FQBN" "${EXTRA[@]}" "$SKETCH" ;;
   flash)
     P=$(port "${2:-}"); [ -n "$P" ] || { echo "no /dev/ttyACM* or /dev/ttyUSB* found"; exit 1; }
-    "$CLI" compile --fqbn "$FQBN" --upload -p "$P" "$SKETCH" ;;
+    "$CLI" compile --fqbn "$FQBN" "${EXTRA[@]}" --upload -p "$P" "$SKETCH" ;;
   watch)
     P=$(port "${2:-}"); [ -n "$P" ] || { echo "no serial port found"; exit 1; }
     "$CLI" monitor -p "$P" --config baudrate=115200 ;;
