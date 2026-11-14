@@ -1,7 +1,11 @@
 // node --test src/hud/importance.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { IMPORTANCE, trend, importance, choose } from './importance.js';
+import { IMPORTANCE as DEFAULTS, trend, importance, choose as pick } from './importance.js';
+
+// Two places and no threshold for the tests that are about ranking; the threshold has its own test.
+const IMPORTANCE = { ...DEFAULTS, slots: 2, showAbove: -Infinity };
+const choose = (metrics, shown = [], K = IMPORTANCE) => pick(metrics, shown, K);
 
 const ids = (list) => list.map((m) => m.id);
 const battery = { id: 'battery', pinned: true };
@@ -55,4 +59,12 @@ test('trend: only movement toward the bad side counts', () => {
   assert.ok(trend([70, 71, 70, 72, 71, 70, 71, 70, 71], 0, 110) < 0.05, 'noise is not a trend');
   assert.equal(trend([1, 2], +1, 10), 0, 'too little history');
   assert.equal(trend([null, NaN, 1, 2, 3, 4, 5, 6], +1, 20) > 0, true, 'gaps are skipped');
+});
+
+test('only readings that matter enough are shown: the number on show changes', () => {
+  const K = { ...DEFAULTS, slots: 3, showAbove: 31 };
+  assert.deepEqual(ids(pick([heart, radiation, pressure, air], [], K).ranked), ['heart', 'radiation'], 'pressure (30) and air (12) are below the line');
+  assert.deepEqual(ids(pick([heart, radiation, { ...pressure, state: 'warn' }, air], [], K).ranked), ['pressure', 'heart', 'radiation'], 'out of range: it comes up');
+  assert.deepEqual(ids(pick([heart, radiation, { ...pressure, state: 'warn' }, { ...air, state: 'warn' }], [], K).ranked).length, 3, 'never more than the places there are');
+  assert.deepEqual(ids(pick([air], [], K).ranked), [], 'nothing that matters: nothing shown');
 });

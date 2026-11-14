@@ -202,162 +202,114 @@ function haloIcon(g, name, cx, cy, s, color) {
   g.restore();
 }
 
-// ---- status card ----
-// vm: { pinned: [reading], ranked: [reading], foot: string } (index.js statusVM, importance.js)
-//   a pinned reading: { label, value, unit, tag, state, fill: 0..1, marks: [{ at: 0..1, label? }] }
-//   a ranked reading: { label, value, unit, tag, state, word, viz: 'graph' | 'progress',
-//                       history: [number | null], min, max, lines: [value], fill: 0..1 }
+// ---- a reading (one tile of the dashboard, dash.js) ----
+// r: { label, value, unit, tag, word, state, viz: 'bar' | 'graph' | 'progress',
+//      fill: 0..1, marks: [{ at: 0..1 }], history: [number | null], min, max, lines: [value] }
 // state: '' | 'warn' | 'crit' | 'stale'
 // Look (updated mockup): transparent face, white-and-black double outlines, bold haloed text.
-//
-// The pinned readings stand at the top, each a bar with its limits marked: always the same
-// three in the same places, so the eye learns where they are. Under them the readings that
-// matter most now, each with a graph of its last minute (or, for a route, how far along it is).
-export function drawStatus(g, d, vm) {
+// The tile fills its panel: the label on the first line; on the second the value, and beside it
+// a bar with its limits marked (the pinned readings), a graph of the last minute, or how far
+// along a route is.
+export function drawReading(g, d, r) {
   const W = g.canvas.width;
-  g.clearRect(0, 0, W, g.canvas.height);
-  const m = 0.3 * d; // room for the outer outline and the text glow
-  const pad = 0.75 * d;
-  const gap = 0.55 * d;
-  const pinH = 3.3 * d; // one pinned reading
-  const pinsH = 0.5 * d + vm.pinned.length * pinH + 0.25 * d;
-  const tileH = 5.5 * d; // one ranked reading
-  const footH = vm.foot ? 1.5 * d : 0;
-  const total = pad + pinsH + vm.ranked.length * (gap + tileH) + (footH ? gap * 0.6 + footH : 0) + pad * 0.6;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  const m = 0.3 * d; // room for the outline and the text glow
+  const line = r.state === 'crit' ? T.dangerLine : r.state === 'warn' ? T.point : O.line;
+  frame(g, m, m, W - 2 * m, H - 2 * m, 1.25 * d, 0.15 * d, line, 0.1 * d, 0.09 * d);
+  const inL = m + 0.85 * d;
+  const inR = W - m - 0.9 * d;
+  const ink = r.state === 'stale' ? O.stale : STATE_COLOR[r.state]?.() ?? O.ink;
+  const fillColour = r.state === 'crit' ? T.dangerLine : r.state === 'warn' ? T.point : O.fill;
 
-  // The card sits against the bottom of its panel, as in the mockup.
-  const top = Math.max(m, g.canvas.height - m - total);
-  frame(g, m, top, W - 2 * m, total, 1.6 * d, 0.18 * d, O.ink, 0.12 * d, 0.1 * d);
+  // First line: what it is (and where the number comes from). Second line: the number on the
+  // left, and beside it the bar or graph, which takes whatever width the number leaves.
+  const ly = m + 1.25 * d;
+  const lw = text(g, r.label, inL, ly, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
+  if (r.tag) tag(g, r.tag, inL + lw + 0.45 * d, ly, d, false, true);
+  if (r.word) text(g, r.word, inR, ly, { weight: 700, size: 1.0 * d, color: ink, align: 'right', halo: true });
+  const vy = m + 3.05 * d;
+  let vx = inL + text(g, r.value, inL, vy, { weight: 700, size: 1.75 * d, color: ink, tight: true, halo: true });
+  if (r.unit) vx += 0.3 * d + text(g, r.unit, vx + 0.3 * d, vy + 0.2 * d, { weight: 700, size: 0.95 * d, color: O.label, halo: true });
 
-  const x0 = m + pad;
-  const w = W - 2 * m - pad * 2;
-  const inL = x0 + 0.85 * d;
-  const inR = x0 + w - 0.9 * d;
-  let y = top + pad;
-  const lineOf = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : O.line);
-  const inkOf = (state) => (state === 'stale' ? O.stale : STATE_COLOR[state]?.() ?? O.ink);
-  const worst = (list) => (list.some((r) => r.state === 'crit') ? 'crit' : list.some((r) => r.state === 'warn') ? 'warn' : '');
-
-  // label (+tag) on the left, value and unit on the right, on one line
-  const headLine = (r, ly, valueSize) => {
-    const lw = text(g, r.label, inL, ly, { weight: 700, size: 1.05 * d, color: O.label, halo: true });
-    if (r.tag) tag(g, r.tag, inL + lw + 0.45 * d, ly, d, false, true);
-    let rx = inR;
-    if (r.word) rx -= text(g, r.word, rx, ly + 0.05 * d, { weight: 700, size: 1.05 * d, color: inkOf(r.state), align: 'right', halo: true }) + 0.5 * d;
-    if (r.unit) rx -= text(g, r.unit, rx, ly + 0.14 * d, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true }) + 0.3 * d;
-    text(g, r.value, rx, ly, { weight: 700, size: valueSize, color: inkOf(r.state), align: 'right', tight: true, halo: true });
+  const gx = Math.max(inL + 5.0 * d, vx + 0.7 * d);
+  const gw = inR - gx;
+  const gy = m + 2.05 * d;
+  const gh = H - m - 0.7 * d - gy;
+  const track = (by, bh) => {
+    box(g, gx - 1, by - 1, gw + 2, bh + 2, bh / 2 + 1, O.outer);
+    box(g, gx, by, gw, bh, bh / 2, 'rgba(120, 124, 130, 1)');
   };
-  const track = (bx, by, bw, bh) => {
-    box(g, bx - 1, by - 1, bw + 2, bh + 2, bh / 2 + 1, O.outer);
-    box(g, bx, by, bw, bh, bh / 2, 'rgba(120, 124, 130, 1)');
-  };
-  const fillOf = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : O.fill);
-
-  // ---- pinned: one frame, a bar each ----
-  frame(g, x0, y, w, pinsH, 1.25 * d, 0.13 * d, lineOf(worst(vm.pinned)), 0.09 * d, 0.08 * d);
-  let py = y + 0.5 * d;
-  for (const r of vm.pinned) {
-    headLine(r, py + 1.0 * d, 1.6 * d);
-    const bx = inL;
-    const bw = inR - inL;
-    const by = py + 2.15 * d;
+  if (r.viz === 'bar' || r.viz === 'progress') {
     const bh = 0.5 * d;
-    track(bx, by, bw, bh);
-    if (r.fill > 0) box(g, bx, by, Math.max(bh, bw * r.fill), bh, bh / 2, fillOf(r.state));
+    const by = gy + gh / 2 - bh / 2;
+    track(by, bh);
+    if (r.fill > 0) box(g, gx, by, Math.max(bh, gw * r.fill), bh, bh / 2, fillColour);
     for (const mark of r.marks ?? []) {
-      const mx = bx + bw * mark.at;
+      const mx = gx + gw * mark.at;
       g.fillStyle = O.outer;
       g.fillRect(mx - 0.07 * d - 1, by - 0.2 * d - 1, 0.14 * d + 2, 0.9 * d + 2);
       g.fillStyle = O.ink;
       g.fillRect(mx - 0.07 * d, by - 0.2 * d, 0.14 * d, 0.9 * d);
     }
-    py += pinH;
-  }
-  y += pinsH;
-
-  // ---- ranked: a frame each, with a graph of the last minute or a bar of the way done ----
-  for (const r of vm.ranked) {
-    y += gap;
-    frame(g, x0, y, w, tileH, 1.25 * d, 0.13 * d, lineOf(r.state), 0.09 * d, 0.08 * d);
-    headLine(r, y + 1.45 * d, 1.7 * d);
-    const gx = inL;
-    const gw = inR - inL;
-    const gy = y + 2.7 * d;
-    const gh = 2.1 * d;
     if (r.viz === 'progress') {
-      // The way done: a bar from the start to the destination, with a dot where the wearer is.
-      const bh = 0.5 * d;
-      const by = gy + gh / 2 - bh / 2;
-      track(gx, by, gw, bh);
-      if (r.fill > 0) box(g, gx, by, Math.max(bh, gw * r.fill), bh, bh / 2, fillOf(r.state));
+      // A dot where the wearer is on the way from the start to the destination.
       const dotX = gx + gw * Math.max(0, Math.min(1, r.fill));
-      g.beginPath();
-      g.arc(dotX, by + bh / 2, 0.5 * d, 0, Math.PI * 2);
-      g.fillStyle = O.outer;
-      g.fill();
-      g.beginPath();
-      g.arc(dotX, by + bh / 2, 0.36 * d, 0, Math.PI * 2);
-      g.fillStyle = O.ink;
-      g.fill();
-      haloIcon(g, 'navigation', gx + gw - 0.1 * d, by - 0.75 * d, 1.1 * d, O.label);
-    } else {
-      const span = r.max - r.min || 1;
-      const yOf = (v) => gy + gh - ((Math.max(r.min, Math.min(r.max, v)) - r.min) / span) * gh;
-      // The limits, as dashed lines across the graph.
-      g.save();
-      g.setLineDash([0.35 * d, 0.3 * d]);
-      g.lineWidth = 0.08 * d;
-      g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      for (const limit of r.lines ?? []) {
-        if (!(limit > r.min && limit < r.max)) continue;
+      for (const [radius, colour] of [[0.5 * d, O.outer], [0.36 * d, O.ink]]) {
         g.beginPath();
-        g.moveTo(gx, yOf(limit));
-        g.lineTo(gx + gw, yOf(limit));
-        g.stroke();
-      }
-      g.restore();
-      // The last minute, newest on the right. A gap in the readings is a gap in the line.
-      const h = r.history ?? [];
-      const n = Math.max(2, h.length);
-      const xOf = (k) => gx + gw - ((h.length - 1 - k) / (n - 1)) * gw * Math.min(1, (n - 1) / 59);
-      const colour = fillOf(r.state);
-      const stroke = (width, style) => {
-        g.beginPath();
-        let pen = false;
-        h.forEach((v, k) => {
-          if (!Number.isFinite(v)) {
-            pen = false;
-            return;
-          }
-          if (pen) g.lineTo(xOf(k), yOf(v));
-          else g.moveTo(xOf(k), yOf(v));
-          pen = true;
-        });
-        g.lineWidth = width;
-        g.strokeStyle = style;
-        g.lineJoin = g.lineCap = 'round';
-        g.stroke();
-      };
-      stroke(0.34 * d, O.outer);
-      stroke(0.18 * d, colour);
-      const last = [...h].reverse().find(Number.isFinite);
-      if (last !== undefined) {
-        g.beginPath();
-        g.arc(gx + gw, yOf(last), 0.32 * d, 0, Math.PI * 2);
-        g.fillStyle = O.outer;
-        g.fill();
-        g.beginPath();
-        g.arc(gx + gw, yOf(last), 0.22 * d, 0, Math.PI * 2);
-        g.fillStyle = O.ink;
+        g.arc(dotX, by + bh / 2, radius, 0, Math.PI * 2);
+        g.fillStyle = colour;
         g.fill();
       }
     }
-    y += tileH;
+    return;
   }
 
-  // Foot: sol and local time on Mars
-  if (footH) text(g, vm.foot, inR, y + gap * 0.6 + footH / 2 - 0.1 * d, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true });
-  return total;
+  // A graph of the last minute, newest on the right.
+  const span = r.max - r.min || 1;
+  const yOf = (v) => gy + gh - ((Math.max(r.min, Math.min(r.max, v)) - r.min) / span) * gh;
+  g.save();
+  g.setLineDash([0.35 * d, 0.3 * d]);
+  g.lineWidth = 0.08 * d;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  for (const limit of r.lines ?? []) {
+    if (!(limit > r.min && limit < r.max)) continue; // the limits, as dashed lines across the graph
+    g.beginPath();
+    g.moveTo(gx, yOf(limit));
+    g.lineTo(gx + gw, yOf(limit));
+    g.stroke();
+  }
+  g.restore();
+  const h = r.history ?? [];
+  const xOf = (k) => gx + gw - ((h.length - 1 - k) / 59) * gw; // a minute across the graph
+  const stroke = (width, style) => {
+    g.beginPath();
+    let pen = false; // a gap in the readings is a gap in the line
+    h.forEach((v, k) => {
+      if (!Number.isFinite(v)) {
+        pen = false;
+        return;
+      }
+      if (pen) g.lineTo(xOf(k), yOf(v));
+      else g.moveTo(xOf(k), yOf(v));
+      pen = true;
+    });
+    g.lineWidth = width;
+    g.strokeStyle = style;
+    g.lineJoin = g.lineCap = 'round';
+    g.stroke();
+  };
+  stroke(0.34 * d, O.outer);
+  stroke(0.18 * d, fillColour);
+  const last = [...h].reverse().find(Number.isFinite);
+  if (last !== undefined) {
+    for (const [radius, colour] of [[0.32 * d, O.outer], [0.22 * d, O.ink]]) {
+      g.beginPath();
+      g.arc(gx + gw, yOf(last), radius, 0, Math.PI * 2);
+      g.fillStyle = colour;
+      g.fill();
+    }
+  }
 }
 
 // ---- alert card (bottom centre) ----

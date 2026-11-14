@@ -25,7 +25,7 @@ import * as THREE from 'three';
 import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
 import { T, loadFont } from './tokens.js';
-import { drawStatus, drawBanner, drawAlert, drawAlertGlow, drawLayers, drawCommands } from './draw.js';
+import { drawBanner, drawAlert, drawAlertGlow, drawLayers, drawCommands } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
 import { createPointer } from './pointer.js';
@@ -34,6 +34,7 @@ import { createRescue } from './rescue.js';
 import { handOpen } from '../core/palm.js';
 import { walkableNear, reachableFrom } from '../core/waypoints.js';
 import { choose, importance, trend } from './importance.js';
+import { createDash } from './dash.js';
 import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
 import { pickOnFieldMap, fieldPlaceOnMap, showFieldPick } from '../field/index.js';
 
@@ -59,7 +60,8 @@ const dirty = { status: true, banner: true, layers: true, commands: true, pick: 
 // ---- 패널 ----
 let rigid; // 카메라에 붙는 묶음 (비상 테두리, 그리고 followRate가 0이면 카드도)
 let cards; // 상태창·경보 카드 묶음
-let pStatus, pBanner, pAlert, pLayers, pEdge, pCommands;
+let pBanner, pAlert, pLayers, pEdge, pCommands;
+let dash = null; // the readings as moving tiles (dash.js)
 let wash; // the soft light over the whole view while an alert rings
 let layerHits = [];
 let layersOnPalm = false;
@@ -445,7 +447,19 @@ function statusVM() {
   ];
   const { ranked } = choose([...pinned, ...others], rankedShown);
   rankedShown = ranked.map((m) => m.id);
-  return { pinned, ranked, foot: e ? `Sol ${e.sol} · ${e.localTime}` : '', scores: others.map((m) => [m.id, importance(m)]) };
+  // The order on the dashboard: the pinned ones first, in their fixed order, then the others,
+  // those out of range before the rest. Within that they keep the places they have, so tiles
+  // do not trade places every time two numbers pass each other.
+  const tier = (m) => (m.state === 'crit' ? 2 : m.state === 'warn' ? 1 : 0);
+  const order = [...ranked].sort((a, b) => tier(b) - tier(a) || ranked.indexOf(a) - ranked.indexOf(b));
+  const H = HUD.dash.hDeg;
+  const readings = [...pinned.map((m) => ({ ...m, viz: 'bar' })), ...order].map((m) => ({
+    ...m,
+    hDeg: H[m.viz],
+    // What the tile shows, as text: it is drawn again only when this changes.
+    sig: [m.label, m.value, m.unit, m.tag, m.word, m.state, m.fill?.toFixed(3), m.history?.length, m.history?.at(-1), m.min, m.max].join('|'),
+  }));
+  return { readings, pinned, ranked: order, scores: others.map((m) => [m.id, importance(m)]) };
 }
 
 function sortedAlerts() {
@@ -899,8 +913,9 @@ export function init(context) {
   if (HUD.followRate > 0) scene.add(cards);
   else rigid.add(cards);
 
-  pStatus = makePanel(HUD.status.wDeg, HUD.status.hDeg);
-  place(pStatus, HUD.status.leftDeg, HUD.status.topDeg, HUD.status.wDeg, HUD.status.hDeg);
+  // What looks centred when laid out sits a little high in the headset: the cards hang lower.
+  if (HUD.followRate === 0) cards.position.y = -HUD.viewDropDeg * UNIT;
+  dash = createDash({ makePanel, parent: cards, unitM: UNIT });
   pBanner = makePanel(HUD.banner.wDeg, HUD.banner.hDeg);
   place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2 + HUD.centreShiftDeg, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
   pLayers = makePanel(HUD.layers.wDeg, HUD.layers.hDeg);
@@ -918,7 +933,7 @@ export function init(context) {
   pEdge.mesh.visible = false;
   pAlert = makePanel(A.wDeg, A.hDeg);
   place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2 + HUD.centreShiftDeg, alertTop, A.wDeg, A.hDeg);
-  cards.add(pStatus.mesh, pBanner.mesh, pEdge.mesh, pAlert.mesh);
+  cards.add(pBanner.mesh, pEdge.mesh, pAlert.mesh);
   wash = makeWash();
   camera.add(wash);
   placeLayersFixed();
@@ -957,7 +972,7 @@ export function init(context) {
     layersVM,
     tabScreenXY,
     frameLevel,
-    statusOpacity: () => pStatus.mat.opacity,
+    dash,
     wash: () => ({ visible: wash.visible, opacity: wash.material.opacity, color: `#${wash.material.color.getHexString()}` }),
   };
 }
@@ -1046,17 +1061,11 @@ export function update(frame) {
     wash.material.opacity = washOpacity;
   }
 
-  // Status card: lighter while the map is in view so the terrain shows through, full when any
-  // alert is active so a warning is never faint.
-  const S_ = HUD.status;
-  const wanted = level ? 1 : mapInView ? S_.mapOpacity : S_.opacity;
-  pStatus.mat.opacity += (wanted - pStatus.mat.opacity) * (1 - Math.exp(-S_.fadeRate * frame.dt));
-
   if (dirty.status) {
-    drawStatus(pStatus.g, HUD.pxPerDeg, statusVM());
-    pStatus.tex.needsUpdate = true;
+    dash.set(statusVM().readings);
     dirty.status = false;
   }
+  dash.tick(frame.dt);
   if (dirty.banner) {
     const vm = bannerVM();
     drawBanner(pBanner.g, HUD.pxPerDeg, vm);

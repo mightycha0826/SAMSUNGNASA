@@ -4,7 +4,9 @@
 // most of the time. So every reading gets a number, its importance, and the card shows:
 //   - the pinned ones, always, each in its own fixed place: what has to be watched all the
 //     time (battery, oxygen, suit temperature). Their importance is the maximum by definition.
-//   - of the rest, the `slots` most important ones right now.
+//   - of the rest, those whose importance is at least `showAbove`, the most important first,
+//     and at most `slots` of them. So the number on show changes: a reading comes up when it
+//     starts to matter and goes when it stops.
 //
 // Importance of a reading that is not pinned:
 //     base                  how much it matters when nothing is wrong (set per reading)
@@ -16,7 +18,7 @@
 // Readings must not swap in and out at every flicker of a number: one that is on show stays
 // unless another beats it by more than stayBonus, and it keeps its place on the card.
 
-export const IMPORTANCE = { warn: 50, crit: 100, trendMax: 20, stayBonus: 8, slots: 2 };
+export const IMPORTANCE = { warn: 50, crit: 100, trendMax: 20, stayBonus: 8, slots: 3, showAbove: 31 };
 
 /**
  * How fast a reading has been moving toward the side where it goes out of range: 0 (not at
@@ -44,8 +46,8 @@ export function importance(m, K = IMPORTANCE) {
 
 /**
  * What the card shows: { pinned: [...], ranked: [...] }, both lists of the readings given.
- * Pinned ones come in the order they were given. Ranked ones are the `slots` most important of
- * the rest; one that was shown before (`shownIds`, in the order of its places) keeps its
+ * Pinned ones come in the order they were given. Ranked ones are the most important of the
+ * rest (at least `showAbove`, at most `slots`); one that was shown before (`shownIds`, in the order of its places) keeps its
  * place, and a new one takes the place that came free.
  */
 export function choose(metrics, shownIds = [], K = IMPORTANCE) {
@@ -53,6 +55,7 @@ export function choose(metrics, shownIds = [], K = IMPORTANCE) {
   const rest = metrics
     .filter((m) => !m.pinned && importance(m, K) > -Infinity)
     .map((m) => ({ m, score: importance(m, K) + (shownIds.includes(m.id) ? K.stayBonus : 0) }))
+    .filter(({ score }) => score >= (K.showAbove ?? -Infinity))
     .sort((a, b) => b.score - a.score)
     .slice(0, K.slots)
     .map(({ m }) => m);
