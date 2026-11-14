@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marswalk Hub Test</title>
+<style>
+  :root { color-scheme: dark; --bg:#111; --fg:#eee; --dim:#888; --ok:#4c4; --warn:#fc3; --crit:#f44; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .pill { padding:4px 10px; border-radius:999px; background:#222; }
+  #temp { font-size:40px; font-variant-numeric:tabular-nums; }
+  .warn { color:var(--warn); } .critical { color:var(--crit); } .ok { color:var(--ok); }
+  button { font:inherit; padding:10px 16px; border-radius:8px; border:1px solid #444; background:#222; color:var(--fg); }
+  button.on { background:var(--crit); }
+  #log { background:#000; padding:8px; height:45vh; overflow:auto; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
+  .dim { color:var(--dim); }
+</style>
+</head>
+<body>
+<h1>Marswalk Jetson hub connection check</h1>
+<p class="dim">Test page the hub serves while B's web app (web/dist) is not built yet. Open the same address from the headset, a laptop or a phone.</p>
+<div class="row">
+  <span class="pill">Secure context: <b id="secure"></b></span>
+  <span class="pill">WebSocket: <b id="link">connecting</b></span>
+  <span class="pill">WebXR: <b id="xr">-</b></span>
+</div>
+<div class="row">
+  <span id="temp">--.-°C</span>
+  <span class="pill" id="src">-</span>
+  <span class="pill" id="alert">no alert</span>
+</div>
+<div class="row">
+  <button id="mic">🎙 Hold to talk</button>
+  <button id="audio">🔊 Enable audio</button>
+</div>
+<div id="log"></div>
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+function log(s) { logEl.textContent += new Date().toLocaleTimeString() + ' ' + s + '\n'; logEl.scrollTop = 1e9; }
+
+$('secure').textContent = window.isSecureContext ? 'yes' : 'no (microphone and WebXR unavailable)';
+$('secure').className = window.isSecureContext ? 'ok' : 'critical';
+if (navigator.xr) navigator.xr.isSessionSupported('immersive-ar')
+  .then(ok => $('xr').textContent = ok ? 'immersive-ar supported' : 'AR not supported')
+  .catch(e => $('xr').textContent = e.name);
+else $('xr').textContent = 'none';
+
+const send = (ws, type, payload) => ws.send(JSON.stringify({ type, ts: Date.now(), payload }));
+
+// ---- audio out (TTS: 16-bit mono PCM) ----
+let ctx = null, ttsRate = 22050, ttsChunks = [];
+$('audio').onclick = () => { ctx = ctx || new AudioContext(); ctx.resume(); $('audio').textContent = '🔊 Audio on'; };
+function playPcm(chunks, rate) {
+  if (!ctx) { log('Press "Enable audio" first to hear speech'); return; }
+  const total = chunks.reduce((n, c) => n + c.byteLength / 2, 0);
+  const buf = ctx.createBuffer(1, total, rate), ch = buf.getChannelData(0);
+  let o = 0;
+  for (const c of chunks) { const v = new Int16Array(c); for (let i = 0; i < v.length; i++) ch[o++] = v[i] / 32768; }
+  const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination); s.start();
+}
+
+// ---- websocket ----
+let ws, retry = 0;
+function connect() {
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  ws = new WebSocket(url); ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { retry = 0; $('link').textContent = 'connected'; $('link').className = 'ok'; log('open ' + url); send(ws, 'hello', { client: 'quest', mock: false }); };
+  ws.onclose = () => { $('link').textContent = 'disconnected'; $('link').className = 'critical'; setTimeout(connect, Math.min(5000, 500 * ++retry)); };
+  ws.onmessage = ev => {
+    if (typeof ev.data !== 'string') { ttsChunks.push(ev.data); return; }
+    const m = JSON.parse(ev.data), p = m.payload;
+    if (m.type === 'telemetry') {
+      $('temp').textContent = (p.suitTempC ?? NaN).toFixed(1) + '°C';
+      $('src').textContent = p.source;
+      return;
+    }
+    log(m.type + ' ' + JSON.stringify(p));
+    if (m.type === 'alert.raise') { $('alert').textContent = p.level + ': ' + p.message; $('alert').className = 'pill ' + p.level; }
+    if (m.type === 'alert.clear') { $('alert').textContent = 'no alert'; $('alert').className = 'pill'; }
+    if (m.type === 'tts.begin') { ttsRate = p.sampleRate; ttsChunks = []; }
+    if (m.type === 'tts.end') playPcm(ttsChunks, ttsRate);
+  };
+}
+connect();
+
+// ---- mic in: 16 kHz 16-bit mono PCM while the button is held ----
+let micStream, micCtx, micNode;
+async function micStart() {
+  if (!window.isSecureContext) { log('Not a secure context: the microphone is unavailable'); return; }
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true } });
+  } catch (e) { log('Microphone denied: ' + e.name); return; }
+  micCtx = new AudioContext();
+  const src = micCtx.createMediaStreamSource(micStream);
+  micNode = micCtx.createScriptProcessor(4096, 1, 1);
+  const ratio = micCtx.sampleRate / 16000;
+  micNode.onaudioprocess = e => {
+    const x = e.inputBuffer.getChannelData(0), n = Math.floor(x.length / ratio), out = new Int16Array(n);
+    for (let i = 0; i < n; i++) out[i] = Math.max(-1, Math.min(1, x[Math.floor(i * ratio)])) * 32767;
+    if (ws.readyState === 1) ws.send(out.buffer);
+  };
+  src.connect(micNode); micNode.connect(micCtx.destination);
+  send(ws, 'mic.begin', { sampleRate: 16000 });
+  $('mic').classList.add('on'); log('mic.begin (' + micCtx.sampleRate + 'Hz → 16000Hz)');
+  if (!held) micStop();   // released while the permission prompt was open
+}
+let held = false;
+function micStop() {
+  held = false;
+  if (!micNode) return;
+  micNode.disconnect(); micCtx.close(); micStream.getTracks().forEach(t => t.stop()); micNode = null;
+  send(ws, 'mic.end', {}); $('mic').classList.remove('on'); log('mic.end');
+}
+$('mic').addEventListener('pointerdown', () => { held = true; micStart(); });
+$('mic').addEventListener('pointerup', micStop);
+$('mic').addEventListener('pointerleave', micStop);
+</script>
+</body>
+</html>

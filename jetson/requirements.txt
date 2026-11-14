@@ -1,0 +1,5 @@
+aiohttp>=3.9
+pyserial>=3.5
+# speech (optional: without these the hub runs with --stt null --tts tone)
+sherpa-onnx>=2.0
+numpy

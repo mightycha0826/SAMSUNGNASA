@@ -1,0 +1,6 @@
+.venv/
+.tools/
+__pycache__/
+certs/
+models/
+tts_out_*.wav
