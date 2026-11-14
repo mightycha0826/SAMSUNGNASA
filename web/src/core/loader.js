@@ -18,13 +18,15 @@ export function assetUrl(file) {
   return assetOverrides.get(file) ?? DATA_BASE + file;
 }
 
+// Vite 개발 서버는 없는 파일에도 index.html을 200으로 돌려주므로 content-type도 본다.
+function isMissing(res) {
+  return !res.ok || (res.headers.get('content-type') ?? '').includes('text/html');
+}
+
 async function fetchJson(file, { optional = false } = {}) {
   try {
     const res = await fetch(DATA_BASE + file);
-    // Vite 개발 서버는 없는 파일에 index.html을 돌려주므로 content-type도 본다.
-    if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) {
-      throw new Error(`HTTP ${res.status}`);
-    }
+    if (isMissing(res)) throw new Error(res.ok ? '파일 없음' : `HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
     if (optional) {
@@ -37,9 +39,7 @@ async function fetchJson(file, { optional = false } = {}) {
 
 async function fetchGrid(layer, grid) {
   const res = await fetch(DATA_BASE + layer.file);
-  if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) {
-    throw new Error(`${layer.file}: HTTP ${res.status}`);
-  }
+  if (isMissing(res)) throw new Error(`${layer.file}: ${res.ok ? '파일 없음' : `HTTP ${res.status}`}`);
   const buf = await res.arrayBuffer();
   const expected = grid.cols * grid.rows;
   if (buf.byteLength !== expected * 4) {
