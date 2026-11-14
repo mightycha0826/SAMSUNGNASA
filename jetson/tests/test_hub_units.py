@@ -55,6 +55,12 @@ class IntentTest(unittest.TestCase):
                 self.assertIsNotNone(r)
                 self.assertEqual((r["intent"], r["slots"]), (intent, slots))
 
+    def test_wake_word(self):
+        self.assertIsNone(parse("take me to the survey site", wake="helmet"))
+        self.assertEqual(parse("Helmet, take me to the survey site.", wake="helmet")["intent"],
+                         "nav.start")
+        self.assertEqual(parse("Helmets stop navigation", wake="helmet")["intent"], "nav.stop")
+
     def test_unknown_dropped(self):
         self.assertIsNone(parse("what is for lunch today"))
         self.assertIsNone(parse(""))

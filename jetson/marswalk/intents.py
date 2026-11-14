@@ -24,9 +24,18 @@ def _has(t: str, words) -> bool:
     return any(_norm(w) in t for w in words)
 
 
-def parse(text: str) -> dict | None:
+# How the STT spells each wake word. "helmet" was recognized 6 of 6 times in the self-test;
+# "visor" was not (it came out as "Psor", "Pfsor", "Psizer").
+WAKE_VARIANTS = {"helmet": ["helmet", "hell met", "helmut", "helmit"]}
+
+
+def parse(text: str, wake: str | None = None) -> dict | None:
+    """With `wake`, only speech that contains the wake word is a command
+    ("Helmet, take me to the survey site"). Use it where other people are talking."""
     t = _norm(text)
     if not t:
+        return None
+    if wake and not _has(t, WAKE_VARIANTS.get(wake, [wake])):
         return None
 
     def out(intent, slots=None):
