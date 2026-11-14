@@ -22,11 +22,19 @@ import { config, mock } from './config.js';
 import { handleVoiceMessage, initVoice, resetVoice, voiceLinkOpened } from './voice.js';
 import { initDiag, flushDiag } from './diag.js';
 import { mode } from './mode.js';
+import { navTarget } from './waypoints.js';
 
 let ws = null;
 let linkLost = false;
 let lostTimer = null;
 const state = { mode: 'normal', navStatus: null, targetId: null };
+
+// The destinations the map has (layers:ready), for navTarget: "Navigate" names the nearby point,
+// which the map may not have (?near=0).
+let waypointIds = null;
+bus.on('layers:ready', ({ layerSet }) => {
+  waypointIds = new Set((layerSet?.waypoints ?? []).map((w) => w.id));
+});
 
 /** 젯슨이 보낸 봉투 메시지 하나를 처리한다. 진짜와 가짜가 같이 쓴다. */
 export function handleMessage(msg) {
@@ -63,7 +71,7 @@ function handleVoiceCommand({ intent, slots = {}, text = '' }) {
     // Routes on the Mars map are D's. In field mode "Navigate" means the marked target and the
     // field module answers the voice:command itself, so no Mars route is requested there.
     case 'nav.start':
-      if (mode.current === 'mars') bus.emit('nav:request', { targetId: slots.targetId ?? 'site1' });
+      if (mode.current === 'mars') bus.emit('nav:request', { targetId: navTarget(slots.targetId, waypointIds) });
       break;
     case 'nav.home':
       if (mode.current === 'mars') bus.emit('nav:request', { targetId: 'base' });

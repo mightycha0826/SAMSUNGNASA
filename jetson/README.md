@@ -74,7 +74,7 @@ Edit [`commands.json`](commands.json) and save. The hub reloads it by itself; a 
 - `wake_word` (or `--wake-word helmet`) makes the hub obey only speech that contains the word.
 - Try a sentence without a headset: `.venv/bin/python tools/voice_selftest.py --text "show me the thermal map"`.
 
-Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate", "Base", "Mark target", "Stop", "Confirm", "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
+Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate" (to the nearby point about 20 m from the base; "Take me to the survey site" names the far one), "Base", "Mark target", "Stop", "Confirm", "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
 
 - The critical alert sentence is synthesized at startup, so it plays without the 1 s delay.
 - `status.report` is answered by the hub itself: suit temperature, alerts, route state.

@@ -1,7 +1,7 @@
 // node --test src/core/waypoints.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nearbyWaypoint } from './waypoints.js';
+import { nearbyWaypoint, navTarget } from './waypoints.js';
 
 // The real map: 512 x 512 cells of 4 m, base and survey site where layerset.json has them.
 const REAL = { grid: { cols: 512, rows: 512, cellSizeM: 4 }, waypoints: [{ id: 'base', cell: [247, 357] }, { id: 'site1', cell: [275, 272] }] };
@@ -41,4 +41,14 @@ test('stays on the map, and gives nothing when it cannot be placed', () => {
   assert.equal(nearbyWaypoint({ grid: REAL.grid, waypoints: [REAL.waypoints[0]] }, 20), null); // no survey site
   assert.equal(nearbyWaypoint(REAL, 0), null);
   assert.equal(nearbyWaypoint(REAL, 5000), null); // farther than the survey site
+});
+
+test('"Navigate" goes to the nearby point, or to the survey site on a map without it', () => {
+  const all = new Set(['base', 'site1', 'near']), noNear = new Set(['base', 'site1']);
+  assert.equal(navTarget('near', all), 'near');
+  assert.equal(navTarget(undefined, all), 'near');
+  assert.equal(navTarget('site1', all), 'site1'); // "survey site" still means the survey site
+  assert.equal(navTarget('near', noNear), 'site1');
+  assert.equal(navTarget(undefined, noNear), 'site1');
+  assert.equal(navTarget('near', null), 'near'); // before the map loads: as asked
 });

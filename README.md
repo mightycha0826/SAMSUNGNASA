@@ -340,7 +340,7 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 **Menus: point and pinch.** The left hand brings a menu up, the right hand operates it from where it is, as with the Quest 3's own hand pointer. Nothing is touched, so the hands never cover each other from the headset's cameras.
 
 - Left palm up: the map, with the layer tabs beside it (Mars map).
-- Back of the left hand up, as when looking at a watch: the command card above the hand (Status, Navigate, Base or Mark target, Stop, Confirm).
+- Back of the left hand up, as when looking at a watch: the command card above the hand (Status, Navigate, Base or Mark target, Stop, Confirm). On the Mars map "Navigate" goes to the nearby point about 20 m from the base; say "Take me to the survey site" for the 390 m route.
 - Point the right hand at a menu: a thin beam and a ring cursor show where you aim, and the button under the cursor lights up. Pinch thumb and index finger to press it. The ring closes as the fingers do.
 - A menu stays where it appeared instead of riding on the left hand; it follows only when the hand has moved about 5 cm away, and it does not move while you point at it.
 - Controllers work the same way (point, pull the trigger). If the beam does not seem to come from where you point, add `?ray=own` to the address.

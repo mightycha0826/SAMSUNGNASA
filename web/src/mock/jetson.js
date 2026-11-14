@@ -16,7 +16,7 @@ const CYCLE_S = 60;
 
 const SCRIPT = [
   { at: 4, intent: 'layer.show', slots: { id: 'thermal' }, text: 'Thermal' },
-  { at: 8, intent: 'nav.start', slots: { targetId: 'site1' }, text: 'Navigate' },
+  { at: 8, intent: 'nav.start', slots: { targetId: 'near' }, text: 'Navigate' },
   { at: 20, intent: 'layer.show', slots: { id: 'optical' }, text: 'Optical' },
   { at: 57, intent: 'nav.stop', slots: {}, text: 'Stop' },
 ];
@@ -84,7 +84,7 @@ export function startMockJetson(deliver, { speed = 1 } = {}) {
   function onKey(e) {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     switch (e.key.toLowerCase()) {
-      case 'n': say('nav.start', { targetId: 'site1' }, 'Navigate'); break;
+      case 'n': say('nav.start', { targetId: 'near' }, 'Navigate'); break;
       case 'h': say('nav.home', {}, 'Base'); break;
       case 's': say('nav.stop', {}, 'Stop'); break;
       case 'l':

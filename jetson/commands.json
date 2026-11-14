@@ -23,8 +23,10 @@
   "commands": [
     { "intent": "status.report", "say": "Status", "phrases": ["status", "status report"] },
 
-    { "intent": "nav.start", "slots": { "targetId": "site1" }, "say": "Navigate",
-      "phrases": ["navigate", "take me", "guide me", "survey site"] },
+    { "intent": "nav.start", "slots": { "targetId": "near" }, "say": "Navigate",
+      "phrases": ["navigate", "take me", "guide me", "nearby point"] },
+    { "intent": "nav.start", "slots": { "targetId": "site1" }, "menu": false,
+      "phrases": ["survey site", "sulfur rocks"] },
     { "intent": "nav.home", "say": "Base", "mode": "mars",
       "phrases": ["base", "go back", "return to base"] },
     { "intent": "nav.mark", "say": "Mark target", "mode": "field",

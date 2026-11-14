@@ -433,7 +433,8 @@ E's hub turns speech into one of the `intent` values below. Speech is English. A
 | intent | slots | Short form | Also | Handled by |
 |---|---|---|---|---|
 | `status.report` | `{}` | "Status" | "Status report" | E answers by voice itself |
-| `nav.start` | `{ "targetId": "site1" }` | "Navigate" | "Take me to the survey site", "Guide me" | Mars map: D. Field map: field (guidance to the marked target) |
+| `nav.start` | `{ "targetId": "near" }` | "Navigate" | "Take me", "Guide me", "Nearby point" | Mars map: D, to the nearby point about 20 m from the base (`near` in `waypoints`; on a map without it, `?near=0`, B's `link.js` sends the survey site instead). Field map: field (guidance to the marked target) |
+| `nav.start` | `{ "targetId": "site1" }` | — (voice only) | "Take me to the survey site", "Sulfur rocks" | Mars map: D, to the survey site (390 m by route) |
 | `nav.home` | `{}` | "Base" | "Go back", "Return to base" | D (Mars map only) |
 | `nav.mark` | `{}` | "Mark target" | "Set target", "Mark here" | field (field map only): the target is where the wearer stands. Saying it again moves the target |
 | `nav.stop` | `{}` | "Stop" | "Stop navigation", "Cancel" | D, field |
@@ -442,6 +443,6 @@ E's hub turns speech into one of the `intent` values below. Speech is English. A
 
 **This is the whole list, and it is short on purpose** (pruned on 2026-11-14). Every phrase is one more thing ordinary talk can trigger by accident, so only what the demo needs is left. Removed: `layer.hide` (one layer is always shown; naming another switches to it), `nav.clear` ("Mark target" again moves the target, "Stop" ends the guidance), `mode.set` (night mode was never built), and the looser synonyms ("home", "return", "report", "copy", "roger", "let's go", "photo", "camera", "height" and others).
 
-The command menu on the headset shows six of them as buttons, at most five at a time: "Base" only on the Mars map and "Mark target" only on the field map (`"mode"` in `commands.json`).
+Naming the survey site is the one longer form that changes the destination; it is not in the menu. The command menu on the headset shows six of the commands as buttons, at most five at a time: "Base" only on the Mars map and "Mark target" only on the field map (`"mode"` in `commands.json`).
 
 B re-emits `nav.start` and `nav.home` as `nav:request` (on the Mars map), and `layer.show` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.

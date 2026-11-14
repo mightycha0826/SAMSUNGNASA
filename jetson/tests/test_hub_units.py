@@ -53,7 +53,9 @@ class IntentTest(unittest.TestCase):
     CASES = {
         # short forms
         "Status.": ("status.report", {}),
-        "Navigate": ("nav.start", {"targetId": "site1"}),
+        "Navigate": ("nav.start", {"targetId": "near"}),
+        "Take me there": ("nav.start", {"targetId": "near"}),
+        "Guide me to the nearby point": ("nav.start", {"targetId": "near"}),
         "base": ("nav.home", {}),
         "Stop.": ("nav.stop", {}),
         "Mark target": ("nav.mark", {}),

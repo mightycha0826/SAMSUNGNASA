@@ -69,7 +69,7 @@ let commandHits = [];
 // the field map; the layer names are voice only, because the tabs beside the map do the same.
 let commands = [
   { say: 'Status', intent: 'status.report', slots: {} },
-  { say: 'Navigate', intent: 'nav.start', slots: { targetId: 'site1' } },
+  { say: 'Navigate', intent: 'nav.start', slots: { targetId: 'near' } },
   { say: 'Base', intent: 'nav.home', slots: {}, mode: 'mars' },
   { say: 'Mark target', intent: 'nav.mark', slots: {}, mode: 'field' },
   { say: 'Stop', intent: 'nav.stop', slots: {} },

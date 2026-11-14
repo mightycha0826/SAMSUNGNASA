@@ -65,3 +65,18 @@ export function nearbyWaypoint(layerSet, distanceM, slope = null, { fromId = 'ba
     distanceM: actualM,
   };
 }
+
+/** Where "Navigate" goes when the command names no destination the map has, in this order. */
+export const NAV_DEFAULTS = ['near', 'site1'];
+
+/**
+ * The destination a nav.start command means. "Navigate" names the nearby point; a map without
+ * it (?near=0, or no usable cell) gets the survey site instead.
+ * @param {string | undefined} targetId what the command asked for
+ * @param {Set<string> | null} known ids of the waypoints the map has, null before the map loads
+ */
+export function navTarget(targetId, known = null) {
+  if (!known) return targetId ?? NAV_DEFAULTS[0];
+  if (targetId && known.has(targetId)) return targetId;
+  return NAV_DEFAULTS.find((id) => known.has(id)) ?? targetId ?? NAV_DEFAULTS[0];
+}
