@@ -9,14 +9,26 @@
 // blocks the cell under it; surfaces near the floor mark the cell as passable.
 //
 // Limits, stated plainly:
-//   - This is the room as the headset last scanned it, not live depth. A chair moved after the
-//     scan is not seen until the headset updates its room model.
-//   - If the headset has no room scan, nothing arrives and every cell stays "not seen". The
-//     wearer has to run Space Setup once (Settings > Environment setup).
+//   - The room scan is the room as the headset last scanned it. A chair moved after the scan is
+//     not in it until the headset updates its room model.
+//   - If the headset has no room scan, nothing arrives from it and every cell stays "not seen".
+//     The wearer has to run Space Setup once (Settings > Environment setup).
+//
+// Live depth (only with ?depth=1, which asks the session for `depth-sensing`): twice a second
+// the depth image of the left eye is laid over the same cells (depth.js, grid.js). It adds what
+// stands within depthRangeM of the wearer now and takes it away again once only floor is seen
+// there, so a chair put down after the scan appears, and clears within a few seconds of being
+// taken away. It never clears structure that came from the room scan. Not yet checked on the
+// headset.
+//
+// The obstacles are also outlined in red on the real floor in field mode (overlay.js).
 //
 // ctx and frame: see the comment in map/index.js.
 
 import { startMockHazard } from '../mock/hazard.js';
+import { createGrid, mergeLayers } from './grid.js';
+import { readDepth } from './depth.js';
+import { initOverlay } from './overlay.js';
 
 export const SCAN = {
   sizeM: 16, // the grid covers sizeM x sizeM, centred where the session started
@@ -25,7 +37,22 @@ export const SCAN = {
   headM: 1.9, // surfaces above this height do not block walking
   sampleM: 0.07, // spacing of the points sampled on each triangle
   trianglesPerFrame: 1500, // budget, so a large room mesh does not stall a frame
+  rescanMs: 10000, // a mesh or plane that says it changed is not rasterised again sooner than this
   emitMs: 600,
+
+  // Live depth. Starting values: tune them on the headset.
+  depthMs: 500, // read the depth image this often
+  depthSamples: 192, // samples per side taken from it (the image is about 320 x 320); fewer and far floor cells get too few
+  depthRangeM: 2.5, // cells farther than this from the headset, along the floor, are left alone (floor there is 3 m from the eye)
+  bodyM: 0.8, // cells this close to the headset, along the floor, are the wearer's own hands and body
+  floorNoiseM: 0.1, // a depth point within this height of y = 0 counts as floor (the real floor can sit a few cm off)
+  minPoints: 3, // samples needed in a cell before a read says anything about it
+  setScans: 2, // reads that must see an obstacle before it counts (2 = 1 s): not someone walking past
+  clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
+
+  // Outline on the floor, [r, g, b, a] 0-255.
+  edgeRGBA: [255, 48, 48, 230], // cells on the rim of an obstacle
+  fillRGBA: [255, 48, 48, 70], // cells inside it
 };
 
 let ctx;
@@ -34,9 +61,13 @@ let cols;
 let origin;
 let dirty = false;
 let lastEmit = 0;
-const seen = new Map(); // XRMesh / XRPlane -> lastChangedTime already rasterised
+const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when rasterised, at: when that was }
 const jobs = []; // triangles waiting to be rasterised: { m: Float32Array(16), v, idx, at }
-let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0 };
+let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0, depth: 0 };
+let live; // what live depth sees, on the same cells
+let depthOn = false; // this session has depth-sensing and reading it has not failed
+let lastDepth = 0;
+let space = null; // the reference space whose 'reset' is being listened to
 
 function reset() {
   cols = Math.round(SCAN.sizeM / SCAN.cellM);
@@ -45,6 +76,8 @@ function reset() {
   seen.clear();
   jobs.length = 0;
   dirty = true;
+  live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
+  depthOn = ctx.xr.has('depth-sensing') === true;
 }
 
 function mark(x, y, z) {
@@ -80,6 +113,14 @@ function rasterTriangle(m, ax, ay, az, bx, by, bz, cx, cy, cz) {
       markLocal(m, ax + (bx - ax) * u + (cx - ax) * v, ay + (by - ay) * u + (cy - ay) * v, az + (bz - az) * u + (cz - az) * v);
     }
   }
+}
+
+// A mesh or plane is rasterised when it is new or says it changed, but the same one not more
+// often than rescanMs: the spec lets a browser move lastChangedTime every frame, and each time
+// would queue the whole room again, so the queue would never empty and nothing would be sent.
+function due(thing, time) {
+  const last = seen.get(thing);
+  return !last || (last.changed !== thing.lastChangedTime && time - last.at >= SCAN.rescanMs);
 }
 
 function queueMesh(pose, vertices, indices) {
@@ -120,6 +161,12 @@ export function init(context) {
   // Mock mode: the fake obstacle grid stands in for the scan.
   if (ctx.mock.hazard) startMockHazard(ctx.bus, { speed: ctx.mock.speed });
   ctx.xr.onSessionStart(() => reset());
+  // With depth-sensing three.js would draw a mesh that hides every virtual object behind real
+  // surfaces (the reason depth is off by default, core/xr.js), and would leave clearing the
+  // frame to that mesh. The scan only wants the numbers: no mesh, and the usual clear.
+  ctx.renderer.xr.getDepthSensingMesh = () => null;
+  ctx.renderer.xr.hasDepthSensing = () => false;
+  initOverlay(ctx, SCAN);
   window.__scan = { stats: () => ({ ...stats, queued: jobs.length }) };
 }
 
@@ -127,46 +174,61 @@ export function update(frame) {
   const { xrFrame, refSpace, time } = frame;
   if (!xrFrame || !refSpace || ctx.mock.hazard) return;
 
+  // After a recentre every stored coordinate is in the old frame: start over. The space in use
+  // can be swapped during a session (?space=unbounded), so follow whichever one it is.
+  if (space !== refSpace) {
+    space = refSpace;
+    space.addEventListener('reset', reset);
+  }
+
   const meshes = xrFrame.detectedMeshes;
   const planes = xrFrame.detectedPlanes;
   if (meshes) {
     for (const mesh of meshes) {
-      if (seen.get(mesh) === mesh.lastChangedTime) continue;
+      if (!due(mesh, time)) continue;
       const pose = xrFrame.getPose(mesh.meshSpace, refSpace);
       if (!pose) continue;
-      seen.set(mesh, mesh.lastChangedTime);
+      seen.set(mesh, { changed: mesh.lastChangedTime, at: time });
       queueMesh(pose, mesh.vertices, mesh.indices);
     }
   }
   if (planes) {
     for (const plane of planes) {
-      if (seen.get(plane) === plane.lastChangedTime) continue;
+      if (!due(plane, time)) continue;
       const pose = xrFrame.getPose(plane.planeSpace, refSpace);
       if (!pose) continue;
-      seen.set(plane, plane.lastChangedTime);
+      seen.set(plane, { changed: plane.lastChangedTime, at: time });
       queuePlane(pose, plane.polygon);
     }
   }
   work();
 
+  if (depthOn && time - lastDepth >= SCAN.depthMs) {
+    try {
+      // No image on this frame (the sensor is slower than the display): try again on the next.
+      if (readDepth(ctx.renderer, frame, live, SCAN)) {
+        lastDepth = time;
+        if (live.commit()) dirty = true;
+      }
+    } catch (err) {
+      depthOn = false; // the room scan carries on without it
+      console.error('[scan] live depth switched off:', err);
+    }
+  }
+
   if (dirty && !jobs.length && time - lastEmit >= SCAN.emitMs) {
     dirty = false;
     lastEmit = time;
-    let obstacles = 0;
-    let floor = 0;
-    for (let i = 0; i < cells.length; i++) {
-      if (cells[i] === 1) obstacles++;
-      else if (cells[i] === 0) floor++;
-    }
-    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, obstacles, floor };
+    const { cells: merged, ...counts } = mergeLayers(cells, live.cells);
+    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts };
     ctx.bus.emit('hazard:update', {
       originXZ: [...origin],
       cellSizeM: SCAN.cellM,
       cols,
       rows: cols,
-      cells: cells.slice(),
+      cells: merged,
       ts: Date.now(),
-      source: 'room-scan',
+      source: depthOn ? 'room-scan+depth' : 'room-scan',
       stats,
     });
   }

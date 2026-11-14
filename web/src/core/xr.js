@@ -9,9 +9,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// 'depth-sensing' is left out unless ?depth=1: when it is granted, three.js hides virtual
-// objects behind real surfaces, and nothing reads the depth data yet (the room scan uses
-// mesh-detection and plane-detection).
+// 'depth-sensing' is left out unless ?depth=1. With it the scan lays live depth over the room
+// scan (scan/depth.js) and stops three.js from hiding virtual objects behind real surfaces, but
+// that has not been checked on the headset yet. three.js also takes the cameras' near and far
+// planes from the depth data then. Without it the room scan uses mesh-detection and
+// plane-detection only.
 const WANT_DEPTH = new URLSearchParams(location.search).get('depth') === '1';
 // ?space=unbounded asks for the WebXR "unbounded" reference space, which the Quest Browser lists
 // as experimental since 34.2: the session is then not limited to the Guardian boundary. That
@@ -32,8 +34,12 @@ export const OPTIONAL_FEATURES = [
 // depth-sensing을 요청하려면 선호 형식을 같이 줘야 한다. 기기가 고른 값은
 // session.depthUsage / session.depthDataFormat 에 들어온다 (check.html에서 확인).
 export const DEPTH_SENSING_INIT = {
-  usagePreference: ['cpu-optimized', 'gpu-optimized'],
-  dataFormatPreference: ['luminance-alpha', 'float32', 'unsigned-short'],
+  // The Quest 3 only hands out gpu-optimized / unsigned-short, and that is what the scan reads.
+  usagePreference: ['gpu-optimized', 'cpu-optimized'],
+  dataFormatPreference: ['unsigned-short', 'float32', 'luminance-alpha'],
+  // The depth image as it was captured, with its own pose and projection, instead of one warped
+  // to the current view: the scan places each sample in the room itself (scan/depth.js).
+  matchDepthView: false,
 };
 
 export function sessionInit() {
