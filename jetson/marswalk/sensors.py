@@ -6,6 +6,8 @@ If no reading arrives for 5 s, source becomes "mock" and a log line is written.
 """
 import asyncio
 import glob
+import statistics
+from collections import deque
 import json
 import logging
 import time
@@ -13,6 +15,7 @@ import time
 log = logging.getLogger("sensors")
 
 STALE_S = 5.0
+MEDIAN_N = 5   # readings; an analog sensor jumps around, and one stray reading must not alarm
 
 
 class SuitTemp:
@@ -22,12 +25,14 @@ class SuitTemp:
         self.source = "mock"
         self.mock_c = mock_base_c        # dev.temp can change this
         self._last_line = 0.0
+        self._recent: deque[float] = deque(maxlen=MEDIAN_N)
         self._last_error = None
 
     def reading(self) -> dict:
         if self.source == "arduino" and time.monotonic() - self._last_line > STALE_S:
             log.warning("no serial line for %.0fs, switching to mock", STALE_S)
             self.source = "mock"
+            self._recent.clear()
         if self.source == "mock":
             self.temp_c = self.mock_c
         return {"suitTempC": self.temp_c, "source": self.source}
@@ -83,7 +88,10 @@ class SuitTemp:
         if self.source != "arduino":
             log.info("arduino data, source=arduino")
         self.source = "arduino"
-        self.temp_c = float(t)
+        # The median of the last few readings: steady enough for the display, and a single
+        # spike cannot cross an alert threshold. Costs about two seconds of lag.
+        self._recent.append(float(t))
+        self.temp_c = round(statistics.median(self._recent), 1)
 
 
 def _guess_port() -> str | None:
