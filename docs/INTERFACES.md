@@ -131,7 +131,7 @@ Fields:
 | `layers[].format` | `float32` (numeric grid) or `image` |
 | `layers[].min`, `max` | Value range of a numeric grid. Used for coloring and the legend |
 | `layers[].sourceUrl` | Address of the source data. Used as is in the submission text. **Never empty** |
-| `waypoints` | Base and survey site. `cell` is a map grid coordinate |
+| `waypoints` | Base and survey site. `cell` is a map grid coordinate. B's loader adds a third, derived one before `layers:ready`: `near`, a cell about 20 m from the base on the bearing to the survey site and not steeper than 20° (`web/src/core/waypoints.js`, `"derived": true`; `?near=<metres>` changes the distance, `?near=0` leaves it out). It is a destination like the others (`nav:request` `{ "targetId": "near" }`) |
 | `demo.regionCells` | Map region mapped onto the room `[col0, row0, col1, row1]` |
 | `demo.roomSizeM` | Room floor size that region is scaled down to `[width, depth]` |
 

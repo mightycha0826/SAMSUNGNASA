@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.cjs",
-    "test": "node --test src/scan/*.test.js src/field/*.test.js src/hud/*.test.js src/nav/navigation.test.js"
+    "test": "node --test src/core/*.test.js src/scan/*.test.js src/field/*.test.js src/hud/*.test.js src/nav/navigation.test.js"
   },
   "dependencies": {
     "three": "^0.187.0"
