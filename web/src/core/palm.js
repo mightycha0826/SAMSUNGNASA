@@ -12,7 +12,7 @@ export const PALM = {
   /** How far it sits in front of the palm, away from the wearer (m) */
   forwardM: 0.13,
   /** How far it sits to the wearer's right of the palm (m) */
-  rightM: 0.02,
+  rightM: 0.1,
   /** The map leans this far toward the wearer, so its surface faces the eyes a little (degrees) */
   tiltDeg: 8,
   /** The palm counts as facing up when the back-of-hand direction (wrist +Y) points this far down */
