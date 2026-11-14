@@ -1,7 +1,7 @@
 // Obstacle highlight on the real floor (field mode): each obstacle's footprint is filled with a
 // soft translucent red, the way a phone shades what it has picked out of a photo before
-// erasing it, with a light that travels across it and a few sparks. There is no outline and no
-// halo: on the headset a bright line around every obstacle was more than the room needed.
+// erasing it, with a light that travels across it and a few sparks. It is shown in full within
+// 2 m of the wearer and fades out exponentially beyond. There is no outline and no halo: on the headset a bright line around every obstacle was more than the room needed.
 // Nothing blocky: the edge of the fill is drawn from a distance field, so it follows the shape
 // and not the 10 cm cells, and fades out over a few centimetres.
 //
@@ -79,6 +79,8 @@ uniform sampler2D field;
 uniform float time;
 uniform vec3 colour;
 uniform vec3 glint;
+uniform vec2 eye; // where the wearer is, on the floor
+uniform vec2 reach; // shown in full within reach.x metres of the wearer, then fading by 1/e every reach.y metres
 varying vec2 vUv;
 varying vec2 vFloor;
 
@@ -87,7 +89,11 @@ float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 void main() {
   float f = texture2D(field, vUv).r; // 0.5 on the edge of an obstacle, more inside, less outside
   float inside = smoothstep(0.42, 0.58, f); // the fill, fading out across the edge
-  if (inside < 0.01) discard;
+  // Only what is near is shown in full: an obstacle across the room is not in the way yet,
+  // and red patches all over the floor are more than the eye needs.
+  float away = distance(vFloor, eye);
+  float near = away <= reach.x ? 1.0 : exp(-(away - reach.x) / reach.y);
+  if (inside * near < 0.01) discard;
   // A band of light that crosses the floor every few seconds.
   float sweep = pow(0.5 + 0.5 * sin(dot(vFloor, vec2(0.8, 0.6)) * 2.4 - time * 1.7), 6.0);
   // Sparks inside the shape: 2.5 cm squares, a few of them lit, each twinkling at its own pace.
@@ -95,15 +101,15 @@ void main() {
   float spark = step(0.94, seed) * (0.5 + 0.5 * sin(time * 3.2 + seed * 50.0));
   float breathe = 0.9 + 0.1 * sin(time * 2.1);
 
-  float alpha = inside * (0.34 * breathe + 0.14 * sweep + 0.36 * spark);
+  float alpha = inside * near * (0.34 * breathe + 0.14 * sweep + 0.36 * spark);
   vec3 rgb = mix(colour, glint, clamp(sweep * 0.35 + spark * 0.6, 0.0, 1.0));
   gl_FragColor = vec4(rgb, clamp(alpha, 0.0, 0.9));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
 
-/** @param colours { glowRGB, glintRGB } each [r, g, b] 0-255 (SCAN in index.js) */
-export function initOverlay(ctx, { glowRGB, glintRGB }) {
+/** @param cfg { glowRGB, glintRGB } each [r, g, b] 0-255, glowFullM, glowFadeM (SCAN in index.js) */
+export function initOverlay(ctx, { glowRGB, glintRGB, glowFullM = 2, glowFadeM = 0.7 }) {
   let floor = null;
   const rgb = (v) => new THREE.Color().setRGB(v[0] / 255, v[1] / 255, v[2] / 255, THREE.SRGBColorSpace);
 
@@ -117,7 +123,7 @@ export function initOverlay(ctx, { glowRGB, glintRGB }) {
       floor = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1).rotateX(Math.PI / 2),
         new THREE.ShaderMaterial({
-          uniforms: { field: { value: null }, time: { value: 0 }, colour: { value: rgb(glowRGB) }, glint: { value: rgb(glintRGB) } },
+          uniforms: { field: { value: null }, time: { value: 0 }, colour: { value: rgb(glowRGB) }, glint: { value: rgb(glintRGB) }, eye: { value: new THREE.Vector2() }, reach: { value: new THREE.Vector2(glowFullM, glowFadeM) } },
           vertexShader: VERTEX,
           fragmentShader: FRAGMENT,
           transparent: true,
@@ -127,8 +133,11 @@ export function initOverlay(ctx, { glowRGB, glintRGB }) {
       );
       floor.name = 'scan-obstacles';
       floor.visible = mode.current === 'field';
-      floor.onBeforeRender = () => {
+      floor.onBeforeRender = (_renderer, _scene, camera) => {
         floor.material.uniforms.time.value = (performance.now() / 1000) % 3600;
+        // The camera that is drawing: in the headset one eye, close enough to where the wearer stands.
+        const e = camera.matrixWorld.elements;
+        floor.material.uniforms.eye.value.set(e[12], e[14]);
       };
       ctx.scene.add(floor);
     }

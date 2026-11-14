@@ -1,9 +1,10 @@
 // node --test src/hud/layout.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arrange, spring, stretch } from './layout.js';
+import { arrange, sizeOf, spring, stretch } from './layout.js';
 
-const K = { columnDeg: 19, topDeg: 18, gapDeg: 0.6, focus: { yDeg: 31, scale: 1.2 } };
+// Tiles 14 wide whose inner edges stand 12 from the middle: a tile of size 1 has its middle at 19.
+const K = { tileWDeg: 14, innerDeg: 12, topDeg: 18, gapDeg: 0.6, focus: { yDeg: 31, scale: 1.2 } };
 const tiles = (n, crit = null) => Array.from({ length: n }, (_, i) => ({ id: `r${i}`, hDeg: 4, state: i === crit ? 'crit' : '' }));
 const sides = (map) => {
   const count = { left: 0, right: 0, centre: 0 };
@@ -84,4 +85,25 @@ test('a reading that asks for it comes to the middle before it is critical (the 
   const both = arrange([{ id: 'o2', hDeg: 4, state: 'crit' }, ...list.slice(2)], K);
   assert.equal(both.get('o2').side, 'centre');
   assert.notEqual(both.get('ambient').side, 'centre');
+});
+
+test('tiles of different sizes keep the columns tidy: inner edges on one line, each under the last', () => {
+  const at = arrange([{ id: 'a', hDeg: 4, scale: 1 }, { id: 'b', hDeg: 4, scale: 0.85 }, { id: 'c', hDeg: 4, scale: 1.2 }, { id: 'd', hDeg: 4, scale: 0.85 }], K);
+  // right column: a (size 1) then c (size 1.2); left column: b then d (size 0.85)
+  const inner = (id) => Math.abs(at.get(id).x) - (K.tileWDeg * at.get(id).scale) / 2;
+  for (const id of ['a', 'b', 'c', 'd']) assert.ok(Math.abs(inner(id) - K.innerDeg) < 1e-9, `${id}: inner edge at ${inner(id)}`);
+  assert.ok(Math.abs(at.get('c').y - (18 + 4 * 1 + 0.6)) < 1e-9, 'c starts where a (4 high) ends');
+  assert.ok(Math.abs(at.get('d').y - (18 + 4 * 0.85 + 0.6)) < 1e-9, 'd starts where b (3.4 high) ends');
+  assert.equal(at.get('c').scale, 1.2);
+});
+
+test('size follows importance: pinned 1, larger when out of range; others from small to large', () => {
+  const Z = { min: 0.84, max: 1.16, fromScore: 30, toScore: 90, warn: 1.12 };
+  assert.equal(sizeOf({ pinned: true, state: '' }, Z), 1);
+  assert.equal(sizeOf({ pinned: true, state: 'warn' }, Z), 1.12);
+  assert.equal(sizeOf({ score: 31 }, Z) < 0.86, true, 'only just worth showing: small');
+  assert.ok(Math.abs(sizeOf({ score: 60 }, Z) - 1) < 1e-9, 'halfway: the size of a pinned one');
+  assert.equal(sizeOf({ score: 85 }, Z) > 1.1, true, 'out of range: larger than a pinned one');
+  assert.equal(sizeOf({ score: 500 }, Z), 1.16, 'never beyond the largest');
+  assert.equal(sizeOf({ score: -5 }, Z), 0.84);
 });

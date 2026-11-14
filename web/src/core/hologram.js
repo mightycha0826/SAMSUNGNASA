@@ -111,17 +111,44 @@ const BEAM_SEGMENTS = 24;
 export function makeBeam(name = 'palm-beam') {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((BEAM_SEGMENTS + 2) * 3), 3));
+  // The cone is bright at the palm and fades to nothing where it reaches the map: its light
+  // rises from the hand, and no circle shows under the map where the cone ends.
+  const colour = new Float32Array((BEAM_SEGMENTS + 2) * 4).fill(1);
+  for (let i = 1; i <= BEAM_SEGMENTS + 1; i++) colour[i * 4 + 3] = 0;
+  geometry.setAttribute('color', new THREE.BufferAttribute(colour, 4));
   const index = [];
   for (let i = 1; i <= BEAM_SEGMENTS; i++) index.push(0, i, i + 1);
   geometry.setIndex(index);
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({ color: 0x8ab4ff, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0x8ab4ff, vertexColors: true, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }),
   );
   mesh.name = name;
   mesh.frustumCulled = false;
   mesh.renderOrder = -1;
   return mesh;
+}
+
+/**
+ * Let a map's surface fade out beyond the circle its hologram stands on: full inside
+ * `from` x the map's width from its middle, gone at `to` x. A square map then shows as a round
+ * one whose edge dissolves, the shape the cone of light under it has. `material` is the map
+ * surface's own material (any of three.js's built-in ones); the map lies in its x-z plane
+ * around its origin.
+ */
+export function fadeBeyondCircle(material, mapWidthM, { from = 0.4, to = 0.5 } = {}) {
+  const range = new THREE.Vector2(mapWidthM * from, mapWidthM * to);
+  material.transparent = true;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.holoFade = { value: range };
+    shader.vertexShader = `varying float vHoloR;\n${shader.vertexShader}`.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHoloR = length(position.xz);');
+    shader.fragmentShader = `uniform vec2 holoFade;\nvarying float vHoloR;\n${shader.fragmentShader}`.replace(
+      '#include <dithering_fragment>',
+      'gl_FragColor.a *= 1.0 - smoothstep(holoFade.x, holoFade.y, vHoloR);\n  if (gl_FragColor.a < 0.004) discard;\n  #include <dithering_fragment>',
+    );
+  };
+  material.customProgramCacheKey = () => 'holo-fade';
+  material.needsUpdate = true;
 }
 
 /** Apex at the palm (given in the map's own frame), rim under the edge of a map `mapWidthM` wide. */

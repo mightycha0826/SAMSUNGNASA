@@ -206,7 +206,7 @@ function haloIcon(g, name, cx, cy, s, color) {
 // r: { label, value, unit, tag, word, state, viz: 'bar' | 'graph' | 'progress',
 //      fill: 0..1, marks: [{ at: 0..1 }], history: [number | null], min, max, lines: [value] }
 // state: '' | 'warn' | 'crit' | 'stale'
-// Look (updated mockup): transparent face, white-and-black double outlines, bold haloed text.
+// Look: no card and no frame, bold haloed text straight on the view, bars with a dark edge.
 // The tile fills its panel: the label on the first line; on the second the value, and beside it
 // a bar with its limits marked (the pinned readings), a graph of the last minute, or how far
 // along a route is.
@@ -215,8 +215,8 @@ export function drawReading(g, d, r) {
   const H = g.canvas.height;
   g.clearRect(0, 0, W, H);
   const m = 0.3 * d; // room for the outline and the text glow
-  const line = r.state === 'crit' ? T.dangerLine : r.state === 'warn' ? T.point : O.line;
-  frame(g, m, m, W - 2 * m, H - 2 * m, 1.25 * d, 0.15 * d, line, 0.1 * d, 0.09 * d);
+  // No frame: a line around every reading made the view busy. What is wrong shows in the
+  // colour of the number and the bar, and in a mark before the label.
   const inL = m + 0.85 * d;
   const inR = W - m - 0.9 * d;
   const ink = r.state === 'stale' ? O.stale : STATE_COLOR[r.state]?.() ?? O.ink;
@@ -225,8 +225,13 @@ export function drawReading(g, d, r) {
   // First line: what it is (and where the number comes from). Second line: the number on the
   // left, and beside it the bar or graph, which takes whatever width the number leaves.
   const ly = m + 1.25 * d;
-  const lw = text(g, r.label, inL, ly, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
-  if (r.tag) tag(g, r.tag, inL + lw + 0.45 * d, ly, d, false, true);
+  let lx = inL;
+  if (r.state === 'warn' || r.state === 'crit') {
+    haloIcon(g, r.state === 'crit' ? 'error' : 'warning', lx + 0.6 * d, ly, 1.25 * d, ink);
+    lx += 1.55 * d;
+  }
+  const lw = text(g, r.label, lx, ly, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
+  if (r.tag) tag(g, r.tag, lx + lw + 0.45 * d, ly, d, false, true);
   if (r.word) text(g, r.word, inR, ly, { weight: 700, size: 1.0 * d, color: ink, align: 'right', halo: true });
   const vy = m + 3.05 * d;
   let vx = inL + text(g, r.value, inL, vy, { weight: 700, size: 1.75 * d, color: ink, tight: true, halo: true });

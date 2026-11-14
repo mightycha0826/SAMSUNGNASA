@@ -93,6 +93,8 @@ export const SCAN = {
   // Highlight on the floor (overlay.js), [r, g, b] 0-255.
   glowRGB: [255, 48, 48], // the fill
   glintRGB: [255, 214, 208], // where the travelling light and the sparks are brightest
+  glowFullM: 2, // shown in full within this distance of the wearer
+  glowFadeM: 0.7, // beyond it, fading to 1/e every this many metres (a tenth at 3.6 m, gone by 5 m)
 };
 
 let ctx;

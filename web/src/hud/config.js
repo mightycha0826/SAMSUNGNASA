@@ -28,15 +28,19 @@ export const HUD = {
     /** Height of a tile by what it shows: a bar, a route's progress, a graph (deg). All the
      *  same, so the two columns line up row by row */
     hDeg: { bar: 4.6, progress: 4.6, graph: 4.6 },
-    /** Middle of each column, this far left and right of the middle of the view (deg): the
-     *  tiles then end 26 deg out, and the 23 deg in the middle stay clear */
-    columnDeg: 19,
+    /** The inner edge of each column, this far left and right of the middle of the view (deg):
+     *  the 23 deg in the middle stay clear. A tile of size 1 ends 26 deg out */
+    innerDeg: 11.7,
+    /** A tile's size follows its importance (layout.js sizeOf): a pinned reading is 1 and
+     *  `warn` when out of range; another goes from `min` at importance `fromScore` (it is only
+     *  just shown) to `max` at `toScore` (a warning) */
+    size: { min: 0.84, max: 1.16, fromScore: 30, toScore: 90, warn: 1.12 },
     /** Top of the columns, from the top of the stage, and the gap between tiles (deg) */
     topDeg: 16.6,
     gapDeg: 0.55,
     /** Where a critical reading goes: the middle, under the line of sight and over the alert
      *  card, larger than the rest. yDeg is its top edge from the top of the stage */
-    focus: { yDeg: 31.4, scale: 1.18 },
+    focus: { yDeg: 31.4, scale: 1.3 },
     /** The spring the tiles move on: about a quarter of a second, with a 5 % overshoot */
     spring: { stiffness: 260, damping: 22 },
     /** A moving tile stretches along its way by up to this much, at this speed (deg/s) */

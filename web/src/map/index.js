@@ -29,7 +29,7 @@ import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
 import { mapPoint, range, sampleHeight, terrainArrays } from './terrain.js';
 import { PALM, leftPalm, handOpen, makePalmState } from '../core/palm.js';
-import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption } from '../core/hologram.js';
+import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption, fadeBeyondCircle } from '../core/hologram.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
@@ -170,6 +170,7 @@ function load(payload) {
     geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(arrays.uv, 2));
     geometry.setIndex(arrays.indices); geometry.computeVertexNormals();
     surface = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, alphaTest: 0.01 }));
+    fadeBeyondCircle(surface.material, MAP.widthM); // the map dissolves outside the circle its hologram stands on
     surface.name = 'map-terrain'; root.add(surface);
     lineForCells(data.traverse?.points?.map(p => p.cell) ?? [], 0xf27a0a, 'map-curiosity-traverse');
     for (const wp of data.layerSet.waypoints ?? []) {

@@ -35,6 +35,7 @@ import { handOpen } from '../core/palm.js';
 import { walkableNear, reachableFrom } from '../core/waypoints.js';
 import { choose, importance, trend } from './importance.js';
 import { createDash } from './dash.js';
+import { sizeOf } from './layout.js';
 import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
 import { pickOnFieldMap, fieldPlaceOnMap, showFieldPick } from '../field/index.js';
 
@@ -494,6 +495,7 @@ function statusVM() {
   const readings = [...pinned.map((m) => ({ ...m, viz: 'bar' })), ...order].map((m) => ({
     ...m,
     hDeg: H[m.viz],
+    scale: sizeOf({ ...m, score: importance(m) }, HUD.dash.size), // what matters more is drawn larger
     // What the tile shows, as text: it is drawn again only when this changes.
     sig: [m.label, m.value, m.unit, m.tag, m.word, m.state, m.fill?.toFixed(3), m.history?.length, m.history?.at(-1), m.min, m.max].join('|'),
   }));

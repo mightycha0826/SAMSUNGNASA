@@ -34,7 +34,7 @@
 import * as THREE from 'three';
 import { mode } from '../core/mode.js';
 import { makePalmState } from '../core/palm.js';
-import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm } from '../core/hologram.js';
+import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm, fadeBeyondCircle } from '../core/hologram.js';
 import { MAP } from '../map/config.js';
 import { sampleHeight } from '../map/terrain.js';
 import { createGridFrame, cellToWorld, worldToCell } from '../nav/coordinates.js';
@@ -206,6 +206,7 @@ function makePalmMap() {
   geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array((N + 1) * (N + 1) * 3).fill(1), 3));
   // alphaTest: the empty parts of the picture are not drawn at all (and hide nothing behind them).
   const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false, transparent: true, alphaTest: 0.05 }));
+  fadeBeyondCircle(surface.material, FIELD.mapM); // as the Mars map: it dissolves outside the hologram's circle
   surface.name = 'field-map-surface';
   surface.frustumCulled = false; // its heights change without the bounding sphere being recomputed
   const beam = makeBeam('field-palm-beam');

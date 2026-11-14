@@ -10,15 +10,36 @@
 //     of sight, larger than the others. Only one at a time, the most important; when it is back
 //     in range it returns to its column.
 //   - when a reading is added or dropped, the others close up and the columns level out again.
+//   - a tile's size follows its importance (sizeOf): what matters more is larger. The columns
+//     stay tidy all the same: inner edges on one line, no gaps, no overlaps.
 //
 // Tiles move on a spring: fast, with a small overshoot, so a change is seen without the tiles
 // crossing the view for long. While a tile moves it stretches a little along the way.
 
 /**
- * @param {{ id: string, state?: string, focus?: boolean, hDeg: number }[]} readings in order of importance, most important first
- * @param K { columnDeg, topDeg, gapDeg, focus: { yDeg, scale } } (HUD.dash)
+ * How large a reading's tile is drawn, from how much it matters: 1 is the size of a pinned
+ * reading with nothing wrong. A pinned reading out of range grows; another reading is between
+ * `min` (it only just matters enough to be shown) and `max` (it matters as much as a warning).
+ * @param m { pinned, state } and `score`, its importance (importance.js)
+ * @param Z { min, max, fromScore, toScore, warn } (HUD.dash.size)
+ */
+export function sizeOf(m, Z) {
+  if (m.pinned) return m.state === 'warn' || m.state === 'crit' ? Z.warn : 1;
+  const t = Math.max(0, Math.min(1, ((m.score ?? 0) - Z.fromScore) / (Z.toScore - Z.fromScore)));
+  return Z.min + (Z.max - Z.min) * t;
+}
+
+/**
+ * @param {{ id: string, state?: string, focus?: boolean, hDeg: number, scale?: number }[]} readings in order of
+ *        importance, most important first; `scale` is the size of its tile (sizeOf), 1 if not given
+ * @param K { tileWDeg, innerDeg, topDeg, gapDeg, focus: { yDeg, scale } } (HUD.dash)
  * @returns Map id -> { side: 'left' | 'right' | 'centre', x, y, scale }: x in degrees right of
- *          the middle of the view, y in degrees below its top edge to the tile's top edge
+ *          the middle of the view to the tile's middle, y in degrees below the top edge of the
+ *          view to the tile's top edge
+ *
+ * Tiles of different sizes still make two tidy columns: in each column the tiles' inner edges
+ * (the ones toward the middle of the view) stand on one line, innerDeg from the middle, and
+ * each tile starts where the one above it ends.
  */
 export function arrange(readings, K) {
   const out = new Map();
@@ -31,8 +52,10 @@ export function arrange(readings, K) {
       continue;
     }
     const side = n++ % 2 === 0 ? 'right' : 'left';
-    out.set(r.id, { side, x: side === 'left' ? -K.columnDeg : K.columnDeg, y: tops[side], scale: 1 });
-    tops[side] += r.hDeg + K.gapDeg;
+    const scale = r.scale ?? 1;
+    const middle = K.innerDeg + (K.tileWDeg * scale) / 2;
+    out.set(r.id, { side, x: side === 'left' ? -middle : middle, y: tops[side], scale });
+    tops[side] += r.hDeg * scale + K.gapDeg;
   }
   return out;
 }
