@@ -1,0 +1,90 @@
+{
+ "missions": [
+  "MGS",
+  "MRO",
+  "Mars Express",
+  "Mars Odyssey"
+ ],
+ "dem_minus_rover_elev_m": {
+  "mean": -0.17,
+  "std": 0.24,
+  "min": -1.08,
+  "max": 0.48,
+  "n": 178
+ },
+ "dem_best_shift_cells": {
+  "dcol": 0,
+  "drow": 0,
+  "std_m": 0.24,
+  "std_at_zero_m": 0.24
+ },
+ "slope_at_rover_stops_deg": {
+  "median": 8.8,
+  "p90": 13.3,
+  "max": 23.8
+ },
+ "rover_tilt_deg": {
+  "median": 9.1,
+  "p90": 15.4,
+  "max": 22.4
+ },
+ "optical_vs_terrain": {
+  "sun_azimuth_deg": 315,
+  "corr_at_zero": 0.288,
+  "best_corr": 0.288,
+  "best_shift_cells": [
+   -1,
+   0
+  ],
+  "best_shift_m": 4.0
+ },
+ "env": {
+  "radiation_mean": 154.2,
+  "radiation_min": 151.7,
+  "radiation_max": 157.0,
+  "pressure_min": 800.4,
+  "pressure_max": 889.2,
+  "temp_min": 205.8,
+  "temp_max": 267.7,
+  "corr_radiation_pressure": -0.74,
+  "warmest_hour": 14,
+  "lowest_pressure_hour": 16
+ },
+ "rover_path_m": 518,
+ "straight_m": 358,
+ "slope_limits": {
+  "10": {
+   "walkable_fraction": 0.376,
+   "route_m": null
+  },
+  "15": {
+   "walkable_fraction": 0.573,
+   "route_m": 386
+  },
+  "20": {
+   "walkable_fraction": 0.697,
+   "route_m": 386
+  },
+  "25": {
+   "walkable_fraction": 0.786,
+   "route_m": 386
+  },
+  "30": {
+   "walkable_fraction": 0.862,
+   "route_m": 386
+  }
+ },
+ "demo_region": {
+  "cells": [
+   265,
+   262,
+   285,
+   282
+  ],
+  "size_m": 80.0,
+  "slope_median": 10.7,
+  "slope_max": 26.0,
+  "relief_m": 17.4,
+  "rover_stops_inside": 11
+ }
+}

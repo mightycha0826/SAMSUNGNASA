@@ -2,12 +2,23 @@
  "photos": [
   {
    "waypointId": "site1",
-   "rmc": "109_120",
-   "sol": 4312,
+   "rmc": "107_2484",
+   "sol": 4200,
    "instrument": "NAV_LEFT_B",
    "file": "pov/site1.jpg",
-   "caption": "Curiosity Sol 4312: Left Navigation Camera (2024-09-22)",
-   "sourceUrl": "https://mars.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/04312/opgs/edr/ncam/NLB_780301173EDR_F1090120NCAM00271M_.JPG"
+   "caption": "Curiosity, Left Navigation Camera, sol 4200 (2024-05-30)",
+   "credit": "NASA/JPL-Caltech",
+   "sourceUrl": "https://mars.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/04200/opgs/edr/ncam/NLB_770345379EDR_F1072484NCAM00256M_.JPG"
+  },
+  {
+   "waypointId": "base",
+   "rmc": "106_438",
+   "sol": 4098,
+   "instrument": "NAV_LEFT_B",
+   "file": "pov/base.jpg",
+   "caption": "Curiosity, Left Navigation Camera, sol 4098 (2024-02-15)",
+   "credit": "NASA/JPL-Caltech",
+   "sourceUrl": "https://mars.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/04098/opgs/edr/ncam/NLB_761299016EDR_F1060438NCAM00254M_.JPG"
   }
  ]
 }

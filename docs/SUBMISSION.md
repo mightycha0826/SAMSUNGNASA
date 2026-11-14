@@ -22,7 +22,9 @@
 - [ ] 데모 링크와 최종 결과물 링크를 시크릿 창에서 열어 본다.
 - [ ] 프로젝트 이름을 확정한다 (가칭 Marswalk Visor).
 
-수치의 근거: 레이어와 방사선·대기 수치는 `data-pipeline/build_data.py`를 돌려 나온 값이고, 좌표와 자료 규격은 [RESOURCES.md](RESOURCES.md)에 있습니다.
+수치의 근거: 본문의 숫자는 모두 `data-pipeline/validate.py`가 실제 파일에서 계산한 값입니다(`data-pipeline/validation_report.json`). 파일별 설명은 [DATA.md](DATA.md), 원본 자료 분석은 [RESOURCES.md](RESOURCES.md)에 있습니다.
+
+**조사 지점이 바뀌었습니다.** 황 암석을 발견한 실제 자리(sol 4200, 2024-05-30)는 지도 한가운데(sol 4312 위치)에서 약 102m 떨어져 있습니다. 본문과 데이터는 실제 발견 자리를 조사 지점으로 씁니다. README의 미션 시나리오(sol 4312, 1,001m, 44m)는 이와 다르니 팀에서 맞춰야 합니다. 근거는 [DATA.md](DATA.md) 2장.
 
 ---
 
@@ -56,12 +58,13 @@ It matters because a crew on foot needs one view that joins what orbiters know a
 
 ### Mission scenario
 
-- **Site:** Gediz Vallis channel on Mount Sharp, Gale Crater (137.4075°E, 4.7868°S). Curiosity stood at this point on sol 4312 (September 2024).
-- **Science goal:** Curiosity made the first discovery of pure elemental sulfur on Mars in this channel, and scientists do not yet know why it formed there. In our scenario a crew returns on foot to survey the sulfur field more widely than a rover could.
-- **Map area:** a 2,048 m × 2,048 m square centered on that point.
-- **Route:** from a base placed where Curiosity was on sol 4098 to the sulfur site. Curiosity covered this stretch in about 1,001 m of driving while climbing 44 m, so our planned route can be compared with a path a real vehicle took.
+- **Site:** Gediz Vallis channel on Mount Sharp, Gale Crater. The map is a 2,048 m × 2,048 m square centered at 137.4075°E, 4.7868°S.
+- **Science goal:** On May 30, 2024 (mission sol 4200) Curiosity drove over a rock in this channel and cracked it open, revealing crystals of pure elemental sulfur, the first found on Mars. Scientists do not yet know why it formed there. In our scenario a crew returns on foot to survey the sulfur field more widely than a rover could.
+- **Survey site:** the spot where Curiosity ended that sol-4200 drive (137.4089°E, 4.7857°S). The rover stayed around this spot for the following weeks to study the sulfur stones.
+- **Base:** where Curiosity stood on sol 4098, 358 m away in a straight line and 45 m lower.
+- **Route:** from base to the survey site. Curiosity itself drove 593 m between these two points, so our planned route can be compared with a path a real vehicle took.
 
-We chose a site Curiosity explored so that orbital data, ground-truth positions, radiation and weather measurements, and surface photos all exist for the same place.
+We chose a site Curiosity explored so that orbital data, ground-truth positions, radiation and weather measurements, and surface photos all exist for the same place. Every point in the scenario is a position from NASA's rover record, not a guess on the map.
 
 ### What it does
 
@@ -108,9 +111,9 @@ Python (NumPy, Rasterio, Pillow), JavaScript, Three.js, WebXR, Vite, Meta Quest 
 | Optical image | optical | MRO · HiRISE | JPL Mars Trek, `curiosity_hirise_mosaic` | surface texture on the map |
 | Thermal image (night) | thermal | Mars Odyssey · THEMIS | JPL Mars Trek, `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018` | map layer |
 | Rover path | ground truth | MSL Curiosity | NASA `MSL_waypoints.json` | route check; elevation check |
-| Radiation | radiation | MSL Curiosity · RAD | Planetary Data System, RAD RDR, sol 4312 | status panel, alert |
-| Air pressure and temperature | atmospheric | MSL Curiosity · REMS | Planetary Data System, REMS MODRDR, sol 4312 | status panel |
-| Rover photo | optical (surface) | MSL Curiosity · Navcam | NASA Curiosity raw images, sol 4312 | point-of-view photo at the destination |
+| Radiation | radiation | MSL Curiosity · RAD | Planetary Data System, RAD RDR, sol 4200 | status panel, alert |
+| Air pressure and temperature | atmospheric | MSL Curiosity · REMS | Planetary Data System, REMS MODRDR, sol 4200 | status panel |
+| Rover photos | optical (surface) | MSL Curiosity · Navcam | NASA Curiosity raw images, sols 4098 and 4200 | point-of-view photos at base and at the destination |
 | Geologic unit | geologic | USGS SIM 3292 (via Mars Trek) | global geologic map | one line in the legend: unit `Htu` |
 
 This gives five kinds of data from the challenge's list (topographic, optical, thermal, radiation, atmospheric) plus geology, from four NASA missions (MRO, Mars Odyssey, MGS, MSL Curiosity).
@@ -120,17 +123,24 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - **Optical:** 182 HiRISE tiles joined into one image covering the map area.
 - **Terrain:** the source file is 3.6 GB at 1 m resolution. We read only our 2,048 m window, averaged it to 4 m cells, and computed slope. Elevation in the map area ranges from −3,846.6 m to −3,412.1 m.
 - **Rover path:** 178 of Curiosity's stops (sols 3880–4493) fall inside the map area.
-- **Radiation:** from the RAD file for sol 4312, the day Curiosity stood at our survey site, we took the dose rate of the E detector (plastic scintillator) for each of 85 observations and averaged them by hour. The daily mean is 153 µGy per day; hourly values range from 148 to 158.
-- **Atmosphere:** from the REMS file for the same sol, hourly means of air pressure (739–829 Pa) and estimated ambient air temperature (201–262 K).
-- **Rover photo:** a Left Navigation Camera image taken at the survey site on sol 4312. The image's site and drive numbers match the rover-path record for that position.
-- **Checking alignment:** layers from different sources can be shifted against each other, so we tested them with Curiosity's path. At the 178 stops, the terrain elevation differs from the rover's recorded elevation by −0.17 m on average (standard deviation 0.24 m), and the path follows the channel in both the optical image and the terrain. On the ground Curiosity stood on, our slope layer has a median of 8.8°, close to the rover's own recorded median tilt of 9.1°.
+- **Radiation:** from the RAD file for sol 4200, the day of the sulfur discovery, we took the dose rate of the E detector (plastic scintillator) for each of 86 observations and averaged them by hour of local solar time. The daily mean is 154 µGy per day; hourly values range from 152 to 157.
+- **Atmosphere:** from the REMS file for the same sol, hourly means of air pressure (800–889 Pa) and estimated ambient air temperature (206–268 K).
+- **Rover photos:** Left Navigation Camera images taken at the base position and at the survey site. Each image's site and drive numbers match the rover-path record for that position, so the photo shows what is actually visible from that point on the map. In the survey-site photo, bright stones lie in the foreground.
+- **Checking the layers against each other:** layers from different sources can be shifted against each other, so we tested them with Curiosity's path.
+  - At the 178 stops, the terrain elevation differs from the rover's recorded elevation by −0.17 m on average (standard deviation 0.24 m). Shifting the terrain sideways by up to 20 m in any direction only makes the match worse.
+  - Shading computed from the terrain lines up with the optical image to within one 4 m grid cell.
+  - On the ground Curiosity stood on, our slope layer has a median of 8.8°, close to the rover's own recorded median tilt of 9.1°.
+  - The weather record behaves as expected: temperature peaks in the early afternoon, and radiation rises when air pressure falls (correlation −0.74), as it should when there is less atmosphere overhead.
+- **Reproducibility:** one script rebuilds every data file from the NASA sources, and a second script runs 53 checks on the result. Rebuilding from an empty cache gives byte-identical files.
 
 **Limits we want to be clear about**
 
 - The optical and thermal sources are grayscale. Any color on the map is our display choice, not measured color.
 - The thermal image is about 81 m per pixel, so it is only 25 pixels across our map, and its brightness is relative, not a temperature. We show it as it is: it demonstrates how coarse orbital data becomes at walking scale.
 - The global geologic map shows our whole site as a single unit, so it informs the legend, not the route.
-- The radiation and weather values are a recording of one Martian day in 2024 replayed during the demo, not a live feed or a forecast. The radiation values are the instrument's reported dose rates; we excluded two observations flagged for possible quality issues and applied no further correction.
+- The radiation and weather values are a recording of one Martian day (sol 4200, May 30, 2024) replayed during the demo, not a live feed or a forecast. The radiation values are the instrument's reported dose rates; we excluded two observations flagged for possible quality issues and applied no further correction. The time stamps of the radiation and weather files may differ by up to about 50 minutes.
+- We do not know the exact position of the rock Curiosity cracked open. Our survey site is where the rover ended its 9 m drive that day, so the rock lies within about 9 m of it.
+- The terrain and slope layers describe the ground at a scale of several meters. Rocks and ledges smaller than that do not appear in them.
 - The rover's tilt record describes what a rover handled. It is not a standard for what a suited person can walk.
 
 ## Space Agency Partner Data and Other References
@@ -150,6 +160,7 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - MSL REMS data, Planetary Data System — https://atmos.nmsu.edu/PDS/data/mslrem_1001/
 - NASA Curiosity raw images — https://mars.nasa.gov/msl/multimedia/raw-images/
 - USGS SIM 3292, Geologic Map of Mars — https://pubs.usgs.gov/publication/sim3292
+- NASA JPL, "NASA's Curiosity Rover Discovers a Surprise in a Martian Rock" (July 18, 2024) — https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/
 - NASA JPL, "NASA's Curiosity Mars Rover Takes a Last Look at Mysterious Sulfur" (Nov. 18, 2024) — https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/
 - NASA, Curiosity's Proposed Path up Mount Sharp — https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
 - Software: Three.js, Vite, NumPy, Rasterio, Pillow `[TODO: 실제 쓴 것만, 라이선스 확인]`

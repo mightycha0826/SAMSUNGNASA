@@ -2,6 +2,7 @@
   "site": {
     "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
     "scienceGoal": "황이 든 돌 조사",
+    "scienceGoalEn": "Survey the field of pure-sulfur stones",
     "lat": -4.78681191,
     "lon": 137.4075342,
     "bounds": {
@@ -33,7 +34,9 @@
       "unit": "m",
       "min": -3846.56,
       "max": -3412.1,
-      "label": "지형 높이"
+      "label": "지형 높이",
+      "labelEn": "Elevation",
+      "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"
     },
     {
       "id": "slope",
@@ -46,7 +49,9 @@
       "unit": "deg",
       "min": 0.03,
       "max": 71.07,
-      "label": "경사도"
+      "label": "경사도",
+      "labelEn": "Slope",
+      "credit": "Computed from the USGS Gale merged DEM"
     },
     {
       "id": "optical",
@@ -56,6 +61,8 @@
       "file": "optical.png",
       "format": "image",
       "label": "광학 영상",
+      "labelEn": "Optical image",
+      "credit": "NASA/JPL-Caltech/University of Arizona",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
     },
     {
@@ -66,6 +73,8 @@
       "file": "thermal.png",
       "format": "image",
       "label": "열 영상 (야간)",
+      "labelEn": "Thermal image (night, relative brightness)",
+      "credit": "NASA/JPL-Caltech/Arizona State University",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
     }
   ],
@@ -73,26 +82,32 @@
     {
       "id": "base",
       "label": "기지",
+      "labelEn": "Base",
       "cell": [
         247,
         357
-      ]
+      ],
+      "rmc": "106_438",
+      "sol": 4098
     },
     {
       "id": "site1",
       "label": "황 암석 지대",
+      "labelEn": "Sulfur stone field",
       "cell": [
-        255,
-        256
-      ]
+        275,
+        272
+      ],
+      "rmc": "107_2484",
+      "sol": 4200
     }
   ],
   "demo": {
     "regionCells": [
-      246,
-      246,
-      266,
-      266
+      265,
+      262,
+      285,
+      282
     ],
     "roomSizeM": [
       4,
