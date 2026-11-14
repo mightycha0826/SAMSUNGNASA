@@ -93,12 +93,14 @@ export function mergeLayers(room, live) {
  * Add one eye's depth image to the grid.
  * @param depthAt (u, v) -> distance from the camera plane in metres; u, v in 0..1 with (0, 0) at
  *                the bottom left of the image; 0 when unknown
- * @param cfg depthSamples, depthRangeM, bodyM
+ * @param cfg depthSamples, depthRangeM, bodyM, cellM, floorBandM
  */
 export function addDepthView(grid, depthAt, P, M, cfg) {
   const s = cfg.depthSamples;
-  const nearest = cfg.bodyM * cfg.bodyM;
-  const farthest = cfg.depthRangeM * cfg.depthRangeM;
+  const nearest = cfg.bodyM ** 2;
+  const farthest = cfg.depthRangeM ** 2;
+  const nearestThing = (cfg.bodyM + 2 * cfg.cellM) ** 2;
+  const farthestThing = (cfg.depthRangeM - 2 * cfg.cellM) ** 2;
   for (let j = 0; j < s; j++) {
     for (let i = 0; i < s; i++) {
       const u = (i + 0.5) / s;
@@ -116,7 +118,11 @@ export function addDepthView(grid, depthAt, P, M, cfg) {
       // chair would be marked farther out than the floor that later has to clear it.
       const along = (wx - M[12]) ** 2 + (wz - M[14]) ** 2;
       if (!(along >= nearest && along <= farthest)) continue; // the wearer's own body, or too far to trust
-      grid.add(wx, M[1] * x + M[5] * y - M[9] * d + M[13], wz);
+      const wy = M[1] * x + M[5] * y - M[9] * d + M[13];
+      // Things count two cells inside those limits only. A cell the limit cuts through would be
+      // marked from the strip that is in range, and that strip of floor is too thin to clear it.
+      if (wy > cfg.floorBandM && !(along >= nearestThing && along <= farthestThing)) continue;
+      grid.add(wx, wy, wz);
     }
   }
 }

@@ -204,10 +204,12 @@ export function update(frame) {
   work();
 
   if (depthOn && time - lastDepth >= SCAN.depthMs) {
-    lastDepth = time;
     try {
-      readDepth(ctx.renderer, frame, live, SCAN);
-      if (live.commit()) dirty = true;
+      // No image on this frame (the sensor is slower than the display): try again on the next.
+      if (readDepth(ctx.renderer, frame, live, SCAN)) {
+        lastDepth = time;
+        if (live.commit()) dirty = true;
+      }
     } catch (err) {
       depthOn = false; // the room scan carries on without it
       console.error('[scan] live depth switched off:', err);

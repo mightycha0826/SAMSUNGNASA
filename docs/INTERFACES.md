@@ -269,7 +269,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 
 The real scan (`web/src/scan/`) sends a 16 m × 16 m grid (160 × 160 cells) built from the room geometry the headset keeps (WebXR `mesh-detection` and `plane-detection`), with two extra fields: `"source": "room-scan"` and `"stats": { "meshes", "planes", "obstacles", "floor", "depth" }`. It is the room as last scanned by the headset, not live depth.
 
-With `?depth=1` the headset's live depth image is laid over the same cells twice a second: something put down within about 2.5 m of the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
+With `?depth=1` the headset's live depth image is laid over the same cells twice a second: something put down about 1 to 2.3 m from the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
 
 **`nav:request`**
 ```json

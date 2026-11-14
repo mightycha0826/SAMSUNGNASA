@@ -16,6 +16,7 @@ import { addDepthView, depthBufferToMeters } from './grid.js';
 
 let reader = null; // { texture, target, bytes, quad }, made on the first read
 
+/** @returns false when the browser had no depth image for this frame (nothing was added) */
 export function readDepth(renderer, frame, grid, cfg) {
   const { session, xrFrame, refSpace } = frame;
   if (session.depthUsage !== 'gpu-optimized') throw new Error(`depth usage "${session.depthUsage}" is not supported, only gpu-optimized`);
@@ -23,7 +24,7 @@ export function readDepth(renderer, frame, grid, cfg) {
   const view = views?.find((v) => v.eye === 'left') ?? views?.[0];
   const depth = view && renderer.xr.getBinding().getDepthInformation(view);
   // No depth is normal on some frames: for a moment after the session starts, or between images.
-  if (!depth?.texture || depth.isValid === false || !(depth.depthNear > 0)) return;
+  if (!depth?.texture || depth.isValid === false || !(depth.depthNear > 0)) return false;
 
   const n = cfg.depthSamples;
   if (!reader) {
@@ -91,4 +92,5 @@ export function readDepth(renderer, frame, grid, cfg) {
     (depth.transform ?? view.transform).matrix,
     cfg,
   );
+  return true;
 }

@@ -122,6 +122,17 @@ test('with a headset eye: a chair near the end of the range is marked and cleare
   assert.equal(grid.cells[cellOf(0.05, -within)], OBSTACLE);
   for (let i = 0; i < SCAN.clearScans; i++) read(grid, camera, null);
   assert.ok(!grid.cells.includes(OBSTACLE), 'cleared by the floor under it');
+  // A chair the far limit cuts through is marked only where the floor under it can clear it again.
+  for (let i = 0; i < SCAN.setScans; i++) read(grid, camera, chairAt(SCAN.depthRangeM - 0.2));
+  const marked = [...grid.cells.keys()].filter((i) => grid.cells[i] === OBSTACLE);
+  assert.ok(marked.length > 0);
+  for (const i of marked) {
+    const x = ORIGIN[0] + ((i % COLS) + 0.5) * SCAN.cellM;
+    const z = ORIGIN[1] + (Math.floor(i / COLS) + 0.5) * SCAN.cellM;
+    assert.ok(Math.hypot(x, z) <= SCAN.depthRangeM - SCAN.cellM, `marked on the limit at ${x}, ${z}`);
+  }
+  for (let i = 0; i < SCAN.clearScans; i++) read(grid, camera, null);
+  assert.ok(!grid.cells.includes(OBSTACLE), 'and cleared like the rest');
   // Its top is nearer to the eye than the floor under it: marking it there could never be undone.
   for (let i = 0; i <= SCAN.setScans; i++) read(grid, camera, chairAt(SCAN.depthRangeM + 0.5));
   assert.ok(!grid.cells.includes(OBSTACLE), 'out of range for marking, as it is for clearing');
