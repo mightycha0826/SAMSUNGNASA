@@ -1,8 +1,7 @@
 {
   "site": {
     "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
-    "scienceGoal": "황이 든 돌 조사",
-    "scienceGoalEn": "Survey the field of pure-sulfur stones",
+    "scienceGoal": "Survey the field of pure-sulfur stones",
     "lat": -4.78681191,
     "lon": 137.4075342,
     "bounds": {
@@ -34,8 +33,7 @@
       "unit": "m",
       "min": -3846.56,
       "max": -3412.1,
-      "label": "지형 높이",
-      "labelEn": "Elevation",
+      "label": "Terrain elevation",
       "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"
     },
     {
@@ -49,8 +47,7 @@
       "unit": "deg",
       "min": 0.03,
       "max": 71.07,
-      "label": "경사도",
-      "labelEn": "Slope",
+      "label": "Slope",
       "credit": "Computed from the USGS Gale merged DEM"
     },
     {
@@ -60,8 +57,7 @@
       "instrument": "HiRISE",
       "file": "optical.png",
       "format": "image",
-      "label": "광학 영상",
-      "labelEn": "Optical image",
+      "label": "Optical image",
       "credit": "NASA/JPL-Caltech/University of Arizona",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
     },
@@ -72,8 +68,7 @@
       "instrument": "THEMIS",
       "file": "thermal.png",
       "format": "image",
-      "label": "열 영상 (야간)",
-      "labelEn": "Thermal image (night, relative brightness)",
+      "label": "Thermal image (night)",
       "credit": "NASA/JPL-Caltech/Arizona State University",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
     }
@@ -81,8 +76,7 @@
   "waypoints": [
     {
       "id": "base",
-      "label": "기지",
-      "labelEn": "Base",
+      "label": "Base",
       "cell": [
         247,
         357
@@ -92,8 +86,7 @@
     },
     {
       "id": "site1",
-      "label": "황 암석 지대",
-      "labelEn": "Sulfur stone field",
+      "label": "Sulfur stone field",
       "cell": [
         275,
         272

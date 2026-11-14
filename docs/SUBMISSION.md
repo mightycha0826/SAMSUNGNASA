@@ -1,37 +1,37 @@
-# 제출 설명문 초안
+# Submission text (draft)
 
-> 영문 본문은 제출 양식의 칸 이름 그대로 나눴습니다. 칸마다 그대로 붙여 넣으면 됩니다. 한글 메모는 팀용이고 제출하지 않습니다.
+> The text below is split by the field names of the submission form; paste each part into its field. The notes above the line and the `[TODO]` marks are for the team and are not submitted.
 
-## 제출 규칙 (공식 Project Submission Guide에서 확인, 2026-11-14)
+## Submission rules (read from the official Project Submission Guide, 2026-11-14)
 
-출처: https://www.spaceappschallenge.org/resources/project-submission-guide/
+Source: https://www.spaceappschallenge.org/resources/project-submission-guide/
 
-- **마감:** 11월 15일(일) 23:59, 우리 Local Event의 현지 시각. 그 전에 **Submit for Judging**을 눌러야 합니다. 마감 뒤에 저장하거나 제출하면 심사 대상이 아닙니다. 마감 전에는 몇 번이든 고쳐 다시 제출할 수 있습니다.
-- **데모는 30초 이하 영상 또는 7장 이하 슬라이드.** 넘으면 Global Judging 대상에서 빠집니다. README의 "1분 데모"는 이 규칙에 맞지 않습니다. → F, 팀 전원 확인 필요
-- **영어만.** 제출 페이지와 링크된 자료 모두 영어여야 합니다. 영상에서 한국어로 말하면 영어 자막이 반드시 있어야 합니다. 슬라이드는 영어로만.
-- **만 18세 미만의 얼굴·영상·목소리 금지.** 데모와 최종 결과물에 18세 미만인 사람의 모습이나 목소리가 들어가면 안 됩니다. 헤드셋 화면 녹화와 손, 자막 위주로 찍고, 내레이션을 누가 할지 팀에서 정해야 합니다. → F
-- **링크는 로그인 없이 열려야 합니다.** 영상·문서는 사이트에 올릴 수 없고 YouTube, GitHub 등의 공개 링크로 냅니다. 이미지는 JPG·PNG·GIF 10MB까지 직접 올릴 수 있습니다.
-- **AI 사용 표시.** AI로 만든 이미지·영상에는 보이는 워터마크, 음성·코드·데이터에는 설명 글과 메타데이터에 표시가 필요합니다. AI는 도구로 쓸 수 있지만, 문제를 어떻게 풀지 아이디어 자체를 AI가 내면 안 됩니다. AI로 만든 것에 NASA 로고나 임무 식별 표시를 넣으면 안 됩니다.
-- **모든 필수 칸을 채워야 제출됩니다.** 팀원 전원이 같은 Local Event에 확정 등록되어 있어야 수상 대상입니다.
-- 심사 기준은 Impact, Creativity, Validity, Relevance, Presentation 다섯 가지입니다. 심사의 대부분은 데모가 아니라 제출 페이지의 글로 이루어집니다.
+- **Deadline:** Sunday, November 15, 11:59 p.m. in the time zone of our Local Event. **Submit for Judging** must be clicked before then. Anything saved or submitted after the deadline is not judged. Before the deadline the project can be edited and resubmitted any number of times.
+- **The demo is a video of 30 seconds or less, or a deck of 7 slides or fewer.** Anything longer is not eligible for Global Judging. A one-minute demo does not fit this rule. → F and the whole team
+- **English only.** The submission page and all linked material must be in English. If Korean is spoken in the video, English subtitles are required. Slides must be in English.
+- **No image, video or voice of anyone under 18.** The demo and the final project may not include the likeness or voice of a person under 18. Film the headset view, hands and captions, and decide as a team who narrates. → F
+- **Links must open without a login.** Videos and documents cannot be uploaded to the site; share public links (YouTube, GitHub and so on). Images (JPG, PNG, GIF) up to 10 MB can be uploaded directly.
+- **Mark AI use.** AI-generated images and video need a visible watermark; audio, code and data need an acknowledgement in descriptive text and metadata. AI may be used as a tool, but not to come up with the idea of how to solve the challenge. AI-generated content may not carry NASA logos or mission identifiers.
+- **Every required field must be filled in to submit.** All team members must be confirmed participants of the same Local Event to be eligible for awards.
+- The five judging criteria are Impact, Creativity, Validity, Relevance and Presentation. Most of the judging is based on the text of the submission page, not on the demo.
 
-## 제출 전에 할 것
+## Before submitting
 
-- [ ] `[TODO]` 표시를 정리한다. 실제로 된 것만 남기고, 안 된 기능은 문장째 지운다.
-- [ ] "Use of Super Intelligence" 칸에 팀원별로 쓴 도구와 용도를 적는다.
-- [ ] 데모 링크와 최종 결과물 링크를 시크릿 창에서 열어 본다.
-- [ ] 프로젝트 이름을 확정한다 (가칭 Marswalk Visor).
-- [ ] 제출 페이지에 올릴 그림을 고른다. `docs/figures/layers.png`(네 레이어)와 `route.png`(경로 비교)가 준비되어 있다. 이미지는 10MB까지 직접 올릴 수 있다.
+- [ ] Clear the `[TODO]` marks. Keep only what actually works and delete whole sentences about features that were not built.
+- [ ] In the "Use of Super Intelligence" field, list the tools each team member used and what for.
+- [ ] Open the demo link and the final project link in a private window.
+- [ ] Settle the project name (working title: Marswalk Visor).
+- [ ] Choose the images to upload to the submission page. `docs/figures/layers.png` (the four layers) and `route.png` (route comparison) are ready. Images up to 10 MB can be uploaded directly.
 
-수치의 근거: 본문의 숫자는 모두 `data-pipeline/validate.py`가 실제 파일에서 계산한 값입니다(`data-pipeline/validation_report.json`). 파일별 설명은 [DATA.md](DATA.md), 원본 자료 분석은 [RESOURCES.md](RESOURCES.md)에 있습니다.
+Where the numbers come from: every number in the text was computed from the actual files by `data-pipeline/validate.py` (`data-pipeline/validation_report.json`). The files are described in [DATA.md](DATA.md) and the source data in [RESOURCES.md](RESOURCES.md).
 
-**조사 지점이 바뀌었습니다.** 황 암석을 발견한 실제 자리(sol 4200, 2024-05-30)는 지도 한가운데(sol 4312 위치)에서 약 102m 떨어져 있습니다. 본문과 데이터는 실제 발견 자리를 조사 지점으로 씁니다. README의 미션 시나리오(sol 4312, 1,001m, 44m)는 이와 다르니 팀에서 맞춰야 합니다. 근거는 [DATA.md](DATA.md) 2장.
+**The survey site was moved.** The place where the sulfur was actually found (sol 4200, 2024-05-30) is about 102 m from the center of the map (the sol 4312 position). The text and the data use the real discovery position as the survey site. Evidence is in [DATA.md](DATA.md) section 2.
 
 ---
 
 ## Project Name
 
-Marswalk Visor `[TODO: 확정]`
+Marswalk Visor `[TODO: confirm the name]`
 
 ## High-Level Project Summary
 
@@ -42,18 +42,18 @@ Orbital maps of Mars are built for regional views. At the scale of a spacewalk t
 Our display therefore has three layers:
 
 1. **Orbital map** — terrain, slope, optical and thermal data from NASA orbiters, shown as a 3D map that appears above the astronaut's open palm.
-2. **Field map** — the helmet's depth sensor finds obstacles the orbital data cannot show, and the route is recalculated around them. `[TODO: 데모에서 되면 남긴다]`
+2. **Field map** — the helmet's depth sensor finds obstacles the orbital data cannot show, and the route is recalculated around them. `[TODO: keep only if it works in the demo]`
 3. **Survival information** — radiation, air pressure and temperature measured by Curiosity at this site, suit temperature, and an emergency mode that redirects the astronaut to base.
 
 It matters because a crew on foot needs one view that joins what orbiters know about a place with what is actually in front of them, without taking their hands off their work.
 
 ## Link to Project Demo
 
-`[TODO: 30초 이하 영상 또는 7장 이하 슬라이드의 공개 링크]`
+`[TODO: public link to a video of 30 s or less, or a deck of 7 slides or fewer]`
 
 ## Link to Final Project
 
-`[TODO: 공개 저장소 또는 배포 주소]`
+`[TODO: public repository or deployed address]`
 
 ## Detailed Project Description
 
@@ -70,7 +70,7 @@ We chose a site Curiosity explored so that orbital data, ground-truth positions,
 ### What it does
 
 - **Palm map.** Raising the left palm shows the 3D terrain of the site. The astronaut switches between optical, thermal and slope layers. Curiosity's actual path is drawn on the map in its own color.
-- **Route.** The route is computed from the slope layer and drawn as arrows on the floor. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. `[TODO: D의 경로가 이 기준을 쓰는지 확인. 다르면 실제 값으로 고친다]`
+- **Route.** The route is computed from the slope layer and drawn as arrows on the floor. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. `[TODO: confirm that D's route uses these limits; if not, replace with the real values]`
 - **Field obstacles.** `[TODO]` When the depth sensor finds an obstacle on the route, that cell is marked blocked and the route is recomputed. In the demo a chair stands in for a boulder.
 - **Safety.** A status panel shows radiation, air pressure and temperature, suit temperature, elevation and the geologic unit. When the suit temperature sensor crosses its limit, the edges of the view flash red and the route changes to lead back to base.
 - **Destination preview.** `[TODO]` Near the survey site the display shows the photo Curiosity took from that exact spot, so the astronaut knows what to expect on arrival.
@@ -80,7 +80,7 @@ Everything is controlled by a palm gesture and voice, because gloved hands canno
 
 ### How it works
 
-A Python pipeline downloads the NASA data, cuts every source to the same map area, and resamples it onto one shared 512 × 512 grid (4 m cells). The headset loads these prepared files; it does not download raw data during the walk. The app is a WebXR page built with Three.js and runs in the browser of a Meta Quest 3 headset, which stands in for the helmet. A Jetson computer reads an Arduino temperature sensor (standing in for a suit sensor) and handles voice. `[TODO: 실제로 쓴 것만 남긴다]`
+A Python pipeline downloads the NASA data, cuts every source to the same map area, and resamples it onto one shared 512 × 512 grid (4 m cells). The headset loads these prepared files; it does not download raw data during the walk. The app is a WebXR page built with Three.js and runs in the browser of a Meta Quest 3 headset, which stands in for the helmet. A Jetson computer reads an Arduino temperature sensor (standing in for a suit sensor) and handles voice. `[TODO: keep only what was actually used]`
 
 The room we walk in represents a scaled-down patch of the Martian surface. We state this at the start of the demo.
 
@@ -92,15 +92,15 @@ The room we walk in represents a scaled-down patch of the Martian surface. We st
 
 ### Tools
 
-Python (NumPy, Rasterio, Pillow), JavaScript, Three.js, WebXR, Vite, Meta Quest 3, NVIDIA Jetson, Arduino. `[TODO: 실제로 쓴 것만]`
+Python (NumPy, Rasterio, Pillow), JavaScript, Three.js, WebXR, Vite, Meta Quest 3, NVIDIA Jetson, Arduino. `[TODO: only what was actually used]`
 
 ## Use of Super Intelligence (SI)
 
-`[TODO: 팀원별로 실제 사용한 도구와 용도를 적는다. 아래는 형식 예시.]`
+`[TODO: list the tools each team member actually used and what for. The lines below are a template.]`
 
 - AI coding assistants (`[tool names]`) were used to write and debug code, including the data pipeline, and to draft documentation and this description. The project idea, the choice of site and the design decisions were made by the team.
 - AI-assisted code is marked in the repository's commit messages.
-- No AI-generated images or video appear in the project. `[TODO: 음성 합성(TTS)을 쓰면 여기에 적고, 영상 설명에도 표시한다]`
+- No AI-generated images or video appear in the project. `[TODO: if speech synthesis (TTS) is used, say so here and in the video description]`
 - All NASA data values shown in the project come from the sources listed below, not from AI.
 
 ## NASA Data
@@ -132,7 +132,7 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
   - Shading computed from the terrain lines up with the optical image to within one 4 m grid cell.
   - On the ground Curiosity stood on, our slope layer has a median of 8.8°, close to the rover's own recorded median tilt of 9.1°.
   - The weather record behaves as expected: temperature peaks in the early afternoon, and radiation rises when air pressure falls (correlation −0.74), as it should when there is less atmosphere overhead.
-- **Checking the route against a real one:** a route computed from our slope layer with the limits above runs 390 m from base to the survey site and never crosses ground steeper than 14.9°. It stays on average 16 m (at most 43 m) from the path Curiosity actually drove between the same two points. An astronaut's planned route and a rover's real route pick the same corridor. (Figure: `docs/figures/route.png`.) `[TODO: D의 실제 경로로 다시 계산하거나, 이 문장이 참고용 계산이라는 점을 유지]`
+- **Checking the route against a real one:** a route computed from our slope layer with the limits above runs 390 m from base to the survey site and never crosses ground steeper than 14.9°. It stays on average 16 m (at most 43 m) from the path Curiosity actually drove between the same two points. An astronaut's planned route and a rover's real route pick the same corridor. (Figure: `docs/figures/route.png`.) `[TODO: recompute with D's actual route, or keep the wording that this is a reference computation]`
 - **Reproducibility:** one script rebuilds every data file from the NASA sources, and a second script runs 54 checks on the result. Rebuilding from an empty cache gives byte-identical files.
 
 **Limits we want to be clear about**
@@ -167,4 +167,4 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - NASA, Curiosity's Proposed Path up Mount Sharp — https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
 - W. Iqbal, J. W. Head et al., "Astronaut experiences on the slopes along Apollo EVAs," EPSC Abstracts Vol. 17, EPSC2024-196, 2024 — https://doi.org/10.5194/epsc2024-196 (slope limit for walking)
 - Universe Today, "Lunar Astronauts Will Need Easy Walking Trails Around the Moon's South Pole" (2023), quoting David A. Kring — https://www.universetoday.com/articles/lunar-astronauts-will-need-easy-walking-trails-around-the-moons-south-pole (slope limit for Artemis walking traverses)
-- Software: Three.js, Vite, NumPy, Rasterio, Pillow `[TODO: 실제 쓴 것만, 라이선스 확인]`
+- Software: Three.js, Vite, NumPy, Rasterio, Pillow `[TODO: only what was actually used; check licenses]`

@@ -1,16 +1,17 @@
-"""NASA 데이터 -> web/public/data/ 레이어 파일 (C 슬롯).
+"""NASA data -> layer files in web/public/data/ (slot C).
 
-실행:  pip install -r requirements.txt
-       python build_data.py            # 전부
-       python build_data.py optical    # 하나만 (optical, thermal, topo, traverse, env, pov, layerset)
-       python validate.py              # 만든 파일 검사
+Run:   pip install -r requirements.txt
+       python build_data.py            # everything
+       python build_data.py optical    # one step (optical, thermal, topo, traverse, env, pov, layerset)
+       python validate.py              # check the result
 
-형식은 docs/INTERFACES.md 2장, 주소는 docs/RESOURCES.md, 결과 설명은 docs/DATA.md 를 따른다.
-받은 원본은 data-pipeline/cache/ 에 남겨 두어 다시 돌릴 때 내려받지 않는다.
-환경 변수 MARSWALK_OUT, MARSWALK_CACHE 로 출력·캐시 폴더를 바꿀 수 있다 (처음부터 다시 만들어 볼 때).
+The format follows docs/INTERFACES.md section 2, the addresses docs/RESOURCES.md, and the
+result is described in docs/DATA.md. Downloads are kept in data-pipeline/cache/ so a rerun
+does not fetch them again. The environment variables MARSWALK_OUT and MARSWALK_CACHE change
+the output and cache folders (useful for rebuilding from scratch).
 
-AI 사용 고지: 이 스크립트는 AI 코딩 도구(Claude)의 도움을 받아 작성했다.
-데이터 값은 모두 아래 NASA·USGS 주소에서 받은 것이고, AI 가 만든 값은 없다.
+Use of AI: this script was written with the help of an AI coding tool (Claude).
+All data values are downloaded from the NASA and USGS addresses below; none are produced by AI.
 """
 import json
 import math
@@ -27,22 +28,22 @@ HERE = Path(__file__).resolve().parent
 OUT = Path(os.environ.get("MARSWALK_OUT") or HERE.parent / "web" / "public" / "data")
 CACHE = Path(os.environ.get("MARSWALK_CACHE") or HERE / "cache")
 
-# ---- 공통 기준 (INTERFACES.md 2.1) ----
+# ---- Shared reference (INTERFACES.md 2.1) ----
 WEST, EAST, SOUTH, NORTH = 137.39026, 137.42481, -4.80409, -4.76954
-SITE_LON, SITE_LAT = 137.4075342, -4.78681191      # 지도 한가운데 (Curiosity sol 4312 위치)
+SITE_LON, SITE_LAT = 137.4075342, -4.78681191      # center of the map (Curiosity's sol 4312 position)
 COLS = ROWS = 512
 CELL_M = 4.0
 MARS_R = 3396190.0
 OPTICAL_PX = 4096
 THERMAL_PX = 2048
 
-# ---- 미션 시나리오: 기지와 조사 지점은 Curiosity 가 실제로 섰던 자리 ----
-# RMC 는 주행 기록(MSL_waypoints.json)의 site_drive 값이다. 좌표는 기록에서 읽는다.
-BASE_RMC = "106_438"       # sol 4098. 여기서 조사 지점까지 로버가 실제로 달린 길이 참고 경로다
-SURVEY_RMC = "107_2484"    # sol 4200 (2024-05-30). 순수한 황 암석을 깨뜨려 발견한 주행이 끝난 자리.
-#                            로버는 sol 4237 까지 이 자리 근처에 머물며 황 암석 지대를 조사했다
-ENV_SOL = 4200             # 방사선·대기: 황을 발견한 그날 하루
-DEMO_HALF_CELLS = 10       # demo 구역: 조사 지점을 가운데 둔 80m 정사각형 (D 와 확정)
+# ---- Mission scenario: base and survey site are places where Curiosity actually stood ----
+# RMC is the site_drive value in the traverse record (MSL_waypoints.json). Coordinates are read from it.
+BASE_RMC = "106_438"       # sol 4098. The path the rover drove from here to the survey site is the reference path
+SURVEY_RMC = "107_2484"    # sol 4200 (2024-05-30). End of the drive on which the rover cracked open a rock
+#                            and found pure sulfur. It stayed near this spot until sol 4237
+ENV_SOL = 4200             # radiation and atmosphere: the day the sulfur was found
+DEMO_HALF_CELLS = 10       # demo region: an 80 m square centered on the survey site (to be fixed with D)
 
 TREK = "https://trek.nasa.gov/tiles/Mars/EQ/{layer}/1.0.0/default/default028mm/{z}/{row}/{col}.png"
 HIRISE = "curiosity_hirise_mosaic"
@@ -51,18 +52,19 @@ DEM_URL = "https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m
 DEM_PAGE = "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
 WAYPOINTS_URL = "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json"
 RAD_FILE = ("https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/SOL_04134_04257/"
-            "RAD_RDR_2024_151_00_59_4200_V00.TXT")                                      # 약 70MB
+            "RAD_RDR_2024_151_00_59_4200_V00.TXT")                                      # about 70 MB
 REMS_FILE = ("https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/SOL_04134_04257/SOL04200/"
-             "RME_770298985RMD42000000000_______P1.TAB")                                # 약 13MB
+             "RME_770298985RMD42000000000_______P1.TAB")                                # about 13 MB
 RAW_API = ("https://mars.nasa.gov/api/v1/raw_image_items/?order=sol+desc&per_page=100&page=0"
            "&condition_1=msl:mission&condition_2={sol}:sol:gte&condition_3={sol}:sol:lte&search={cam}")
 POV_CAM = "NAV_LEFT_B"
-# 자동으로 고른 사진에 로버 몸체가 크게 찍혀 있어, 후보를 눈으로 보고 지평선만 보이는 것으로 정했다
+# The automatic pick showed a large part of the rover body, so the candidates were reviewed by eye
+# and one showing only the horizon was chosen.
 POV_PICK = {"base": "NLB_761299016EDR_F1060438NCAM00254M_"}
 
 
 def cell_of(lon, lat):
-    """화성 경위도 -> 지도 격자 [col, row]. 남서쪽 구석이 [0, 0]."""
+    """Mars longitude/latitude -> map grid [col, row]. The southwest corner is [0, 0]."""
     col = int((lon - WEST) / (EAST - WEST) * COLS)
     row = int((lat - SOUTH) / (NORTH - SOUTH) * ROWS)
     return [min(max(col, 0), COLS - 1), min(max(row, 0), ROWS - 1)]
@@ -86,7 +88,7 @@ def write_json(name, obj, indent=1):
     (OUT / name).write_text(json.dumps(obj, ensure_ascii=False, indent=indent) + "\n", encoding="utf-8")
 
 
-# ---- 광학 / 열: Mars Trek 타일 이어 붙이기 ----
+# ---- Optical / thermal: stitch Mars Trek tiles ----
 def trek_mosaic(layer, z, out_px, resample):
     n_col, n_row = 2 ** (z + 1), 2 ** z
     c0 = math.floor((WEST + 180) / 360 * n_col)
@@ -112,7 +114,7 @@ def trek_mosaic(layer, z, out_px, resample):
     gray, alpha = canvas.split()
     out = gray.resize((out_px, out_px), resample, box=box)
     empty = 1 - np.asarray(alpha.resize((out_px, out_px), Image.NEAREST, box=box)).astype(bool).mean()
-    print(f"  {layer}: 타일 {len(jobs)}장, 원본 {box[2] - box[0]:.0f}px -> {out_px}px, 빈 곳 {empty:.1%}")
+    print(f"  {layer}: {len(jobs)} tiles, source {box[2] - box[0]:.0f} px -> {out_px} px, empty {empty:.1%}")
     return out
 
 
@@ -121,14 +123,15 @@ def build_optical():
 
 
 def build_thermal():
-    # 원본이 지도 전체에 25픽셀쯤이다. 부드럽게 뭉개지 않고 원본 픽셀이 그대로 보이게 늘린다.
-    # 궤도 열 영상이 걷는 규모에서 얼마나 거친지 그대로 보여 주기 위해서다 (RESOURCES.md 4장).
+    # The source is only about 25 pixels across the whole map. Enlarge it so the source pixels stay
+    # visible instead of smoothing them, to show plainly how coarse orbital thermal data is at
+    # walking scale (RESOURCES.md section 4).
     trek_mosaic(THEMIS, 9, THERMAL_PX, Image.NEAREST).save(OUT / "thermal.png", optimize=True)
 
 
-# ---- 지형 / 경사도: USGS 1m 지형 파일에서 범위만 읽기 ----
+# ---- Terrain / slope: read only the map window of the USGS 1 m terrain file ----
 def read_dem_1m():
-    """범위의 1m 높이 격자 (위쪽이 북쪽). 3.6GB 파일을 다 받지 않고 필요한 줄만 읽는다."""
+    """1 m elevation grid of the extent (north up). Reads only the rows needed, not the 3.6 GB file."""
     cache = CACHE / "dem_1m.npy"
     if cache.exists():
         return np.load(cache)
@@ -152,13 +155,13 @@ def build_topo():
     k = int(CELL_M)
     with np.errstate(invalid="ignore"):
         topo = np.nanmean(dem.reshape(ROWS, k, COLS, k), axis=(1, 3))
-    topo = topo[::-1]                      # row 0 = 남쪽
+    topo = topo[::-1]                      # row 0 = south
     dz_dy, dz_dx = np.gradient(topo, CELL_M)
     slope = np.degrees(np.arctan(np.hypot(dz_dx, dz_dy)))
     topo.astype("<f4").tofile(OUT / "topo.bin")
     slope.astype("<f4").tofile(OUT / "slope.bin")
-    print(f"  topo {np.nanmin(topo):.1f} ~ {np.nanmax(topo):.1f} m, "
-          f"slope 최대 {np.nanmax(slope):.1f}도, 빈 칸 {int(np.isnan(topo).sum())}")
+    print(f"  topo {np.nanmin(topo):.1f} to {np.nanmax(topo):.1f} m, "
+          f"max slope {np.nanmax(slope):.1f} deg, empty cells {int(np.isnan(topo).sum())}")
 
 
 def grid_range(name):
@@ -166,7 +169,7 @@ def grid_range(name):
     return round(float(np.nanmin(a)), 2), round(float(np.nanmax(a)), 2)
 
 
-# ---- Curiosity 주행 기록 ----
+# ---- Curiosity traverse record ----
 def load_waypoints():
     p = fetch(WAYPOINTS_URL, CACHE / "MSL_waypoints.json")
     feats = json.loads(p.read_text(encoding="utf-8"))["features"]
@@ -186,25 +189,26 @@ def build_traverse():
                 "elevM": w["elev_geoid"], "tiltDeg": w["tilt"], "cell": cell_of(w["lon"], w["lat"]),
             })
     write_json("traverse.json", {"sourceUrl": WAYPOINTS_URL, "points": pts})
-    print(f"  traverse: {len(pts)}개 지점, sol {pts[0]['sol']} ~ {pts[-1]['sol']}")
+    print(f"  traverse: {len(pts)} stops, sol {pts[0]['sol']} to {pts[-1]['sol']}")
 
 
-# ---- 방사선 (Curiosity RAD) · 대기 (Curiosity REMS): 황을 발견한 sol 4200 하루 ----
+# ---- Radiation (Curiosity RAD) and atmosphere (Curiosity REMS): sol 4200, the day of the discovery ----
 def clock_hours(text):
-    """'4200 23:24:02' 또는 '04199 23:10:07' -> 하루 중 시각(시)."""
+    """'4200 23:24:02' or '04199 23:10:07' -> time of day in hours."""
     h, m, s = text.split()[-1].split(":")
     return int(h) + int(m) / 60 + float(s) / 3600
 
 
 def read_rad_dose(path):
-    """RAD RDR 파일에서 관측마다 (지방 태양시, 길이 초, E 검출기 선량률 µGy/h) 를 뽑는다.
+    """From a RAD RDR file, take (local solar time, duration in s, E-detector dose rate in uGy/h) per observation.
 
-    RAD_RDR_SIS: [DOSIMETRY_TOTAL_DOSE_E: NN] 아래 숫자가 E 검출기의 선량률(µGy/h)이다.
-    E 는 플라스틱 섬광체로, 인체 조직에 가까운 쪽이다. 기기가 낸 값 그대로이고 보정하지 않았다.
-    시각은 START_OBS_MARS 를 쓴다. SIS 는 이것을 LMST 라고 적었지만 sol 4312 파일로 견줘 보니
-    지방 '진'태양시(LTST)에 더 가까웠다. 그래서 REMS 도 LTST 열로 묶는다. 둘의 차이는 약 50분이라,
-    어느 쪽이든 방사선 값이 기압·기온과 최대 한 시간 칸 어긋날 수 있다 (docs/DATA.md).
-    QC 가 00000000 이 아닌 관측("quality control issues may exist")은 뺀다.
+    RAD_RDR_SIS: the number under [DOSIMETRY_TOTAL_DOSE_E: NN] is the dose rate of the E detector (uGy/h).
+    E is a plastic scintillator, the detector closer to human tissue. The value is used as reported, uncorrected.
+    Time comes from START_OBS_MARS. The SIS calls it LMST, but checked against the sol 4312 file it is
+    closer to local true solar time (LTST), so REMS is binned by its LTST column too. The two differ by
+    about 50 minutes, so either way radiation may be off by up to one hourly bin relative to pressure
+    and temperature (docs/DATA.md).
+    Observations whose QC is not 00000000 ("quality control issues may exist") are dropped.
     """
     obs, cur, want = {}, None, False
     with open(path, encoding="latin-1") as f:
@@ -233,14 +237,14 @@ def build_env():
 
     rad, dropped = read_rad_dose(fetch(RAD_FILE, CACHE / f"rad_{ENV_SOL}.txt"))
     for o in rad:
-        mid = (o["ltst"] + o["dur"] / 2 / 3699.0) % 24      # 화성의 한 시간은 약 3699초
+        mid = (o["ltst"] + o["dur"] / 2 / 3699.0) % 24      # a Mars hour is about 3699 s
         hours[int(mid)]["rad"].append((o["dose"], o["dur"]))
 
     with open(fetch(REMS_FILE, CACHE / f"rems_{ENV_SOL}.tab"), encoding="latin-1") as f:
         for line in f:
             c = line.split(",")
-            h = hours[int(clock_hours(c[2].strip('" ')))]     # 3열 LTST
-            temp, pres = float(c[15]), float(c[37])            # 16열 AMBIENT_TEMP(K), 38열 PRESSURE(Pa)
+            h = hours[int(clock_hours(c[2].strip('" ')))]     # column 3: LTST
+            temp, pres = float(c[15]), float(c[37])            # column 16 AMBIENT_TEMP (K), column 38 PRESSURE (Pa)
             if temp > -900:
                 h["t"].append(temp)
             if pres > -900:
@@ -251,7 +255,7 @@ def build_env():
     mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
     samples = []
     for i, h in enumerate(hours):
-        r = wmean(h["rad"]) if h["rad"] else wmean(all_rad)     # 관측이 없는 시간은 하루 평균
+        r = wmean(h["rad"]) if h["rad"] else wmean(all_rad)     # an hour with no observation gets the daily mean
         samples.append({"sol": ENV_SOL, "localTime": f"{i:02d}:00",
                         "radiationUGyPerDay": round(r * 24, 1),
                         "pressurePa": mean(h["p"]), "airTempK": mean(h["t"])})
@@ -266,12 +270,12 @@ def build_env():
     rads = [s["radiationUGyPerDay"] for s in samples]
     ps = [s["pressurePa"] for s in samples if s["pressurePa"] is not None]
     ts = [s["airTempK"] for s in samples if s["airTempK"] is not None]
-    print(f"  RAD 관측 {len(all_rad)}개 (QC 로 뺀 것 {dropped}개), 하루 평균 {wmean(all_rad) * 24:.1f} µGy/일 "
-          f"(시간별 {min(rads)} ~ {max(rads)}), 관측 없는 시간 {sum(not h['rad'] for h in hours)}개")
-    print(f"  기압 {min(ps)} ~ {max(ps)} Pa ({len(ps)}시간), 기온 {min(ts)} ~ {max(ts)} K ({len(ts)}시간)")
+    print(f"  RAD: {len(all_rad)} observations ({dropped} dropped for QC), daily mean {wmean(all_rad) * 24:.1f} uGy/day "
+          f"(hourly {min(rads)} to {max(rads)}), hours without an observation {sum(not h['rad'] for h in hours)}")
+    print(f"  pressure {min(ps)} to {max(ps)} Pa ({len(ps)} hours), air temperature {min(ts)} to {max(ts)} K ({len(ts)} hours)")
 
 
-# ---- 로버 시점 사진 (P1) ----
+# ---- Rover point-of-view photos (P1) ----
 def build_pov():
     (OUT / "pov").mkdir(exist_ok=True)
     photos = []
@@ -282,9 +286,9 @@ def build_pov():
                  if i["site"] == w["site"] and i["drive"] == w["drive"] and i["scale_factor"] == 1
                  and i["extended"].get("sample_type") == "full"]
         if not items:
-            print(f"  {wp_id}: {rmc} 에서 찍은 전체 크기 사진 없음. 건너뜀")
+            print(f"  {wp_id}: no full-frame photo taken at {rmc}. Skipped")
             continue
-        # 지평선이 보이는 사진: 마스트 고개 각도가 수평에 가장 가까운 것. POV_PICK 에 있으면 그 사진
+        # A photo showing the horizon: the one whose mast elevation is closest to level, unless POV_PICK names one
         best = next((i for i in items if i["imageid"] == POV_PICK.get(wp_id)), None) \
             or min(items, key=lambda i: abs(float(i["extended"]["mast_el"])))
         src = fetch(best["url"], CACHE / "pov" / f"{best['imageid']}.jpg")
@@ -296,12 +300,12 @@ def build_pov():
             "credit": "NASA/JPL-Caltech",
             "sourceUrl": best["url"],
         })
-        print(f"  {wp_id}: {best['imageid']} (후보 {len(items)}장, 고개 각도 {best['extended']['mast_el']}도, "
-              f"방위 {best['extended']['mast_az']}도)")
+        print(f"  {wp_id}: {best['imageid']} ({len(items)} candidates, mast elevation {best['extended']['mast_el']} deg, "
+              f"azimuth {best['extended']['mast_az']} deg)")
     write_json("pov.json", {"photos": photos})
 
 
-# ---- 레이어 목록 ----
+# ---- Layer list ----
 def build_layerset():
     base, survey = waypoint(BASE_RMC), waypoint(SURVEY_RMC)
     sc, sr = cell_of(survey["lon"], survey["lat"])
@@ -314,8 +318,7 @@ def build_layerset():
     layerset = {
         "site": {
             "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
-            "scienceGoal": "황이 든 돌 조사",
-            "scienceGoalEn": "Survey the field of pure-sulfur stones",
+            "scienceGoal": "Survey the field of pure-sulfur stones",
             "lat": SITE_LAT, "lon": SITE_LON,
             "bounds": {"west": WEST, "east": EAST, "south": SOUTH, "north": NORTH},
             "geologicUnit": {"code": "Htu", "name": "Hesperian transition undivided unit", "source": "USGS SIM 3292"},
@@ -323,26 +326,25 @@ def build_layerset():
         "grid": {"cols": COLS, "rows": ROWS, "cellSizeM": CELL_M},
         "layers": [
             {"id": "topo", "kind": "topographic", **dem_src, "file": "topo.bin", "format": "float32",
-             "unit": "m", "min": t_min, "max": t_max, "label": "지형 높이", "labelEn": "Elevation",
+             "unit": "m", "min": t_min, "max": t_max, "label": "Terrain elevation",
              "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"},
             {"id": "slope", "kind": "derived", **dem_src, "file": "slope.bin", "format": "float32",
-             "unit": "deg", "min": s_min, "max": s_max, "label": "경사도", "labelEn": "Slope",
+             "unit": "deg", "min": s_min, "max": s_max, "label": "Slope",
              "credit": "Computed from the USGS Gale merged DEM"},
             {"id": "optical", "kind": "optical", "mission": "MRO", "instrument": "HiRISE",
-             "file": "optical.png", "format": "image", "label": "광학 영상", "labelEn": "Optical image",
+             "file": "optical.png", "format": "image", "label": "Optical image",
              "credit": "NASA/JPL-Caltech/University of Arizona", "sourceUrl": wmts.format(HIRISE)},
             {"id": "thermal", "kind": "thermal", "mission": "Mars Odyssey", "instrument": "THEMIS",
-             "file": "thermal.png", "format": "image", "label": "열 영상 (야간)",
-             "labelEn": "Thermal image (night, relative brightness)",
+             "file": "thermal.png", "format": "image", "label": "Thermal image (night)",
              "credit": "NASA/JPL-Caltech/Arizona State University", "sourceUrl": wmts.format(THEMIS)},
         ],
         "waypoints": [
-            {"id": "base", "label": "기지", "labelEn": "Base", "cell": cell_of(base["lon"], base["lat"]),
+            {"id": "base", "label": "Base", "cell": cell_of(base["lon"], base["lat"]),
              "rmc": base["RMC"], "sol": base["sol"]},
-            {"id": "site1", "label": "황 암석 지대", "labelEn": "Sulfur stone field", "cell": [sc, sr],
+            {"id": "site1", "label": "Sulfur stone field", "cell": [sc, sr],
              "rmc": survey["RMC"], "sol": survey["sol"]},
         ],
-        # demo: 조사 지점을 가운데 둔 80m 구역을 4m 방에 대응 (1:20). D 와 확정한다.
+        # demo: an 80 m region centered on the survey site mapped onto a 4 m room (1:20). To be fixed with D.
         "demo": {"regionCells": [c0, r0, c0 + 2 * h, r0 + 2 * h], "roomSizeM": [4, 4]},
     }
     write_json("layerset.json", layerset, indent=2)
@@ -350,7 +352,7 @@ def build_layerset():
     climb = survey["elev_geoid"] - base["elev_geoid"]
     print(f"  base = sol {base['sol']} {layerset['waypoints'][0]['cell']}, "
           f"site1 = sol {survey['sol']} {[sc, sr]}, demo = {layerset['demo']['regionCells']}")
-    print(f"  로버가 기지에서 조사 지점까지 실제로 달린 거리 {drive:.0f}m, 높이 변화 {climb:+.1f}m")
+    print(f"  the rover drove {drive:.0f} m from base to the survey site, elevation change {climb:+.1f} m")
 
 
 STEPS = {"optical": build_optical, "thermal": build_thermal, "topo": build_topo,

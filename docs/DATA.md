@@ -1,202 +1,202 @@
-# 데이터 설명서 (C 슬롯)
+# Data guide (slot C)
 
-`web/public/data/`에 있는 파일이 무엇이고, 어디서 왔고, 어떻게 가공했고, 얼마나 믿을 수 있는지 적은 문서입니다.
-지도·경로·HUD를 만드는 사람(D, F)과 제출 설명문을 쓰는 사람이 읽습니다.
+What the files in `web/public/data/` are, where they came from, how they were processed, and how far they can be trusted.
+Written for the people building the map, route and HUD (D, F) and for whoever writes the submission text.
 
-- 형식의 약속: [INTERFACES.md](INTERFACES.md) 2장
-- 원본 자료 분석: [RESOURCES.md](RESOURCES.md)
-- 만드는 법: `data-pipeline/build_data.py` (다시 만들기), `data-pipeline/validate.py` (검사)
+- Format contract: [INTERFACES.md](INTERFACES.md) section 2
+- Analysis of the source data: [RESOURCES.md](RESOURCES.md)
+- How to build: `data-pipeline/build_data.py` (rebuild), `data-pipeline/validate.py` (check)
 
-여기 적힌 숫자는 모두 `validate.py`가 실제 파일에서 계산해 `data-pipeline/validation_report.json`에 남긴 값입니다.
+Every number here was computed from the actual files by `validate.py` and saved in `data-pipeline/validation_report.json`.
 
-> **AI 사용 고지.** 가공 스크립트와 이 문서는 AI 코딩 도구(Claude)의 도움을 받아 작성했습니다. 데이터 값은 모두 아래 NASA·USGS 주소에서 받은 것이고, AI가 만들어 낸 값은 없습니다.
+> **Use of AI.** The processing scripts and this document were written with the help of an AI coding tool (Claude). All data values were downloaded from the NASA and USGS addresses below; none were produced by AI.
 
 ---
 
-## 1. 한눈에 보기
+## 1. At a glance
 
-| 파일 | 내용 | 임무 · 장비 | 종류 |
+| File | Content | Mission · instrument | Kind |
 |---|---|---|---|
-| `topo.bin` | 지형 높이 (m), 512×512, 4m 칸 | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | topographic |
-| `slope.bin` | 경사도 (도), 512×512 | 지형에서 계산 | derived |
-| `optical.png` | 광학 영상, 4096×4096 회색조 | MRO · HiRISE | optical |
-| `thermal.png` | 야간 열 영상, 2048×2048 회색조 | Mars Odyssey · THEMIS | thermal |
-| `traverse.json` | Curiosity가 실제로 간 길, 정차 지점 178개 | MSL Curiosity | 지상 실측 |
-| `env.json` | 방사선·기압·기온, 하루 24시간 | MSL Curiosity · RAD, REMS | radiation, atmospheric |
-| `pov.json`, `pov/*.jpg` | 기지와 조사 지점에서 찍은 로버 사진 | MSL Curiosity · Navcam | optical (지상) |
-| `layerset.json` | 위 레이어의 목록, 격자, 기지·조사 지점 | — | — |
+| `topo.bin` | Terrain elevation (m), 512×512, 4 m cells | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | topographic |
+| `slope.bin` | Slope (degrees), 512×512 | Computed from terrain | derived |
+| `optical.png` | Optical image, 4096×4096 grayscale | MRO · HiRISE | optical |
+| `thermal.png` | Night thermal image, 2048×2048 grayscale | Mars Odyssey · THEMIS | thermal |
+| `traverse.json` | The path Curiosity actually drove, 178 stops | MSL Curiosity | ground truth |
+| `env.json` | Radiation, pressure, air temperature for 24 hours | MSL Curiosity · RAD, REMS | radiation, atmospheric |
+| `pov.json`, `pov/*.jpg` | Rover photos taken at base and at the survey site | MSL Curiosity · Navcam | optical (ground) |
+| `layerset.json` | List of the layers above, the grid, base and survey site | — | — |
 
-원문이 든 데이터 종류 가운데 다섯 가지(topographic, optical, thermal, radiation, atmospheric)와 지질 단위 한 줄이 들어 있고, NASA 임무는 네 개(MRO, Mars Odyssey, MGS, MSL Curiosity)입니다.
+This covers five of the data kinds named in the challenge text (topographic, optical, thermal, radiation, atmospheric) plus one line of geology, from four NASA missions (MRO, Mars Odyssey, MGS, MSL Curiosity).
 
-## 2. 미션 시나리오와 지점
+## 2. Mission scenario and points
 
-| 지점 | 무엇 | 격자 `[col, row]` | 경위도 | 근거 |
+| Point | What | Grid `[col, row]` | Coordinates | Basis |
 |---|---|---|---|---|
-| 지도 한가운데 | 지도 범위의 기준점 | `[255, 256]` | 137.4075°E, 4.7868°S | Curiosity의 sol 4312 위치 (`RMC 109_120`) |
-| `site1` 조사 지점 | **황 암석 지대** | `[275, 272]` | 137.4089°E, 4.7857°S | sol 4200 위치 (`RMC 107_2484`). 아래 설명 |
-| `base` 기지 | 출발·복귀 지점 | `[247, 357]` | 137.4070°E, 4.7800°S | sol 4098 위치 (`RMC 106_438`) |
+| Map center | Reference point of the map extent | `[255, 256]` | 137.4075° E, 4.7868° S | Curiosity's sol 4312 position (`RMC 109_120`) |
+| `site1` survey site | **Sulfur stone field** | `[275, 272]` | 137.4089° E, 4.7857° S | Sol 4200 position (`RMC 107_2484`). See below |
+| `base` | Start and return point | `[247, 357]` | 137.4070° E, 4.7800° S | Sol 4098 position (`RMC 106_438`) |
 
-**조사 지점을 지도 한가운데에서 옮긴 이유.** JPL 발표에 따르면 Curiosity는 2024년 5월 30일 돌 하나를 밟아 깨뜨렸고, 그 안에서 순수한 황 결정이 나왔습니다 ([JPL, 2024-07-18](https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/)). NASA 원본 사진 기록에서 2024년 5월 30일은 sol 4200이고, 그날 로버는 `107_2394`에서 `107_2484`까지 약 9m를 달렸습니다. 그 뒤 sol 4237까지 같은 자리 근처에 머물렀습니다. 그래서 황 암석 지대는 sol 4200의 정차 지점으로 잡았습니다. 지도 한가운데(sol 4312 위치)는 여기서 약 102m 떨어져 있어, 그곳을 "황 암석 지대"라고 부르면 사실과 다릅니다.
+**Why the survey site is not the map center.** According to JPL, on May 30, 2024 Curiosity drove over a rock and cracked it open, revealing crystals of pure sulfur ([JPL, 2024-07-18](https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/)). In NASA's raw image record May 30, 2024 is sol 4200, and on that sol the rover drove about 9 m from `107_2394` to `107_2484`. It then stayed near that spot until sol 4237. So the sulfur stone field is placed at the sol 4200 stop. The map center (the sol 4312 position) is about 102 m away, and calling it the sulfur stone field would be wrong.
 
-- 깨뜨린 돌의 정확한 좌표는 공개 자료에서 찾지 못했습니다. 그 돌은 sol 4200에 달린 9m 구간 어딘가에 있고, `site1`은 그 구간의 끝입니다.
-- `site1`의 로버 사진(`pov/site1.jpg`) 앞쪽에 밝은 흰 돌들이 보입니다.
-- 지도 범위와 격자는 바꾸지 않았습니다. `site.lat`, `site.lon`은 여전히 지도 한가운데입니다.
+- We could not find the exact coordinates of the cracked rock in public data. It lies somewhere along the 9 m driven on sol 4200, and `site1` is the end of that drive.
+- Bright white stones are visible in the foreground of the rover photo for `site1` (`pov/site1.jpg`).
+- The map extent and grid are unchanged. `site.lat` and `site.lon` are still the map center.
 
-**참고 경로.** 로버는 기지 위치에서 조사 지점까지 주행 기록상 593m를 달리며 45.2m를 올라갔습니다 (sol 4098 → 4200). 범위 안 정차 지점을 직선으로 이으면 518m, 두 지점의 직선 거리는 358m입니다.
+**Reference path.** The rover drove 593 m by its odometry from the base position to the survey site and climbed 45.2 m (sol 4098 → 4200). Joining the stops inside the extent with straight lines gives 518 m; the straight-line distance between the two points is 358 m.
 
-**demo 구역.** `[265, 262, 285, 282]`, 조사 지점을 가운데 둔 80m 정사각형을 4m 방에 대응시킵니다(1:20). 이 안의 경사는 중앙값 10.7°, 최대 26.0°, 높이 차 17.4m이고 로버 정차 지점이 11개 들어 있습니다. **자리값이 아니라 제안값입니다. D와 확정합니다.** 기지는 이 구역 밖(약 360m)에 있으므로, 방 안에서 "기지 복귀"를 어떻게 보여 줄지는 D가 정해야 합니다.
+**Demo region.** `[265, 262, 285, 282]`: an 80 m square centered on the survey site, mapped onto a 4 m room (1:20). Inside it the slope has a median of 10.7° and a maximum of 26.0°, the relief is 17.4 m, and it contains 11 rover stops. **This is a proposal, to be fixed with D.** Base is outside this region (about 360 m away), so D has to decide how "return to base" is shown inside the room.
 
-## 3. 좌표와 격자
+## 3. Coordinates and grid
 
-- 모든 레이어는 같은 범위(동경 137.39026°~137.42481°, 남위 4.80409°~4.76954°)를 덮습니다.
-- 숫자 격자는 남서쪽 구석이 `[0, 0]`, 인덱스는 `row * 512 + col`입니다. 이미지는 위쪽이 북쪽입니다.
-- 경위도 → 격자: `col = floor((lon − west) / (east − west) × 512)`, `row = floor((lat − south) / (north − south) × 512)`. 브라우저에서는 이 계산을 하지 않고 파일에 든 `cell`을 씁니다.
-- **한 칸은 남북 4.00m, 동서 약 3.99m입니다.** 경위도에 비례하는 격자라, 남위 4.8°에서 동서 방향 실제 거리가 0.35% 짧습니다. 지도 전체에서 7m쯤이라 무시해도 됩니다.
+- Every layer covers the same extent (137.39026° E to 137.42481° E, 4.80409° S to 4.76954° S).
+- In numeric grids the southwest corner is `[0, 0]` and the index is `row * 512 + col`. In images, up is north.
+- Longitude/latitude → grid: `col = floor((lon − west) / (east − west) × 512)`, `row = floor((lat − south) / (north − south) × 512)`. The browser does not do this; it uses the `cell` values in the files.
+- **A cell is 4.00 m north–south and about 3.99 m east–west.** The grid is proportional to longitude and latitude, so at 4.8° S the true east–west distance is 0.35% shorter. That is about 7 m across the whole map and can be ignored.
 
-## 4. 레이어별 설명
+## 4. Layer by layer
 
-### 지형 높이 `topo.bin`, 경사도 `slope.bin`
+### Terrain elevation `topo.bin`, slope `slope.bin`
 
-- **출처:** USGS "Mars MSL Gale Merged DEM 1m" (`MSL_Gale_DEM_Mosaic_1m_v3.tif`, 3.6GB)
-- **가공:** 파일 전체를 받지 않고 지도 범위 2,048×2,048픽셀만 읽었습니다(서버가 부분 요청을 받습니다). 1m 값을 4×4씩 평균해 4m 칸으로 만들었습니다. 경사도는 4m 격자에서 이웃 칸과의 높이 차로 계산했습니다(가운데 칸은 양옆 8m 간격).
-- **값의 범위:** 높이 −3846.56 ~ −3412.10m, 경사 0.03 ~ 71.07°. 빈 칸 없음.
-- **경사의 뜻:** 8m 폭으로 본 평균 기울기입니다. 그보다 작은 바위나 턱은 드러나지 않습니다. 그것을 메우는 것이 A의 현장 스캔입니다.
-- **표기:** USGS Astrogeology Science Center. 원자료에 ESA Mars Express HRSC가 섞여 있어 제출 설명문에 적어야 합니다.
+- **Source:** USGS "Mars MSL Gale Merged DEM 1m" (`MSL_Gale_DEM_Mosaic_1m_v3.tif`, 3.6 GB)
+- **Processing:** only the 2,048×2,048 pixel map window was read, not the whole file (the server accepts partial requests). The 1 m values were averaged 4×4 into 4 m cells. Slope is computed on the 4 m grid from the elevation difference to neighboring cells (8 m baseline for interior cells).
+- **Value range:** elevation −3846.56 to −3412.10 m, slope 0.03 to 71.07°. No empty cells.
+- **What slope means:** the average tilt seen over an 8 m width. Rocks and ledges smaller than that do not show. Filling that gap is A's field scan.
+- **Credit:** USGS Astrogeology Science Center. The source includes ESA Mars Express HRSC data, which must be stated in the submission text.
 
-### 광학 영상 `optical.png`
+### Optical image `optical.png`
 
-- **출처:** JPL Mars Trek, 레이어 `curiosity_hirise_mosaic`, 확대 16단계 타일 182장
-- **가공:** 타일을 이어 붙여 지도 범위로 자르고(약 3,220픽셀) 4,096픽셀로 늘렸습니다. 원본 해상도는 약 0.64m/픽셀입니다.
-- **주의:** 원본이 **회색조**입니다. 색을 입히면 표현 선택이고, 발표에서 원본이 회색조라고 밝힙니다.
-- **표기:** NASA/JPL-Caltech/University of Arizona
+- **Source:** JPL Mars Trek, layer `curiosity_hirise_mosaic`, 182 tiles at zoom level 16
+- **Processing:** tiles joined, cropped to the map extent (about 3,220 pixels) and enlarged to 4,096 pixels. The source resolution is about 0.64 m per pixel.
+- **Note:** the source is **grayscale**. Any color is a display choice, and the presentation says the source is grayscale.
+- **Credit:** NASA/JPL-Caltech/University of Arizona
 
-### 열 영상 `thermal.png`
+### Thermal image `thermal.png`
 
-- **출처:** JPL Mars Trek, 레이어 `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018`, 타일 1장
-- **가공:** 지도 범위가 원본에서 **가로 25픽셀**뿐입니다. 부드럽게 뭉개지 않고 원본 픽셀이 네모로 보이게 늘렸습니다. 궤도 열 영상이 걷는 규모에서 얼마나 거친지 그대로 보여 주려는 것입니다.
-- **주의:** 밝기는 온도가 아니라 **상대 밝기**입니다. "몇 도"로 표시하거나 경로 계산에 넣을 수 없습니다.
-- **표기:** NASA/JPL-Caltech/Arizona State University
+- **Source:** JPL Mars Trek, layer `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018`, 1 tile
+- **Processing:** the map extent is only **25 pixels wide** in the source. It is enlarged so that the source pixels show as squares, without smoothing, to show plainly how coarse orbital thermal data is at walking scale.
+- **Note:** brightness is **relative brightness**, not temperature. It cannot be shown in degrees or used in route computation.
+- **Credit:** NASA/JPL-Caltech/Arizona State University
 
-### 주행 경로 `traverse.json`
+### Rover path `traverse.json`
 
-- **출처:** NASA `MSL_waypoints.json` (정차 지점 1,389개 중 범위 안 178개, sol 3880 ~ 4493)
-- **필드:** `elevM`은 원본의 `elev_geoid`, `tiltDeg`는 로버 차체의 기울기, `rmc`는 원본의 `RMC`(사진과 위치를 잇는 열쇠)입니다.
-- **주의:** 점들은 정차 지점입니다. 점 사이를 직선으로 이으면 실제 바퀴 자국보다 짧습니다(위 518m 대 593m).
+- **Source:** NASA `MSL_waypoints.json` (178 of 1,389 stops fall inside the extent, sols 3880 to 4493)
+- **Fields:** `elevM` is the source's `elev_geoid`, `tiltDeg` is the tilt of the rover body, `rmc` is the source's `RMC` (the key that links photos to positions).
+- **Note:** the points are stops. Joining them with straight lines is shorter than the real wheel track (518 m versus 593 m above).
 
-### 방사선·대기 `env.json`
+### Radiation and atmosphere `env.json`
 
-황을 발견한 **sol 4200 (2024-05-30) 하루**의 시간별 평균 24개입니다. 헤드셋은 이것을 데모 시간에 맞춰 순서대로 재생합니다. 실시간 값이나 예보가 아니라 **그날의 기록**입니다.
+24 hourly means for **sol 4200 (2024-05-30)**, the day the sulfur was found. The headset replays them in order over the demo. This is **a recording of that day**, not a live feed or a forecast.
 
-| 항목 | 값 | 출처 |
+| Field | Value | Source |
 |---|---|---|
-| `radiationUGyPerDay` | 하루 평균 154.2, 시간별 151.7 ~ 157.0 µGy/일 | RAD RDR, E 검출기 선량률(µGy/h) × 24 |
-| `pressurePa` | 800.4 ~ 889.2 Pa | REMS MODRDR, `PRESSURE` |
-| `airTempK` | 205.8 ~ 267.7 K (−67 ~ −5°C) | REMS MODRDR, `AMBIENT_TEMP` |
+| `radiationUGyPerDay` | daily mean 154.2, hourly 151.7 to 157.0 µGy/day | RAD RDR, E-detector dose rate (µGy/h) × 24 |
+| `pressurePa` | 800.4 to 889.2 Pa | REMS MODRDR, `PRESSURE` |
+| `airTempK` | 205.8 to 267.7 K (−67 to −5 °C) | REMS MODRDR, `AMBIENT_TEMP` |
 
-- **방사선은 기기가 낸 값 그대로입니다.** RAD 파일의 `[DOSIMETRY_TOTAL_DOSE_E]` 값이고, 논문에서 하는 보정은 하지 않았습니다. 관측 88개 중 품질 표시(QC)가 붙은 2개를 빼고 86개를 썼습니다. E 검출기는 플라스틱 섬광체로 인체 조직에 가까운 쪽입니다.
-- **하루 안의 변화가 작습니다.** 방사선은 152~157 범위에서만 움직입니다. 평소 값으로는 방사선 경보가 울리지 않으니, 데모에서 경보를 보이려면 기준이나 시연 방법을 B와 정해야 합니다.
-- **값이 말이 되는지 본 것:** 기온은 14시에 가장 높고, 기압은 새벽에 가장 높고 16시에 가장 낮습니다. 기압이 낮은 시간에 방사선이 높습니다(상관 −0.74). 대기가 얇아지면 차폐가 줄어드는 것과 같은 방향입니다.
-- **시각:** `localTime`은 지방 진태양시(LTST)입니다. RAD 파일의 관측 시각이 LMST인지 LTST인지 문서와 실제가 달라 보였고, 둘의 차이는 약 50분입니다. 그래서 **방사선 값은 기압·기온과 최대 한 시간 칸 어긋나 있을 수 있습니다.**
-- `sourceUrls`에 두 원본 파일의 주소가 있습니다. `note` 필드는 설명용이고 로더는 읽지 않습니다.
+- **Radiation is the instrument's value as reported.** It is the `[DOSIMETRY_TOTAL_DOSE_E]` value in the RAD file, without the corrections applied in papers. Of 88 observations, 2 carrying a quality (QC) flag were dropped and 86 used. The E detector is a plastic scintillator, the one closer to human tissue.
+- **It changes little within the day.** Radiation stays between 152 and 157. Ordinary values will not trigger a radiation alert, so to show one in the demo the threshold or the method has to be agreed with B.
+- **Sanity checks:** temperature peaks at 14:00; pressure is highest before dawn and lowest at 16:00; radiation is higher when pressure is lower (correlation −0.74), the direction expected when there is less atmosphere overhead.
+- **Time:** `localTime` is local true solar time (LTST). Whether the observation time in the RAD file is LMST or LTST differed between its documentation and what we saw, and the two differ by about 50 minutes. So **radiation may be shifted by up to one hourly bin relative to pressure and temperature.**
+- `sourceUrls` holds the addresses of the two source files. The `note` field is explanatory and the loader does not read it.
 
-### 로버 사진 `pov.json`
+### Rover photos `pov.json`
 
-| 파일 | 어디서 | 사진 |
+| File | Where | Photo |
 |---|---|---|
-| `pov/site1.jpg` | 조사 지점, sol 4200 (`107_2484`) | 왼쪽 내비게이션 카메라. 앞쪽에 밝은 돌들이 보임 |
-| `pov/base.jpg` | 기지, sol 4098 (`106_438`) | 왼쪽 내비게이션 카메라. 지평선과 언덕 |
+| `pov/site1.jpg` | Survey site, sol 4200 (`107_2484`) | Left Navigation Camera. Bright stones in the foreground |
+| `pov/base.jpg` | Base, sol 4098 (`106_438`) | Left Navigation Camera. Horizon and a butte |
 
-- 사진의 `site`·`drive` 번호가 주행 기록의 `RMC`와 같은 것만 골랐으므로, 지도의 그 자리에서 찍은 사진입니다.
-- 조사 지점 사진은 그 자리의 전체 크기 사진 19장 중 고개 각도가 수평에 가장 가까운 것입니다. 기지 사진은 자동으로 고른 것에 로버 몸체가 크게 찍혀 있어, 후보를 눈으로 보고 골랐습니다.
-- **표기:** NASA/JPL-Caltech. 원본은 흑백입니다.
+- Only images whose `site` and `drive` numbers equal the traverse record's `RMC` were considered, so each photo was taken from that point on the map.
+- The survey site photo is the one of 19 full-frame images there whose mast elevation is closest to level. For base, the automatic pick showed a large part of the rover body, so the candidates were reviewed by eye and one was chosen.
+- **Credit:** NASA/JPL-Caltech. The source images are black and white.
 
-### 지질 단위
+### Geologic unit
 
-`layerset.json`의 `site.geologicUnit`에 `Htu` (Hesperian transition undivided unit, USGS SIM 3292)가 들어 있습니다. 지도 전체가 한 단위라 범례 한 줄로만 씁니다.
+`site.geologicUnit` in `layerset.json` holds `Htu` (Hesperian transition undivided unit, USGS SIM 3292). The whole map is one unit, so it is used only as one line in the legend.
 
-## 5. 범례 (F용)
+## 5. Legend (for F)
 
-화면과 영상은 영어여야 하므로(제출 규칙) 영어 이름을 `labelEn`에 넣어 두었습니다. `labelEn`, `credit`, `rmc`, `sol`, `scienceGoalEn`은 INTERFACES에 없는 **추가 필드**입니다. 기존 필드는 그대로이고, 안 읽어도 동작합니다.
+`label` values in `layerset.json` are in English, as the submission rules require. `credit`, `rmc` and `sol` are **extra fields** not in INTERFACES; existing fields are unchanged and code works without reading the extras.
 
-| `id` | `label` | `labelEn` | 범례에 쓸 말 (영어) |
-|---|---|---|---|
-| `topo` | 지형 높이 | Elevation | −3,847 m to −3,412 m |
-| `slope` | 경사도 | Slope | 0° to 71°; steeper is harder to walk |
-| `optical` | 광학 영상 | Optical image | Grayscale. 0.64 m per pixel |
-| `thermal` | 열 영상 (야간) | Thermal image (night, relative brightness) | Relative brightness, not temperature. 81 m per pixel |
-| `base` | 기지 | Base | — |
-| `site1` | 황 암석 지대 | Sulfur stone field | — |
+| `id` | `label` | Legend text |
+|---|---|---|
+| `topo` | Terrain elevation | −3,847 m to −3,412 m |
+| `slope` | Slope | 0° to 71°; steeper is harder to walk |
+| `optical` | Optical image | Grayscale. 0.64 m per pixel |
+| `thermal` | Thermal image (night) | Relative brightness, not temperature. 81 m per pixel |
+| `base` | Base | — |
+| `site1` | Sulfur stone field | — |
 
-출처 표기 한 줄: `Data: NASA/JPL-Caltech/University of Arizona, NASA/JPL-Caltech/Arizona State University, USGS Astrogeology Science Center`
+One-line credit: `Data: NASA/JPL-Caltech/University of Arizona, NASA/JPL-Caltech/Arizona State University, USGS Astrogeology Science Center`
 
-**제출 페이지와 슬라이드에 쓸 그림** (`docs/figures/`, 영어, `python validate.py --figure`로 다시 만듦):
+**Figures for the submission page and slides** (`docs/figures/`, rebuilt with `python validate.py --figure`):
 
-| 파일 | 내용 |
+| File | Content |
 |---|---|
-| `layers.png` | 네 레이어(광학, 지형 음영, 경사, 열)를 한 장에. 로버 경로와 기지·조사 지점 표시 |
-| `route.png` | 기지에서 조사 지점까지, 경사 레이어로 계산한 길과 로버가 실제로 간 길 |
+| `layers.png` | The four layers (optical, terrain shading, slope, thermal) in one image, with the rover path, base and survey site |
+| `route.png` | Base to survey site: the route computed from the slope layer and the path the rover actually drove |
 
-두 그림은 NASA 데이터를 스크립트로 그린 것이고 AI가 그린 그림이 아닙니다. 스크립트를 AI 도움으로 썼다는 문구가 그림 아래에 들어 있습니다. 제출 페이지에는 이미지를 10MB까지 직접 올릴 수 있습니다.
+Both are plots of NASA data drawn by a script, not AI-generated images. A line under each figure says the script was written with AI assistance. The submission page accepts images up to 10 MB.
 
-## 6. 얼마나 맞는가
+## 6. How accurate it is
 
-`validate.py`가 54가지를 검사하고 모두 통과합니다. 그중 레이어끼리 맞는지 본 것:
+`validate.py` runs 54 checks and all pass. The ones that test the layers against each other:
 
-| 무엇을 봤나 | 결과 |
+| What was checked | Result |
 |---|---|
-| 지형 높이와 로버가 기록한 높이 | 정차 지점 178곳에서 차이 평균 −0.17m, 표준편차 0.24m |
-| 지형이 옆으로 밀려 있지 않은지 | 지형을 ±5칸(20m)까지 밀어 봐도 제자리에서 로버 높이와 가장 잘 맞음 |
-| 지형의 경사와 로버의 기울기 | 로버가 선 자리의 경사 중앙값 8.8°, 로버 기울기 중앙값 9.1° |
-| 광학 영상과 지형 | 지형으로 만든 음영 그림과 광학 영상이 가장 잘 겹치는 자리가 1칸(4m) 이내. 상관은 0.29로 높지 않아, "4m보다 크게 어긋나 있지는 않다"까지만 말할 수 있음 |
-| 형식 | 격자 길이, 빈 칸, min·max, 이미지 크기, 출처 주소, 좌표가 모두 INTERFACES와 맞음 |
+| Terrain elevation versus the elevation the rover recorded | Difference −0.17 m on average, standard deviation 0.24 m, at 178 stops |
+| Whether the terrain is shifted sideways | Shifting the terrain by up to ±5 cells (20 m) never matches the rover elevations better than no shift |
+| Terrain slope versus rover tilt | Median slope where the rover stood 8.8°, median rover tilt 9.1° |
+| Optical image versus terrain | Shading computed from the terrain matches the optical image best within 1 cell (4 m). The correlation is only 0.29, so we can say no more than "not off by much more than 4 m" |
+| Format | Grid length, empty cells, min/max, image size, source addresses and coordinates all match INTERFACES |
 
-브라우저에서도 확인했습니다. 빌드한 앱을 `?mock=link,hazard`로 열면 로더가 이 파일들을 읽어 `layers:ready`와 `env:update`를 보냅니다. **헤드셋에서는 확인하지 못했습니다.**
+It was also checked in a browser: the built app opened with `?mock=link,hazard` loads these files and emits `layers:ready` and `env:update`, and the HUD shows the real values. **It has not been checked on the headset.**
 
-## 7. 경사 기준을 정할 때 (D와)
+## 7. Choosing the slope criterion (with D)
 
-기지에서 조사 지점까지, 경사가 기준 이하인 칸만 밟고 갈 때의 가장 짧은 길입니다.
+The shortest path from base to the survey site stepping only on cells at or below a slope limit:
 
-| 경사 기준 | 지도에서 걸을 수 있는 넓이 | 기지 → 조사 지점 |
+| Slope limit | Walkable share of the map | Base → survey site |
 |---|---|---|
-| 10° 이하 | 37.6% | 길 없음 |
-| 15° 이하 | 57.3% | 386m |
-| 20° 이하 | 69.7% | 386m |
-| 25° 이하 | 78.6% | 386m |
-| 30° 이하 | 86.2% | 386m |
+| ≤ 10° | 37.6% | no route |
+| ≤ 15° | 57.3% | 386 m |
+| ≤ 20° | 69.7% | 386 m |
+| ≤ 25° | 78.6% | 386 m |
+| ≤ 30° | 86.2% | 386 m |
 
-- 직선 거리는 358m, 로버가 실제로 간 길은 518m(정차 지점을 이은 길이)입니다.
-- **10°로 잡으면 길이 끊깁니다.** 15° 이상에서는 같은 길이 나옵니다. 로버가 이 범위에서 견딘 기울기는 중앙값 9.1°, 상위 10% 15.4°, 최대 22.4°입니다.
+- The straight-line distance is 358 m; the path the rover drove is 518 m (joining its stops).
+- **A 10° limit cuts the route.** From 15° up the same path results. The tilt the rover took inside this extent has a median of 9.1°, a 90th percentile of 15.4° and a maximum of 22.4°.
 
-### 제안하는 기준: 15°부터 피하고, 20°를 넘으면 막는다
+### Proposed rule: avoid above 15°, close above 20°
 
-우주복을 입은 사람이 걸은 경사에 대한 근거를 찾았습니다. 둘 다 달에서의 경험과 계획이고, 화성 기준은 찾지 못했습니다.
+We found evidence for the slopes that people in spacesuits have walked. Both sources are about the Moon; we found nothing for Mars.
 
-| 기준 | 근거 | 출처 |
+| Limit | Evidence | Source |
 |---|---|---|
-| **15° 미만** | "The astronauts climbed up to 150 m during the Apollo missions and walked on slopes of <15°." | Iqbal, Head 외, *Astronaut experiences on the slopes along Apollo EVAs*, EPSC2024-196 ([원문](https://meetingorganizer.copernicus.org/EPSC2024/EPSC2024-196.html), 원문 확인) |
-| **20° 미만** | Artemis 초기 보행 임무에 대해 "Any traverse needs to be on slopes less than 20 degrees." (David Kring, LPI) | Universe Today 2023 ([기사](https://www.universetoday.com/articles/lunar-astronauts-will-need-easy-walking-trails-around-the-moons-south-pole), 원문 확인. 연구자의 말을 옮긴 기사이고 NASA 요구 문서는 아님) |
+| **Below 15°** | "The astronauts climbed up to 150 m during the Apollo missions and walked on slopes of <15°." | Iqbal, Head et al., *Astronaut experiences on the slopes along Apollo EVAs*, EPSC2024-196 ([abstract](https://meetingorganizer.copernicus.org/EPSC2024/EPSC2024-196.html), read in full) |
+| **Below 20°** | On the first Artemis walking missions: "Any traverse needs to be on slopes less than 20 degrees." (David Kring, LPI) | Universe Today 2023 ([article](https://www.universetoday.com/articles/lunar-astronauts-will-need-easy-walking-trails-around-the-moons-south-pole), read in full. An article quoting a researcher, not a NASA requirements document) |
 
-- 그래서 **경로 비용은 15°부터 빠르게 비싸지게 하고, 20°를 넘는 칸은 지나가지 못하게** 하는 것을 제안합니다. 우리 지도에서 20° 이하인 칸은 69.7%입니다.
-- 이 값은 달(중력 1/6)에서의 경험입니다. 화성(중력 0.38)에서는 다를 수 있습니다. 제출 설명문에는 "Apollo의 보행 경험과 Artemis 보행 계획에서 가져온 값"이라고 적습니다.
-- 로버의 기울기 기록은 로버가 견딘 값이지 사람 기준이 아닙니다. 다만 로버가 이 구간에서 선 자리의 경사(중앙값 8.6°, 최대 14.5°)가 15° 안쪽이라는 점은 기준과 어긋나지 않습니다.
+- So we propose that **route cost rises quickly above 15° and cells above 20° are closed**. 69.7% of our map is at or below 20°.
+- These figures are from the Moon (1/6 g). Mars (0.38 g) may differ. The submission text says the limits are "taken from Apollo walking experience and Artemis walking plans."
+- The rover's tilt record is what the rover took, not a human standard. Still, the slope where the rover stopped on this stretch (median 8.6°, maximum 14.5°) is inside 15°, which is consistent with the rule.
 
-### 경사 레이어로 말이 되는 길이 나오는가
+### Does the slope layer give a sensible route?
 
-위 기준으로 길을 계산해 로버가 실제로 간 길과 견줬습니다(`validate.py`, 한 걸음의 비용 = 거리 × (1 + (경사/15)²), 20° 초과는 막음).
+We computed a route with the rule above and compared it with the path the rover actually drove (`validate.py`; step cost = distance × (1 + (slope/15)²), cells above 20° closed).
 
-| | 우리 경사 레이어로 계산한 길 | 로버가 실제로 간 길 |
+| | Route computed from our slope layer | Path the rover drove |
 |---|---|---|
-| 길이 | 390m | 518m (정차 지점을 이은 길이) |
-| 길 위의 경사 | 중앙값 6.8°, 최대 14.9° | 정차 지점에서 중앙값 8.6°, 최대 14.5° |
+| Length | 390 m | 518 m (joining its stops) |
+| Slope along it | median 6.8°, maximum 14.9° | at the stops: median 8.6°, maximum 14.5° |
 
-- 계산한 길은 로버가 간 길에서 **평균 16m, 최대 43m** 떨어져 있습니다. 같은 통로를 따라갑니다. 그림은 `docs/figures/route.png`.
-- 로버의 길이 더 긴 것은 과학 조사를 위해 들른 곳이 있기 때문으로 보입니다(확인하지는 못했습니다).
-- 이 길은 `data-pipeline/reference_route.json`에 칸 목록으로 들어 있습니다. **D의 경로를 대신하는 것이 아니라** D의 결과와 견줘 볼 비교용입니다.
+- The computed route stays **16 m on average and 43 m at most** from the rover's path. It follows the same corridor. See `docs/figures/route.png`.
+- The rover's path is probably longer because it detoured for science (not verified).
+- The route is saved as a list of cells in `data-pipeline/reference_route.json`. It **does not replace D's route**; it is there to compare D's result against.
 
-## 8. 알아 둘 한계
+## 8. Limits to keep in mind
 
-- 헤드셋에서 돌려 보지 않았습니다. `optical.png`(7.8MB, 4096픽셀)가 무거우면 `build_data.py`의 `OPTICAL_PX`를 2048로 바꿔 다시 만듭니다.
-- 광학·열 영상은 회색조이고, 열 영상의 밝기는 온도가 아닙니다.
-- 방사선 값은 보정하지 않은 기기 값이고, 하루치 기록입니다.
-- 깨뜨린 황 암석의 정확한 좌표는 모릅니다. 조사 지점은 그날 주행이 끝난 자리입니다.
-- README와 INTERFACES의 예시는 조사 지점을 지도 한가운데 `[256, 256]`로 적고 있습니다. 실제 파일은 `[275, 272]`입니다. 코드는 `layerset.json`의 `waypoints`에서 읽어야 합니다.
+- Not run on the headset. If `optical.png` (7.8 MB, 4096 pixels) is too heavy, change `OPTICAL_PX` to 2048 in `build_data.py` and rebuild.
+- The optical and thermal images are grayscale, and thermal brightness is not temperature.
+- Radiation is the uncorrected instrument value, and one day's record.
+- The exact position of the cracked sulfur rock is unknown. The survey site is where that day's drive ended.
+- The examples in INTERFACES place the survey site at the map center `[256, 256]`. The real file has `[275, 272]`. Code must read `waypoints` from `layerset.json`.

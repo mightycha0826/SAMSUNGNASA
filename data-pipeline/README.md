@@ -1,47 +1,47 @@
-# data-pipeline (C 슬롯)
+# data-pipeline (slot C)
 
-NASA 원본 데이터를 받아 `web/public/data/`의 레이어 파일로 가공합니다. 파일이 무엇인지는 [docs/DATA.md](../docs/DATA.md)에 있습니다.
+Downloads the NASA source data and processes it into the layer files in `web/public/data/`. What the files are is described in [docs/DATA.md](../docs/DATA.md).
 
-## 실행
+## Run
 
-Python 3.10 이상이 필요합니다.
+Python 3.10 or later.
 
 ```bash
 pip install -r requirements.txt
-python build_data.py        # 전부 다시 만든다
-python validate.py          # 만든 파일을 검사한다 (실패하면 종료 코드 1)
+python build_data.py        # rebuild everything
+python validate.py          # check the result (exit code 1 on failure)
 ```
 
-- 하나만 다시 만들기: `python build_data.py optical` (`optical`, `thermal`, `topo`, `traverse`, `env`, `pov`, `layerset`)
-- 겹쳐 본 그림 다시 그리기: `python validate.py --figure` → `check_overlay.png`
+- Rebuild one step: `python build_data.py optical` (`optical`, `thermal`, `topo`, `traverse`, `env`, `pov`, `layerset`)
+- Redraw the figures: `python validate.py --figure` → `check_overlay.png`, `../docs/figures/`
 
-처음 돌릴 때 3~4분 걸립니다(잰 값: 211초). 받은 것은 `cache/`에 약 100MB 남아 다음부터는 받지 않습니다(방사선 70MB, 대기 13MB, 타일 183장, 잘라 낸 지형 16MB). 지형 파일(3.6GB)은 필요한 줄만 네트워크로 읽습니다. `cache/`는 git에 올리지 않습니다.
+The first run takes 3 to 4 minutes (measured: 211 seconds). Downloads are kept in `cache/`, about 100 MB (radiation 70 MB, atmosphere 13 MB, 183 tiles, the cropped terrain 16 MB), and are not fetched again. The terrain file (3.6 GB) is read over the network only for the rows needed. `cache/` is not committed.
 
-빈 캐시에서 처음부터 다시 만들어도 저장소에 있는 파일과 바이트 단위로 같은 결과가 나오는 것을 확인했습니다 (2026-11-14). 출력·캐시 폴더는 환경 변수 `MARSWALK_OUT`, `MARSWALK_CACHE`로 바꿀 수 있습니다.
+Rebuilding from an empty cache was confirmed to give files byte-identical to the ones in the repository (2026-11-14). The output and cache folders can be changed with the environment variables `MARSWALK_OUT` and `MARSWALK_CACHE`.
 
-## 파일
+## Files
 
-| 파일 | 내용 |
+| File | Content |
 |---|---|
-| `build_data.py` | 가공 스크립트. 맨 위 상수에 지도 범위, 기지·조사 지점, 원본 주소가 있다 |
-| `validate.py` | 형식 검사, 레이어 교차 검사, 경사 기준 분석 |
-| `validation_report.json` | `validate.py`가 계산한 숫자. 문서의 수치는 여기서 왔다 |
-| `check_overlay.png` | 광학·지형 음영·경사도·열 위에 로버 경로를 얹은 그림 |
-| `reference_route.json` | 경사 레이어로 계산한 기지 → 조사 지점 참고 경로(칸 목록). D의 경로와 견줄 비교용 |
-| `../docs/figures/` | 제출 페이지·슬라이드용 영어 그림 (`layers.png`, `route.png`). `validate.py --figure`가 만든다 |
+| `build_data.py` | Processing script. The constants at the top hold the map extent, base and survey site, and source addresses |
+| `validate.py` | Format checks, cross-checks between layers, slope criterion analysis |
+| `validation_report.json` | The numbers `validate.py` computed. The figures in the docs come from here |
+| `check_overlay.png` | Rover path laid over optical, terrain shading, slope and thermal |
+| `reference_route.json` | Reference route from base to the survey site computed from the slope layer (list of cells). For comparison with D's route |
+| `../docs/figures/` | English figures for the submission page and slides (`layers.png`, `route.png`), made by `validate.py --figure` |
 
-## 자주 바꿀 것
+## Things you may want to change
 
-| 바꾸고 싶은 것 | `build_data.py`의 상수 | 다시 돌릴 단계 |
+| To change | Constant in `build_data.py` | Steps to rerun |
 |---|---|---|
-| 기지 위치 | `BASE_RMC` (주행 기록의 `RMC`) | `layerset pov` |
-| 조사 지점 | `SURVEY_RMC` | `layerset pov` |
-| demo 구역 크기 | `DEMO_HALF_CELLS` | `layerset` |
-| 광학 영상 크기 | `OPTICAL_PX` (2048 또는 4096) | `optical` |
-| 방사선·대기의 날짜 | `ENV_SOL`, `RAD_FILE`, `REMS_FILE` | `env` |
+| Base position | `BASE_RMC` (an `RMC` from the traverse record) | `layerset pov` |
+| Survey site | `SURVEY_RMC` | `layerset pov` |
+| Demo region size | `DEMO_HALF_CELLS` | `layerset` |
+| Optical image size | `OPTICAL_PX` (2048 or 4096) | `optical` |
+| Day of the radiation and weather record | `ENV_SOL`, `RAD_FILE`, `REMS_FILE` | `env` |
 
-바꾼 뒤에는 `python validate.py`를 돌려 통과하는지 봅니다.
+After a change, run `python validate.py` and make sure it passes.
 
-## AI 사용 고지
+## Use of AI
 
-이 폴더의 스크립트는 AI 코딩 도구(Claude)의 도움을 받아 작성했습니다. 데이터 값은 모두 스크립트에 적힌 NASA·USGS 주소에서 받은 것입니다.
+The scripts in this folder were written with the help of an AI coding tool (Claude). All data values were downloaded from the NASA and USGS addresses in the scripts.
