@@ -100,6 +100,14 @@ let pPick = null;
 let pickHits = [];
 const pickTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
+const tipped = new THREE.Vector3();
+const tipAxis = new THREE.Vector3();
+/** `dir` turned downward by `deg` about its own horizontal axis (a ray already pointing straight up or down is left as it is). */
+function tipDown(dir, deg) {
+  tipAxis.crossVectors(dir, UP); // to the right of the ray
+  if (!(deg > 0) || tipAxis.lengthSq() < 1e-4) return dir;
+  return tipped.copy(dir).applyAxisAngle(tipAxis.normalize(), -THREE.MathUtils.degToRad(deg));
+}
 let lastSosDraw = 0;
 let mapPointed = false; // the right hand's pointer is on the map this frame
 let suit = null; // the right hand: the vitals hologram over the palm (suit.js)
@@ -870,7 +878,11 @@ function updatePointer(frame, now) {
   const onMars = mode.current === 'mars';
   for (const ray of pointer.free()) {
     if (ray.hand && !HUD.pointer.hands.includes(ray.hand)) continue;
-    const hit = onMars ? pickOnMap(ray.origin, ray.dir, HUD.pointer.maxM) : pickOnFieldMap(ray.origin, ray.dir, HUD.pointer.maxM);
+    // The map lies flat, and a hand's pointer runs nearly level: it would meet the map at a
+    // shallow angle, where a small turn of the wrist sends the cursor far across it. For the
+    // map the ray is tipped downward, so it comes down on the map steeply.
+    const dir = tipDown(ray.dir, HUD.pointer.mapPitchDeg);
+    const hit = onMars ? pickOnMap(ray.origin, dir, HUD.pointer.maxM) : pickOnFieldMap(ray.origin, dir, HUD.pointer.maxM);
     if (!hit) continue;
     ray.show(hit.point, UP);
     if (ray.hand === 'right') mapPointed = true;

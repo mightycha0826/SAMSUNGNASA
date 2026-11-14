@@ -122,6 +122,9 @@ export const HUD = {
     ownRay: q.get('ray') === 'own',
     shoulderDownM: 0.2,
     shoulderSideM: 0.16,
+    /** When pointing at the palm map, which lies flat, the ray is tipped down by this much (deg):
+     *  it then meets the map steeply and the cursor is easier to steer */
+    mapPitchDeg: 25,
     /** A menu farther along the ray than this is not hit (m) */
     maxM: 3,
     /** The cursor may leave the panel by this fraction of its size before it disappears */

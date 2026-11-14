@@ -9,13 +9,13 @@
 //     a room crosses a visible part of the 2 km map; in field mode it is 1 : 1.
 //
 // In field mode (the second button on the start page)
-//   - The palm map is the Mars map zoomed in to FIELD.spanM around the wearer, 1 : 1 with the
-//     room. At this scale the orbital image is a blur of a few dozen pixels; that is the point.
-//   - Where the headset has scanned the room (`hazard:update` from scan/), the map is rewritten
-//     with what is really there: structure and clear floor. Outside the scanned area the map is
-//     still the Mars data. To the map it is as if a structure had appeared on Mars.
+//   - The palm map shows FIELD.spanM around the wearer, 1 : 1 with the room, and on it only
+//     what the headset has scanned (`hazard:update` from scan/): clear floor and structure.
+//     Ground the headset knows nothing about is left empty; a thin frame shows how far the map
+//     reaches. (It used to show the Mars image there, which read as floor that had been seen.)
 //     The scan arrives at most twice a second, and with live depth (on by default in this mode,
 //     core/xr.js) it includes what was put down or taken away a moment ago: the map follows.
+//     The scanned ground still rises and falls with the Mars terrain under the wearer.
 //   - It is the same kind of object as the Mars map (core/hologram.js): a relief floating over
 //     the palm with a beam from the hand, the Mars terrain as its ground and the scanned
 //     structure standing on it, and everything written about it on the caption card that goes
@@ -84,7 +84,6 @@ const palmState = makePalmState();
 let layerSet = null;
 let frameT = null; // D's map metre frame
 let anchorMap = null; // map metres where the session started
-let optical = null; // HTMLImageElement of the optical layer
 let grid = null; // latest hazard:update
 let gridCanvas = null; // the scan drawn at grid resolution
 const head = new THREE.Vector3();
@@ -205,7 +204,8 @@ function makePalmMap() {
   const N = FIELD.segments;
   const geometry = new THREE.PlaneGeometry(FIELD.mapM, FIELD.mapM, N, N).rotateX(-Math.PI / 2);
   geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array((N + 1) * (N + 1) * 3).fill(1), 3));
-  const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false }));
+  // alphaTest: the empty parts of the picture are not drawn at all (and hide nothing behind them).
+  const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false, transparent: true, alphaTest: 0.5 }));
   surface.name = 'field-map-surface';
   surface.frustumCulled = false; // its heights change without the bounding sphere being recomputed
   const beam = makeBeam('field-palm-beam');
@@ -241,44 +241,15 @@ function drawPalmMap() {
   const k = W / span; // pixels per metre
   const toPx = (x, z) => [(x - head.x) * k + W / 2, (z - head.z) * k + W / 2];
   g.save();
+  // Only what the headset has scanned is drawn. Ground it knows nothing about is left empty:
+  // there used to be the Mars image there as a stand-in floor, which read as floor that had
+  // been seen. A thin frame shows how far the map reaches.
   g.clearRect(0, 0, W, W);
-  g.fillStyle = '#3a2a22';
-  g.fillRect(0, 0, W, W);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  g.lineWidth = 3;
+  g.strokeRect(1.5, 1.5, W - 3, W - 3);
 
-  // 1. Mars data under the wearer: the optical image, cut out 1 : 1 around the position on Mars.
-  if (optical && frameT && anchorMap) {
-    const cx = anchorMap[0] + (head.x - headStart.x);
-    const cz = anchorMap[2] + (head.z - headStart.z);
-    const pxPerM = optical.naturalWidth / frameT.width;
-    const sw = span * pxPerM;
-    const sx = (cx + frameT.width / 2) * pxPerM - sw / 2;
-    const sy = (cz + frameT.depth / 2) * (optical.naturalHeight / frameT.depth) - sw / 2;
-    g.imageSmoothingEnabled = true;
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(optical, sx, sy, sw, sw, 0, 0, W, W);
-    g.fillStyle = 'rgba(120, 60, 30, 0.22)'; // a hint of Mars colour on the grey orbital image
-    g.fillRect(0, 0, W, W);
-    // Cells of the Mars layers (4 m): how coarse the orbital data is at walking scale.
-    g.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-    g.lineWidth = 1;
-    const cell = frameT.sx;
-    const x0 = Math.floor((cx - span / 2 + frameT.width / 2) / cell) * cell - frameT.width / 2;
-    const z0 = Math.floor((cz - span / 2 + frameT.depth / 2) / cell) * cell - frameT.depth / 2;
-    g.beginPath();
-    for (let x = x0; x < cx + span / 2; x += cell) {
-      const px = (x - cx) * k + W / 2;
-      g.moveTo(px, 0);
-      g.lineTo(px, W);
-    }
-    for (let z = z0; z < cz + span / 2; z += cell) {
-      const pz = (z - cz) * k + W / 2;
-      g.moveTo(0, pz);
-      g.lineTo(W, pz);
-    }
-    g.stroke();
-  }
-
-  // 2. What the headset scanned replaces the Mars data, only where it was scanned.
+  // What the headset scanned: clear floor and structure.
   if (grid && gridCanvas) {
     const [gx, gz] = toPx(grid.originXZ[0], grid.originXZ[1]);
     g.imageSmoothingEnabled = false;
@@ -368,7 +339,7 @@ function writeFieldCaption() {
     `Map extent ${FIELD.spanM} × ${FIELD.spanM} m · ${grid ? grid.cellSizeM : 0.1} m/cell · 1 : 1 with the room`,
     note,
     stats ? `${stats.obstacles} structure cells${live ? `, ${stats.depth} seen by live depth just now` : ''} · teal: you` : 'Teal: you · orange diamond: target',
-    'Outside the scan: MRO HiRISE optical on the USGS 1 m terrain (orbital data)',
+    'Only scanned ground is drawn; the rest is empty until the headset has seen it',
   ]);
 }
 
@@ -688,14 +659,6 @@ export function init(context) {
       frameT = createGridFrame(ls);
     } catch {
       frameT = null;
-    }
-    const layer = ls.layers?.find((l) => l.id === 'optical');
-    if (layer?.file) {
-      const img = new Image();
-      img.onload = () => {
-        optical = img;
-      };
-      img.src = ctx.assetUrl(layer.file);
     }
     if (haveHead) startTracking();
   });
