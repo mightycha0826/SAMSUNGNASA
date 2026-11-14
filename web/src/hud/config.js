@@ -78,7 +78,8 @@ export const HUD = {
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
     /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다.
-     *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: 숫자는 core/palm.js 의 PALM.upDot 한 곳에 있다 */
+     *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: core/palm.js 의 PALM.upDot 을 그대로 쓴다
+     *  (오른손 슈트 화면은 아래 suit.palmUpDot 에 자기 값을 따로 둔다) */
     palmUpDot: PALM.upDot,
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
