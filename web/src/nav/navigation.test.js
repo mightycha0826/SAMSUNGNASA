@@ -292,3 +292,67 @@ test('route metrics handle positions in the edge half-cell without inventing ele
   close(metrics.distanceM, 5); close(metrics.ascentM, 1);
   assert.equal(analyzeRoute(data, [[-.51, 0], [1, 0]]), null);
 });
+
+// ---- waypoints on the way (via.js) ----
+function treeTo(f, cell) {
+  const tree = new GoalTree(f, cell);
+  while (!tree.done) tree.step(1e9, 1e9);
+  return tree;
+}
+
+test('a marked waypoint nearly on the way is passed, one off the way is not, several are passed in order', async () => {
+  const { chooseStops } = await import('./via.js');
+  const f = field(40, 40), trees = new Map();
+  const stop = (id, cell) => { trees.set(id, treeTo(f, cell)); return { id, cell }; };
+  const costTo = (s, cell) => trees.get(s.id).g[Math.round(cell[1]) * f.cols + Math.round(cell[0])];
+  const goal = stop('goal', [36, 36]), start = [3, 3];
+  const near = stop('near', [20, 18]), off = stop('off', [36, 3]);
+  const one = chooseStops(costTo, start, goal, [off, near]);
+  assert.deepEqual(one.order.map(w => w.id), ['near']);
+  assert.ok(one.cost <= one.direct * (1 + NAV.viaExtraShare) + 1e-9 || one.cost <= one.direct + NAV.viaExtraCost);
+  // Given out of order: they are passed in the order they lie on the way.
+  const a = stop('a', [10, 10]), b = stop('b', [20, 20]), c = stop('c', [30, 30]);
+  assert.deepEqual(chooseStops(costTo, start, goal, [c, a, b]).order.map(w => w.id), ['a', 'b', 'c']);
+  // Each of these alone fits the allowance, both together do not: one is taken.
+  const p = stop('p', [16, 8]), q = stop('q', [22, 30]); // on opposite sides of the way
+  const alone = (w) => costTo(w, start) + costTo(goal, w.cell) - costTo(goal, start);
+  const allowance = Math.max(NAV.viaExtraCost, costTo(goal, start) * NAV.viaExtraShare);
+  assert.ok(alone(p) <= allowance && alone(q) <= allowance && alone(p) + alone(q) > allowance, `${alone(p)} ${alone(q)} ${allowance}`);
+  assert.equal(chooseStops(costTo, start, goal, [p, q]).order.length, 1);
+  // At the start or the destination a waypoint is no stop; with none there is the direct route.
+  assert.deepEqual(chooseStops(costTo, start, goal, [stop('here', [4, 4]), stop('there', [36, 35])], NAV, 4).order, []);
+  assert.deepEqual(chooseStops(costTo, start, goal, []).order, []);
+});
+
+test('real Worker: a route is led through a marked waypoint once its tree is ready, and not through one that is skipped', async t => {
+  const moduleUrl = new URL('./planner.worker.js', import.meta.url).href;
+  const worker = new Worker(`
+    const { parentPort } = require('node:worker_threads');
+    globalThis.self = { postMessage: message => parentPort.postMessage(message) };
+    import(${JSON.stringify(moduleUrl)}).then(() => parentPort.on('message', data => self.onmessage({ data })));
+  `, { eval: true });
+  t.after(() => worker.terminate());
+  let serial = 0;
+  const plan = (extra = {}) => new Promise((resolve, reject) => {
+    const id = ++serial;
+    const timer = setTimeout(() => reject(Error('worker timeout')), 5000);
+    const onMessage = m => { if (m.type === 'result' && m.id === id) { clearTimeout(timer); worker.off('message', onMessage); resolve(m); } };
+    worker.on('message', onMessage);
+    worker.postMessage({ type: 'plan', id, targetId: 'site1', start: [3, 3], ...extra });
+  });
+  const layerSet = { grid: { cols: 32, rows: 32, cellSizeM: 4 }, waypoints: [{ id: 'base', cell: [1, 1] }, { id: 'site1', cell: [28, 28] }] };
+  worker.postMessage({ type: 'setup', version: 1, layerSet, grids: { topo: new Float32Array(1024), slope: new Float32Array(1024) } });
+  const direct = await plan();
+  assert.equal(direct.status, 'ok');
+  worker.postMessage({ type: 'via', id: 'wp1', cell: [16, 14] });
+  worker.postMessage({ type: 'via', id: 'wp2', cell: [28, 3] }); // a corner of the map: far off the way
+  // The trees fill in behind: ask until the route has taken the waypoint along.
+  let via = null;
+  for (let k = 0; k < 50 && !via?.via; k++) { via = await plan(); if (!via.via) await new Promise(r => setTimeout(r, 20)); }
+  assert.deepEqual(via.via, ['wp1']);
+  assert.ok(via.points.some(p => p[0] === 16 && p[1] === 14), 'the route goes through the waypoint');
+  assert.ok(via.cost <= direct.cost * (1 + NAV.viaExtraShare) + 1e-6, `${via.cost} against ${direct.cost}`);
+  assert.equal((await plan({ skip: ['wp1'] })).via, undefined); // already reached on this route
+  worker.postMessage({ type: 'unvia', id: 'wp1' });
+  assert.equal((await plan()).via, undefined);
+});

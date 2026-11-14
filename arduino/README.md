@@ -1,4 +1,6 @@
-# arduino/ — suit temperature sensor (role E)
+# arduino/ — temperature sensor on the suit (role E)
+
+The sensor measures the air around the wearer: the app shows it as the **ambient temperature**. The field it travels in is still called `suitTempC`.
 
 `suit_temp/suit_temp.ino` reads one temperature sensor and prints one JSON line per second at 115200 baud ([docs/INTERFACES.md](../docs/INTERFACES.md) section 5):
 
@@ -49,7 +51,7 @@ Stop the hub before flashing or watching: it holds the serial port. The Arduino 
 
 ## 3. Check with the hub
 
-Start the hub (`jetson/README.md`). The log prints `arduino data, source=arduino`, and `telemetry` messages carry `"source": "arduino"`. Hold the sensor in your hand, note the temperature it reaches, and set `--warn-c` / `--critical-c` / `--clear-c` so the demo crosses them.
+Start the hub (`jetson/README.md`). The log prints `arduino data, source=arduino`, and `telemetry` messages carry `"source": "arduino"`. Hold the sensor in your hand, note the temperature it reaches, and set `--warn-c` / `--critical-c` so the demo crosses them.
 
 ## Status
 

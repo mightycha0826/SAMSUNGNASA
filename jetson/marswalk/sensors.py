@@ -1,4 +1,5 @@
-"""Suit temperature source: Arduino over serial, falling back to mock.
+"""Ambient temperature source (the sensor on the suit measures the air around the wearer):
+Arduino over serial, falling back to mock. The reading keeps the field name suitTempC.
 
 Serial format (docs/INTERFACES.md section 5): 115200 baud, one JSON line per second,
 {"temp_c": 24.5} or {"temp_c": null, "error": "read_failed"}.
@@ -90,8 +91,11 @@ class SuitTemp:
         self.source = "arduino"
         # The median of the last few readings: steady enough for the display, and a single
         # spike cannot cross an alert threshold. Costs about two seconds of lag.
+        # With fewer than three readings (just plugged in, or back after a gap) a median cannot
+        # reject a spike yet, so the lowest one is used: an alert never starts from one reading.
         self._recent.append(float(t))
-        self.temp_c = round(statistics.median(self._recent), 1)
+        steady = statistics.median(self._recent) if len(self._recent) >= 3 else min(self._recent)
+        self.temp_c = round(steady, 1)
 
 
 def _guess_port() -> str | None:

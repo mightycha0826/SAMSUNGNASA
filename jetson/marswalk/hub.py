@@ -3,6 +3,7 @@
 One process, one origin:
   https://<host>:8443/     web app (web/dist, or the built-in connection test page)
   wss://<host>:8443/ws     WebSocket, docs/INTERFACES.md section 4
+  https://<host>:8443/monitor   what the headset app is drawing, live (mirror.py)
 Optional --http-port serves the same app over plain HTTP for the adb-reverse fallback
 (http://localhost:<port> on the headset is a secure context).
 
@@ -19,6 +20,8 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from . import intents, speech
+from .maps import MapStore
+from .mirror import Mirror
 from .alerts import SUIT_TEMP_MESSAGES, SuitTempAlert, Thresholds
 from .sensors import SuitTemp
 from .voice import make_segmenter, make_stt, make_tts
@@ -38,12 +41,15 @@ def envelope(type_: str, payload: dict) -> str:
                       ensure_ascii=False)
 
 
+DICTATE_S = 12.0   # how long a headset's request for dictation waits for words
+
+
 class Hub:
     def __init__(self, args):
         self.args = args
         self.clients: set[web.WebSocketResponse] = set()
         self.suit = SuitTemp(args.serial)
-        self.alert = SuitTempAlert(Thresholds(args.warn_c, args.critical_c, args.clear_c))
+        self.alert = SuitTempAlert(Thresholds(args.warn_c, args.critical_c, args.margin_c))
         self.stt = make_stt(args.stt, args.lang)
         self.tts = make_tts(args.tts, args.lang)
         self.tts.warm(ALERT_SPEECH)
@@ -54,6 +60,10 @@ class Hub:
         self.state = {"mode": "normal", "navStatus": None, "targetId": None}
         self.active_alerts: dict[str, dict] = {}
         self.tts_lock = asyncio.Lock()
+        self.maps = MapStore(Path(args.maps_dir))
+        self.mirror = Mirror()
+        self.mirror.extra = lambda: {"rescue": self.rescue}
+        self.rescue: dict | None = None   # the rescue signal that is up, if any
 
     # ---------- broadcast ----------
     async def broadcast(self, type_: str, payload: dict):
@@ -81,14 +91,16 @@ class Hub:
             if version != self.menu_version:
                 self.menu_version = version
                 await self.broadcast("voice.commands", {"commands": menu})
+            before = self.alert.level
             for type_, payload in self.alert.update(r["suitTempC"]):
-                log.info("%s %s", type_, payload)
+                # The reading goes into the log with the alert, so a surprising alarm can be explained.
+                log.info("%s %s at %.1f C (%s)", type_, payload, r["suitTempC"], r["source"])
                 if type_ == "alert.raise":
                     self.active_alerts[payload["id"]] = payload
                 else:
                     self.active_alerts.pop(payload["id"], None)
                 await self.broadcast(type_, payload)
-                if type_ == "alert.raise" and payload["level"] == "critical":
+                if type_ == "alert.raise" and payload["level"] == "critical" and before != "critical":
                     asyncio.create_task(self.say(payload["message"], "urgent"))
             await asyncio.sleep(1.0)
 
@@ -159,14 +171,59 @@ class Hub:
         except OSError:
             pass
 
-    async def handle_utterance(self, samples, rate: int):
+    async def handle_utterance(self, samples, rate: int, ws=None, conn: dict | None = None):
+        """One utterance of a headset: a command, or, while that headset asked for dictation
+        (voice.dictate: the name of a waypoint), the words themselves, sent back to it alone."""
         try:
             text = await asyncio.to_thread(self.stt.transcribe, samples, rate)
         except Exception:
             log.exception("STT failed")
             return
+        await asyncio.to_thread(self._keep_audio, samples, rate, text)
+        wanted = conn.get("dictate") if conn else None
+        if wanted and time.monotonic() < wanted["until"]:
+            if not text.strip():
+                return                      # a noise, not words: keep listening
+            conn["dictate"] = None
+            log.info("dictation %r", text)
+            self._note_heard(text, {"intent": "(dictation)"})
+            try:
+                await ws.send_str(envelope("voice.dictation", {"id": wanted["id"], "text": text.strip()}))
+            except (ConnectionResetError, RuntimeError):
+                pass
+            return
         if text:
             await self.handle_text_command(text)
+
+    def _keep_audio(self, samples, rate: int, text: str):
+        """The last --keep-audio utterances as WAV files in logs/utterances/, named by time and by
+        what the recogniser made of them: the only way to tell a bad microphone from a bad guess."""
+        keep = self.args.keep_audio
+        if keep <= 0:
+            return
+        try:
+            import re
+            import wave
+            import numpy as np
+            x = (np.frombuffer(samples, dtype="<i2").astype(np.float32) / 32768.0
+                 if isinstance(samples, (bytes, bytearray)) else np.asarray(samples, dtype=np.float32))
+            if not len(x):
+                return
+            peak = float(np.abs(x).max())
+            rms = float(np.sqrt(np.mean(x * x)))
+            log.info("utterance %.1fs peak %.3f rms %.4f -> %r", len(x) / rate, peak, rms, text)
+            folder = JETSON_DIR / "logs" / "utterances"
+            folder.mkdir(parents=True, exist_ok=True)
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-")[:40] or "nothing"
+            with wave.open(str(folder / f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}.wav"), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+            for old in sorted(folder.glob("*.wav"))[:-keep]:
+                old.unlink()
+        except Exception:   # never let the bookkeeping break the voice path
+            log.exception("could not keep the utterance audio")
 
     def status_sentence(self) -> str:
         r = self.suit.reading()
@@ -183,6 +240,7 @@ class Hub:
         mic_rate = 16000
         mic_on = False
         segmenter = None            # set while the client streams its microphone continuously
+        conn = {"dictate": None}    # {"id", "until"} while this headset wants its next words as text
         try:
             # send current alert state so a reconnecting headset is in sync
             for a in self.active_alerts.values():
@@ -194,7 +252,7 @@ class Hub:
                             segmenter.reset()        # the hub is speaking: not a command
                             continue
                         for samples in segmenter.feed(msg.data, mic_rate):
-                            asyncio.create_task(self.handle_utterance(samples, segmenter.RATE))
+                            asyncio.create_task(self.handle_utterance(samples, segmenter.RATE, ws, conn))
                     elif mic_on:
                         mic_buf += msg.data
                     continue
@@ -233,7 +291,16 @@ class Hub:
                         mic_on = False
                         audio = bytes(mic_buf)
                         mic_buf.clear()
-                        await self.handle_utterance(audio, mic_rate)
+                        await self.handle_utterance(audio, mic_rate, ws, conn)
+                elif type_ == "voice.dictate":
+                    # The next thing said is not a command but a text (a waypoint's name).
+                    if p.get("on"):
+                        secs = p.get("seconds")
+                        secs = min(30.0, max(3.0, float(secs))) if isinstance(secs, (int, float)) else DICTATE_S
+                        conn["dictate"] = {"id": p.get("id"), "until": time.monotonic() + secs}
+                        log.info("dictation asked by %s for %.0f s", peer, secs)
+                    else:
+                        conn["dictate"] = None
                 elif type_ == "voice.text":
                     # A command picked from the headset's menu: same path as a spoken one.
                     asyncio.create_task(self.handle_text_command(str(p.get("text", ""))))
@@ -248,6 +315,21 @@ class Hub:
                     asyncio.create_task(self.say(p.get("text", ""), p.get("priority", "normal")))
                 elif type_ == "state":
                     self.state.update(p)
+                elif type_ == "map.store":
+                    # The tiles of the field map that changed on the headset: onto the disk (maps.py).
+                    try:
+                        path = await asyncio.to_thread(self.maps.save, p)
+                    except (ValueError, OSError) as err:
+                        log.warning("map from %s not stored: %s", peer, err)
+                    else:
+                        if self.maps.latest["updates"] == 1:
+                            log.info("storing the field map of run %s in %s", p.get("run"), path.name)
+                elif type_ == "rescue.signal":
+                    await self.handle_rescue(ws, peer, p)
+                elif type_ == "map.request":
+                    stored = self.maps.stored()   # the newest run, every tile of it
+                    if stored:
+                        await ws.send_str(envelope("map.stored", stored))
                 elif type_.startswith("dev.") and self.args.dev:
                     await self.handle_dev(type_, p)
                 else:
@@ -257,12 +339,58 @@ class Hub:
             log.info("client gone %s (%d left)", peer, len(self.clients))
         return ws
 
+    async def handle_rescue(self, sender: web.WebSocketResponse, peer, p: dict):
+        """The emergency button of a headset (web/src/hud/suit.js).
+
+        The crew is virtual: the other headsets on the hub get an alert, the monitor page shows
+        it, and a few seconds later the hub acknowledges in the crew's name and says that this
+        acknowledgement is simulated.
+        """
+        async def others(type_: str, payload: dict):
+            msg = envelope(type_, payload)
+            for ws in list(self.clients):
+                if ws is not sender:
+                    try:
+                        await ws.send_str(msg)
+                    except (ConnectionResetError, RuntimeError):
+                        self.clients.discard(ws)
+
+        if not p.get("active"):
+            if self.rescue:
+                log.warning("RESCUE SIGNAL from %s cancelled", peer)
+            self.rescue = None
+            await sender.send_str(envelope("rescue.state", {"active": False}))
+            await others("alert.clear", {"id": "crew-rescue"})
+            asyncio.create_task(self.say("Rescue signal cancelled."))
+            return
+        position = p.get("position") if isinstance(p.get("position"), list) else None
+        self.rescue = {"active": True, "from": peer, "at": time.strftime("%H:%M:%S"), "position": position,
+                       "suitTempC": p.get("suitTempC"), "batteryPct": p.get("batteryPct"),
+                       "acknowledged": False, "by": None}
+        signal = self.rescue
+        log.warning("RESCUE SIGNAL from %s: %s", peer, signal)
+        await sender.send_str(envelope("rescue.state", signal))
+        await others("alert.raise", {"id": "crew-rescue", "level": "warn",
+                                     "message": "Rescue signal from a crew member"})
+        asyncio.create_task(self.say("Rescue signal sent. Your position is shared with the crew.", "urgent"))
+
+        async def acknowledge():
+            await asyncio.sleep(5.0)
+            if self.rescue is signal:           # still the same signal, not cancelled meanwhile
+                signal.update(acknowledged=True, by="Base crew (simulated)")
+                try:
+                    await sender.send_str(envelope("rescue.state", signal))
+                except (ConnectionResetError, RuntimeError):
+                    pass
+                await self.say("Base has your signal.")
+        asyncio.create_task(acknowledge())
+
     async def handle_dev(self, type_: str, p: dict):
         """Dev-only messages (enabled with --dev). Not part of INTERFACES.md;
         the browser never sends them. Used by tools/fake_quest.py."""
         if type_ == "dev.text":            # skip STT, test the intent parser
             await self.handle_text_command(p.get("text", ""))
-        elif type_ == "dev.temp":          # set the mock suit temperature
+        elif type_ == "dev.temp":          # set the mock ambient temperature
             self.suit.mock_c = float(p["suitTempC"])
             log.info("dev: mock temp = %.1f", self.suit.mock_c)
 
@@ -271,6 +399,7 @@ class Hub:
 def build_app(hub: Hub) -> web.Application:
     app = web.Application()
     app.router.add_get("/ws", hub.ws_handler)
+    hub.mirror.routes(app)   # /mirror, /monitor: the headset's view on a monitor
 
     static_dir = Path(hub.args.static).resolve() if hub.args.static else None
     if static_dir and (static_dir / "index.html").exists():
@@ -335,12 +464,17 @@ def main():
                    help="serial port (default: first /dev/ttyACM* or ttyUSB*; 'none' = mock only)")
     p.add_argument("--warn-c", type=float, default=30.0)
     p.add_argument("--critical-c", type=float, default=35.0)
-    p.add_argument("--clear-c", type=float, default=28.0)
+    p.add_argument("--margin-c", type=float, default=1.0,
+                   help="an alert steps down once the temperature is this far under its threshold")
     p.add_argument("--stt", default="auto", help="auto | sensevoice | null")
     p.add_argument("--tts", default="auto", help="auto | supertonic | tone")
     p.add_argument("--lang", default="en", help="speech language code for STT and TTS")
     p.add_argument("--wake-word", default=None,
                    help="only obey speech containing this word, e.g. 'helmet' (noisy rooms)")
+    p.add_argument("--keep-audio", type=int, default=100,
+                   help="keep the last N utterances as WAV in logs/utterances/ for tuning (0 = keep none)")
+    p.add_argument("--maps-dir", default=str(JETSON_DIR / "maps"),
+                   help="where the field maps sent by the headset are kept")
     p.add_argument("--dev", action="store_true", help="accept dev.* messages from tools/fake_quest.py")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()

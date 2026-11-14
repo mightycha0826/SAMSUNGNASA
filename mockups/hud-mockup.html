@@ -46,7 +46,7 @@ a{color:var(--primary-text)}
   100%{opacity:1}
 }
 @media (prefers-reduced-motion: reduce){
-  .banner .b-glow,.banner .b-br,.chev{animation:none!important}
+  .banner .b-glow,.banner .b-br,.chev,.wash{animation:none!important}
 }
 
 /* ---------- stage ---------- */
@@ -170,6 +170,25 @@ a{color:var(--primary-text)}
 .banner.crit .b-title{font-size:calc(1.8*var(--d));font-weight:700;letter-spacing:-.02em}
 .banner .more{position:relative;z-index:1;margin-left:calc(.35*var(--d))}
 
+/* whole view: a soft light in the alert colour, flashing with the alert card. Weaker in the
+   middle than at the edges so the line of sight stays clear; dark between flashes and after
+   "Acknowledge". Peak opacity 0.13 (warn) and 0.18 (critical). */
+.wash{
+  position:absolute;inset:0;pointer-events:none;
+  --wash-col:var(--h-point);--wash-peak:.13;
+  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--wash-col) 60%,transparent) 0%,var(--wash-col) 78%);
+  opacity:0;
+  animation:wash var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite;
+}
+.wash.crit{--wash-col:var(--h-danger-line);--wash-peak:.18}
+@keyframes wash{
+  0%{opacity:var(--wash-peak)}
+  48%{opacity:0}
+  92%{opacity:0}
+  100%{opacity:var(--wash-peak)}
+}
+.hud.acked .wash,.hud.blink-steady .wash{animation:none;opacity:0}
+
 /* palm map: pulled slightly inward for Quest 3 FOV */
 .palm{position:absolute;left:calc(4.5*var(--d));bottom:calc(6.5*var(--d));display:flex;gap:calc(.85*var(--d));align-items:flex-end}
 .hud.pos-bl .palm{left:calc(26.5*var(--d))}
@@ -226,6 +245,8 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <div class="stage" id="stage">
         <svg class="scene" id="scene" viewBox="0 0 1600 1000" preserveAspectRatio="none" role="img" aria-label="Simulated passthrough room with floor arrows and an obstacle outline"></svg>
         <div class="hud" id="hud">
+          <!-- Soft light over the whole view while an alert rings (under the cards) -->
+          <div class="wash" id="wash" hidden aria-hidden="true"></div>
           <div class="status" id="status">
             <div class="st-main" id="rowSuit">
               <span class="ms" id="suitIco">check_circle</span>
@@ -294,7 +315,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         </div>
       </div>
     </div>
-    <p class="caption" style="margin-top:8px">Compact Quest 3 visor layout: the status card sits bottom-right and alerts render at bottom-centre with an integrated flashing light (audio cue leads each flash by 0.1 s), keeping the central gaze clear and well within Quest 3’s effective field of view.</p>
+    <p class="caption" style="margin-top:8px">Compact Quest 3 visor layout: the status card sits bottom-right and alerts render at bottom-centre with an integrated flashing light (audio cue leads each flash by 0.1 s), and the same pulse lights the whole view softly in orange (warn) or red (critical), keeping the central gaze clear and well within Quest 3’s effective field of view.</p>
   </div>
 
   <div class="controls" id="controls">
@@ -323,7 +344,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
     <div class="ctl"><span>Distance shown as</span>
       <div class="seg"><button id="c-dm-room" data-k="distMode" data-v="room">Room metres</button><button id="c-dm-mars" data-k="distMode" data-v="mars">Mars scale ×10</button></div></div>
     <div class="ctl"><span>Check tools</span>
-      <div class="seg"><button id="c-sound" data-tog="sound">Alarm sound</button><button id="c-grid" data-tog="grid">Angle grid</button><button id="c-fill" data-tog="fill">Sample digits</button></div></div>
+      <div class="seg"><button id="c-sound" data-tog="sound">Alarm sound</button><button id="c-wash" data-tog="wash">Full-view light</button><button id="c-grid" data-tog="grid">Angle grid</button><button id="c-fill" data-tog="fill">Sample digits</button></div></div>
   </div>
 
   <div class="grid2">
@@ -365,7 +386,8 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <ul>
         <li><b>Status card</b> defaults to bottom right with inward margins tailored to Quest 3’s narrower effective FOV, keeping clear of the bottom-centre alert banner and bottom-left palm map.</li>
         <li><b>Bottom-centre alert card with integrated flashing light.</b> Alerts sit at bottom-centre rather than dead-centre so the central gaze stays unobstructed, while the card border/brackets pulse orange (Warn) or red (Critical) in lockstep with the alarm tone.</li>
-        <li><b>Acknowledge alert</b> stops both the alert card’s flashing pulse and the alarm beep in Warn and Critical states. The border stays dimly lit and the message remains readable until <code>alert:clear</code>.</li>
+        <li><b>Soft light over the whole view.</b> With each flash of the alert card the whole view is lit in the same colour, orange for Warn and red for Critical, at a peak opacity of 0.13 and 0.18 and weaker in the middle than at the edges, so the room, the map and the cards stay readable. It is dark between flashes.</li>
+        <li><b>Acknowledge alert</b> stops the alert card’s flashing pulse, the light over the whole view and the alarm beep in Warn and Critical states. The border stays dimly lit and the message remains readable until <code>alert:clear</code>.</li>
         <li><b>Several alerts.</b> The card shows the highest level and a “+1” tag for the rest.</li>
         <li><b>Critical clears.</b> The route returns to the previous target.</li>
         <li><b>Link lost.</b> The last suit temperature stays, greyed, tagged “last value”.</li>
@@ -412,7 +434,7 @@ var RAMPS={
   thermal:[[10,6,40],[110,30,120],[230,110,40],[252,240,150]]
 };
 var C={ink:"#f2f2f2",primary:"#596ae0",primaryIcon:"#7a88e6",point:"#f27a0a",danger:"#ed716b",dangerLine:"#e5342b",surface:"rgba(38,38,38,.92)"};
-var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"br",blink:"glow",period:1.6,hazColor:"red",distMode:"room",sound:true,grid:false,fill:false,ack:false};
+var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"br",blink:"glow",period:1.6,hazColor:"red",distMode:"room",sound:true,wash:true,grid:false,fill:false,ack:false};
 var $=function(id){return document.getElementById(id)};
 
 /* ---------- Web Audio synthesized alarm (fires 0.1s BEFORE banner flash) ---------- */
@@ -468,7 +490,7 @@ function triggerBeep(level){
   }
 }
 function restartBannerAnimation(){
-  var nodes=document.querySelectorAll("#banner .b-glow, #banner .b-br");
+  var nodes=document.querySelectorAll("#banner .b-glow, #banner .b-br, #wash");
   nodes.forEach(function(el){el.style.animation="none";});
   void $("banner").offsetWidth;
   nodes.forEach(function(el){el.style.animation="";});
@@ -645,6 +667,10 @@ function render(){
   document.querySelectorAll(".env-tag").forEach(function(t){t.textContent=S.fill?"sample":"TBD";});
   $("layName").textContent=layer.label;
   $("solLine").innerHTML='Sol — · —:— <span class="tag">TBD</span>';
+
+  /* soft light over the whole view, in the colour of the highest alert */
+  $("wash").hidden=!top||!S.wash;
+  $("wash").className="wash"+(top&&top.level==="critical"?" crit":"");
 
   /* alert card (bottom centre, with integrated flashing light) */
   var bn=$("banner");bn.hidden=!top;

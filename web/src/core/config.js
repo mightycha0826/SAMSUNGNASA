@@ -6,6 +6,7 @@
 //   ?mockSpeed=10           목 시간표를 10배 빠르게 (테스트용)
 //   ?jetson=192.168.0.7:8443  젯슨 주소 (기본: 이 페이지와 같은 호스트의 8443)
 //   ?debug=0                왼쪽 위 이벤트 창 숨김
+//   ?near=20                a destination this many metres from the base (default 20, 0 = none)
 
 const q = new URLSearchParams(location.search);
 
@@ -37,6 +38,8 @@ export const config = {
   /** env.json 표본 하나를 재생하는 간격 */
   envIntervalMs: 5000,
   debug: q.get('debug') !== '0',
+  /** A destination this far from the base is added to the waypoints (m). ?near=0 leaves it out */
+  nearbyM: q.has('near') ? Math.max(0, Number(q.get('near')) || 0) : 20,
 };
 
 /** public/data/ 아래 파일의 주소. */

@@ -8,22 +8,30 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mode } from './mode.js';
 
-// 'depth-sensing' is left out unless ?depth=1. With it the scan lays live depth over the room
-// scan (scan/depth.js) and stops three.js from hiding virtual objects behind real surfaces, but
-// that has not been checked on the headset yet. three.js also takes the cameras' near and far
-// planes from the depth data then. Without it the room scan uses mesh-detection and
-// plane-detection only.
-const WANT_DEPTH = new URLSearchParams(location.search).get('depth') === '1';
+// 'depth-sensing': live depth for the scan (scan/depth.js lays it over the room scan, so that
+// something put down or taken away a moment ago changes the map).
+//   - Field map: asked for by default, because a map that follows the surroundings is what that
+//     mode is for. ?depth=0 leaves it out.
+//   - Mars map: left out unless ?depth=1. Nothing there reads it.
+// Asking is harmless where the headset refuses: it is an optional feature, and the room scan
+// (mesh-detection and plane-detection) carries on alone. With it, three.js would hide virtual
+// objects behind real surfaces; the scan switches that off (scan/index.js) and only reads the
+// numbers. three.js also takes the cameras' near and far planes from the depth data then.
+// Not yet checked on the headset: if the field map misbehaves there, try ?depth=0 first.
+const DEPTH_PARAM = new URLSearchParams(location.search).get('depth');
+const wantDepth = () => DEPTH_PARAM === '1' || (DEPTH_PARAM !== '0' && mode.current === 'field');
 // ?space=unbounded asks for the WebXR "unbounded" reference space, which the Quest Browser lists
 // as experimental since 34.2: the session is then not limited to the Guardian boundary. That
 // space has no floor level of its own, so it is shifted to the floor of 'local-floor' and the
 // rest of the app keeps working in room coordinates. Untested on the headset: without the
 // parameter, or if the headset refuses it, the session stays on 'local-floor'.
 const WANT_UNBOUNDED = new URLSearchParams(location.search).get('space') === 'unbounded';
-export const OPTIONAL_FEATURES = [
+/** The optional features to ask for. Decided when the session starts: it depends on the mode. */
+export const optionalFeatures = (depth = wantDepth()) => [
   'hand-tracking',
-  ...(WANT_DEPTH ? ['depth-sensing'] : []),
+  ...(depth ? ['depth-sensing'] : []),
   ...(WANT_UNBOUNDED ? ['unbounded'] : []),
   'mesh-detection',
   'plane-detection',
@@ -42,11 +50,11 @@ export const DEPTH_SENSING_INIT = {
   matchDepthView: false,
 };
 
-export function sessionInit() {
+export function sessionInit(depth = wantDepth()) {
   return {
     requiredFeatures: ['local-floor'],
-    optionalFeatures: OPTIONAL_FEATURES,
-    ...(WANT_DEPTH ? { depthSensing: DEPTH_SENSING_INIT } : {}),
+    optionalFeatures: optionalFeatures(depth),
+    ...(depth ? { depthSensing: DEPTH_SENSING_INIT } : {}),
   };
 }
 
@@ -264,5 +272,5 @@ export function createXR({ container, button }) {
     });
   }
 
-  return { renderer, scene, camera, xr, addModule, run };
+  return { renderer, scene, camera, xr, controls, addModule, run };
 }

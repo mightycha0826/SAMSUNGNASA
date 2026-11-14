@@ -1,22 +1,35 @@
-"""Suit temperature alert state machine (docs/INTERFACES.md section 4).
+"""Ambient temperature alert state machine (docs/INTERFACES.md section 4).
 
-< warn_c      : normal
->= warn_c     : raise warn
->= critical_c : raise critical (escalates from warn; never downgrades)
-< clear_c     : clear (hysteresis: only after dropping below clear_c)
+The sensor on the suit measures the air around the wearer. The alert keeps the id
+"suit-temp" and the reading the field name suitTempC it had when it was called the suit
+temperature: other modules listen for those names.
+
+
+The alert level follows the temperature in both directions:
+
+>= warn_c                : raise warn
+>= critical_c            : raise critical
+<  critical_c - margin_c : critical goes back down to warn
+<  warn_c - margin_c     : clear
+
+The margin keeps a reading that hovers on a threshold from raising and clearing over and
+over. It is small on purpose: the alarm must not keep ringing while the display shows a
+temperature well under the threshold that started it.
 """
 from dataclasses import dataclass
 
 ALERT_ID = "suit-temp"
-SUIT_TEMP_MESSAGES = {"warn": "Suit temperature is rising",
-                      "critical": "Suit temperature is critical"}
+SUIT_TEMP_MESSAGES = {"warn": "Ambient temperature is rising",
+                      "critical": "Ambient temperature is critical"}
+# What the alert says after it has come down from critical.
+EASING_MESSAGE = "Ambient temperature is high"
 
 
 @dataclass
 class Thresholds:
     warn_c: float = 30.0
     critical_c: float = 35.0
-    clear_c: float = 28.0
+    margin_c: float = 1.0
 
 
 class SuitTempAlert:
@@ -29,23 +42,23 @@ class SuitTempAlert:
         if temp_c is None:
             return []
         th = self.th
+        before = self.level
         if temp_c >= th.critical_c:
-            target = "critical"
+            level = "critical"
         elif temp_c >= th.warn_c:
-            target = "warn"
+            # Between the thresholds: a critical alert holds until the margin is crossed.
+            level = "critical" if before == "critical" and temp_c >= th.critical_c - th.margin_c else "warn"
+        elif temp_c >= th.warn_c - th.margin_c:
+            # Just under the warn threshold: whatever is raised eases to warn, nothing new starts.
+            level = "warn" if before else None
         else:
-            target = None
+            level = None
 
-        if self.level is not None and temp_c < th.clear_c:
-            self.level = None
+        if level == before:
+            return []
+        self.level = level
+        if level is None:
             return [("alert.clear", {"id": ALERT_ID})]
-
-        if target is not None and _rank(target) > _rank(self.level):
-            self.level = target
-            return [("alert.raise", {"id": ALERT_ID, "level": target,
-                                     "message": SUIT_TEMP_MESSAGES[target]})]
-        return []
-
-
-def _rank(level: str | None) -> int:
-    return {None: 0, "warn": 1, "critical": 2}[level]
+        easing = before == "critical"
+        return [("alert.raise", {"id": ALERT_ID, "level": level,
+                                 "message": EASING_MESSAGE if easing else SUIT_TEMP_MESSAGES[level]})]

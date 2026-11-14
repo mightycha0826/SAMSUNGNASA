@@ -1,5 +1,6 @@
 // Planetary navigation: all positions and route metrics use the map's metre frame.
-// Device poses and unregistered local scans are never treated as map positions.
+// Unregistered local scans are never treated as map data. The wearer's map position is supplied in
+// map metres (nav:position from field/, or the panel's start cell).
 import { Navigation } from './controller.js';
 import { cellToWorld, containsCell } from './coordinates.js';
 import { createPlanningPanel } from './panel.js';

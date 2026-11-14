@@ -5,13 +5,19 @@
 //   alert.raise    → alert:raise        (payload + ts)
 //   alert.clear    → alert:clear
 //   voice.command  → voice:command, 그리고 6장 규칙에 따라
-//                      nav.start / nav.home     → nav:request
-//                      layer.show / layer.hide  → layer:toggle
+//                      nav.start / nav.home     → nav:request (Mars map mode only)
+//                      layer.show               → layer:toggle
 //   tts.begin / binary / tts.end → played by voice.js
+//   map.stored     → map:stored         (the field map the hub stored last, for scan/)
+//   rescue.state   → rescue:state       (what became of this headset's rescue signal)
+//   voice.dictation → voice:dictation   { id, text }: what was said after voice:dictate (a waypoint's name)
 //
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
 //   mode:change·nav:route가 바뀌면 state,
+//   map:store → map.store (the field map, kept on the Jetson's disk), map:request → map.request,
+//   rescue:signal → rescue.signal (the emergency button),
+//   voice:dictate { on, id } → voice.dictate (the next thing said comes back as text, not as a command),
 //   a continuous microphone stream (mic.begin + binary) and voice.status (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
@@ -21,11 +27,20 @@ import { bus } from './bus.js';
 import { config, mock } from './config.js';
 import { handleVoiceMessage, initVoice, resetVoice, voiceLinkOpened } from './voice.js';
 import { initDiag, flushDiag } from './diag.js';
+import { mode } from './mode.js';
+import { navTarget } from './waypoints.js';
 
 let ws = null;
 let linkLost = false;
 let lostTimer = null;
 const state = { mode: 'normal', navStatus: null, targetId: null };
+
+// The destinations the map has (layers:ready), for navTarget: "Navigate" names the nearby point,
+// which the map may not have (?near=0).
+let waypointIds = null;
+bus.on('layers:ready', ({ layerSet }) => {
+  waypointIds = new Set((layerSet?.waypoints ?? []).map((w) => w.id));
+});
 
 /** 젯슨이 보낸 봉투 메시지 하나를 처리한다. 진짜와 가짜가 같이 쓴다. */
 export function handleMessage(msg) {
@@ -47,6 +62,15 @@ export function handleMessage(msg) {
     case 'voice.commands':
       bus.emit('voice:commands', { commands: payload.commands ?? [] });
       break;
+    case 'rescue.state':
+      bus.emit('rescue:state', payload);
+      break;
+    case 'map.stored':
+      bus.emit('map:stored', payload);
+      break;
+    case 'voice.dictation':
+      bus.emit('voice:dictation', { id: payload.id, text: String(payload.text ?? '') });
+      break;
     case 'tts.begin':
     case 'tts.end':
       handleVoiceMessage(msg);
@@ -56,21 +80,31 @@ export function handleMessage(msg) {
   }
 }
 
+// A place is picked on the palm map and its card is up (hud): "Navigate" then means that place,
+// and the hud requests the route itself.
+let picked = false;
+bus.on('map:pick', (p) => {
+  picked = !!p;
+});
+
 function handleVoiceCommand({ intent, slots = {}, text = '' }) {
+  const toPicked = picked; // as it was before the command: the hud clears it while handling the event
   bus.emit('voice:command', { intent, slots, text });
   switch (intent) {
+    // Routes on the Mars map are D's. In field mode "Navigate" means the marked target and the
+    // field module answers the voice:command itself, so no Mars route is requested there.
     case 'nav.start':
-      bus.emit('nav:request', { targetId: slots.targetId ?? 'site1' });
+      if (mode.current === 'mars' && !toPicked) bus.emit('nav:request', { targetId: navTarget(slots.targetId, waypointIds) });
       break;
     case 'nav.home':
-      bus.emit('nav:request', { targetId: 'base' });
+      if (mode.current === 'mars') bus.emit('nav:request', { targetId: 'base' });
       break;
     case 'layer.show':
-    case 'layer.hide':
-      if (slots.id) bus.emit('layer:toggle', { id: slots.id, visible: intent === 'layer.show' });
-      else console.warn('[link] layer 명령에 slots.id가 없습니다:', text);
+      if (slots.id) bus.emit('layer:toggle', { id: slots.id, visible: true });
+      else console.warn('[link] layer.show without slots.id:', text);
       break;
-    // nav.stop, alert.ack, mode.set, status.report는 voice:command를 받는 모듈이 직접 처리한다.
+    // nav.stop, nav.mark, waypoint.record, mark.delete, alert.ack and status.report are handled
+    // by the modules that listen to voice:command.
   }
 }
 
@@ -123,6 +157,7 @@ function connect() {
     clearLost();
     send('hello', { client: 'quest', mock: false });
     send('state', state);
+    send('map.request', {}); // the field map the hub stored last (scan/memory.js)
     voiceLinkOpened();
     flushDiag();
   };
@@ -164,6 +199,16 @@ export async function initLink(xr) {
   bus.on('voice:text', ({ text, intent, slots }) => {
     if (!send('voice.text', { text }) && intent) handleVoiceCommand({ intent, slots: slots ?? {}, text });
   });
+  // The field map goes to the hub's disk; a map that cannot be sent now is sent with the next change.
+  bus.on('map:store', (map) => send('map.store', map));
+  bus.on('map:request', () => send('map.request', {}));
+  // The emergency button (hud/suit.js). The hub tells the other headsets and answers rescue.state.
+  bus.on('rescue:signal', (signal) => send('rescue.signal', signal));
+  // The name of a waypoint is spoken (hud): the hub sends the next utterance back as text.
+  // Without a hub there is nobody to write it down: the hud is told at once, with no text.
+  bus.on('voice:dictate', ({ on, id }) => {
+    if (!send('voice.dictate', { on: !!on, id }) && on) setTimeout(() => bus.emit('voice:dictation', { id, text: '', unavailable: true }), 0);
+  });
   bus.on('mode:change', ({ mode }) => sendState({ mode }));
   bus.on('nav:route', ({ status, targetId }) => sendState({ navStatus: status, targetId: targetId ?? null }));
 
@@ -172,6 +217,6 @@ export async function initLink(xr) {
     startMockJetson(handleMessage, { speed: mock.speed });
     return;
   }
-  initVoice({ sendJson: send, sendBinary });
+  initVoice({ sendJson: send, sendBinary }, xr);
   connect();
 }

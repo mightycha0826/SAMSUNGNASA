@@ -3,9 +3,11 @@
 //   - `layers:ready` 를 한 번 보내고
 //   - `env:update` 를 config.envIntervalMs 마다 표본 하나씩 보낸다 (끝나면 처음부터).
 // 형식은 INTERFACES 2장·3장. 목 모드(mock.data)에서는 파일 대신 mock/layers.js를 쓴다.
+// It also adds one derived waypoint, `near`: a destination about 20 m from the base (?near=).
 
 import { bus } from './bus.js';
 import { config, mock, DATA_BASE } from './config.js';
+import { nearbyWaypoint } from './waypoints.js';
 
 const assetOverrides = new Map(); // 파일 이름 → blob 주소 (목 모드의 이미지)
 
@@ -102,6 +104,12 @@ export async function loadData() {
     data = await loadReal();
   }
   const { layerSet, grids, traverse, env } = data;
+  // A destination close to the base, next to the two the data brings (core/waypoints.js).
+  if (config.nearbyM > 0 && !layerSet.waypoints?.some((w) => w.id === 'near')) {
+    const near = nearbyWaypoint(layerSet, config.nearbyM, grids.slope);
+    if (near) layerSet.waypoints.push(near);
+    else console.warn('[loader] no usable cell for the nearby destination at', config.nearbyM, 'm');
+  }
   bus.emit('layers:ready', { layerSet, grids, traverse });
   playEnv(env);
   return data;

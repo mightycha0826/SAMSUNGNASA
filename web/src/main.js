@@ -10,6 +10,7 @@ import { initDebug } from './core/debug.js';
 import { initRadiation } from './core/radiation.js';
 import { mode, setMode } from './core/mode.js';
 import { diagFrame } from './core/diag.js';
+import { initMirror } from './core/mirror.js';
 import { MOCK_KEYS_HELP } from './mock/jetson.js';
 
 import * as scan from './scan/index.js';
@@ -53,6 +54,8 @@ async function main() {
   core.xr.onSessionEnd(syncFieldButton);
   new MutationObserver(syncFieldButton).observe(marsButton, { attributes: true, childList: true });
   core.addModule('diag', { update: (frame) => diagFrame(frame, core.camera) });
+  // For tests and for looking around from the console (window.__marswalk is made by initDebug).
+  if (window.__marswalk) Object.assign(window.__marswalk, { scene: core.scene, camera: core.camera, controls: core.controls });
 
   const ctx = {
     bus,
@@ -74,6 +77,9 @@ async function main() {
       console.error(`[main] ${name}.init 실패. 이 모듈 없이 계속합니다.`, err);
     }
   }
+
+  // Last, so the picture it sends is of this frame: every module has placed its things by then.
+  core.addModule('mirror', initMirror(core));
 
   initRadiation();
   core.run();

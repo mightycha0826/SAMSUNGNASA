@@ -202,108 +202,119 @@ function haloIcon(g, name, cx, cy, s, color) {
   g.restore();
 }
 
-// ---- status card ----
-// vm: { suit: { value, word, state, tag, fill }, dist: { label, value, unit, word, state },
-//       env: [{ k, v, unit, tag, state }], foot: { layer, sol, tag } }
+// ---- a reading (one tile of the dashboard, dash.js) ----
+// r: { label, value, unit, tag, word, state, viz: 'bar' | 'graph' | 'progress',
+//      fill: 0..1, marks: [{ at: 0..1 }], history: [number | null], min, max, lines: [value] }
 // state: '' | 'warn' | 'crit' | 'stale'
-// Look (updated mockup): transparent face, white-and-black double outlines, bold haloed text.
-export function drawStatus(g, d, vm, gauge) {
+// Look: no card and no frame, bold haloed text straight on the view, bars with a dark edge.
+// The tile fills its panel: the label on the first line; on the second the value, and beside it
+// a bar with its limits marked (the pinned readings), a graph of the last minute, or how far
+// along a route is.
+export function drawReading(g, d, r) {
   const W = g.canvas.width;
-  g.clearRect(0, 0, W, g.canvas.height);
-  const m = 0.3 * d; // room for the outer outline and the text glow
-  const pad = 0.75 * d;
-  const gap = 0.55 * d;
-  const suitH = 7.45 * d;
-  const distH = 5.35 * d;
-  const envLine = 1.76 * d;
-  const envH = 1.1 * d + vm.env.length * envLine + Math.max(0, vm.env.length - 1) * 0.25 * d;
-  const footH = 1.5 * d;
-  const total = pad + suitH + gap + distH + gap + (vm.env.length ? envH + gap : 0) + footH + 0.4 * d;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  const m = 0.3 * d; // room for the outline and the text glow
+  // No frame: a line around every reading made the view busy. What is wrong shows in the
+  // colour of the number and the bar, and in a mark before the label.
+  const inL = m + 0.85 * d;
+  const inR = W - m - 0.9 * d;
+  const ink = r.state === 'stale' ? O.stale : STATE_COLOR[r.state]?.() ?? O.ink;
+  const fillColour = r.state === 'crit' ? T.dangerLine : r.state === 'warn' ? T.point : O.fill;
 
-  // The card sits against the bottom of its panel (it is anchored bottom right in the mockup),
-  // so it grows upward when the optional pressure and air temperature rows appear.
-  const top = Math.max(m, g.canvas.height - m - total);
-  frame(g, m, top, W - 2 * m, total, 1.6 * d, 0.18 * d, O.ink, 0.12 * d, 0.1 * d);
+  // First line: what it is (and where the number comes from). Second line: the number on the
+  // left, and beside it the bar or graph, which takes whatever width the number leaves.
+  const ly = m + 1.25 * d;
+  let lx = inL;
+  if (r.state === 'warn' || r.state === 'crit') {
+    haloIcon(g, r.state === 'crit' ? 'error' : 'warning', lx + 0.6 * d, ly, 1.25 * d, ink);
+    lx += 1.55 * d;
+  }
+  const lw = text(g, r.label, lx, ly, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
+  if (r.tag) tag(g, r.tag, lx + lw + 0.45 * d, ly, d, false, true);
+  if (r.word) text(g, r.word, inR, ly, { weight: 700, size: 1.0 * d, color: ink, align: 'right', halo: true });
+  const vy = m + 3.05 * d;
+  let vx = inL + text(g, r.value, inL, vy, { weight: 700, size: 1.75 * d, color: ink, tight: true, halo: true });
+  if (r.unit) vx += 0.3 * d + text(g, r.unit, vx + 0.3 * d, vy + 0.2 * d, { weight: 700, size: 0.95 * d, color: O.label, halo: true });
 
-  const x0 = m + pad;
-  const w = W - 2 * m - pad * 2;
-  let y = top + pad;
-  const rowFrame = (h, state) => {
-    const color = state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : O.line;
-    frame(g, x0, y, w, h, 1.25 * d, 0.13 * d, color, 0.09 * d, 0.08 * d);
+  const gx = Math.max(inL + 5.0 * d, vx + 0.7 * d);
+  const gw = inR - gx;
+  const gy = m + 2.05 * d;
+  const gh = H - m - 0.7 * d - gy;
+  const track = (by, bh) => {
+    box(g, gx - 1, by - 1, gw + 2, bh + 2, bh / 2 + 1, O.outer);
+    box(g, gx, by, gw, bh, bh / 2, 'rgba(120, 124, 130, 1)');
   };
-
-  // Big row: icon + label (+tag) + value + state word
-  const mainRow = (h, ico, r, okWord = false) => {
-    rowFrame(h, r.state);
-    const accent = STATE_COLOR[r.state]?.() ?? O.ink;
-    haloIcon(g, ico, x0 + 0.85 * d + 0.95 * d, y + h / 2, 1.9 * d, accent);
-    const tx = x0 + 0.85 * d + 1.9 * d + 0.65 * d;
-    let ly = y + 0.65 * d + 0.7 * d;
-    const lw = text(g, r.label, tx, ly, { weight: 700, size: 1.05 * d, color: O.label, halo: true });
-    if (r.tag) tag(g, r.tag, tx + lw + 0.5 * d, ly, d, false, true);
-    ly += 0.7 * d + 1.33 * d;
-    let vx = tx;
-    vx += text(g, r.value, vx, ly, { weight: 700, size: 2.3 * d, color: r.state === 'stale' ? O.stale : O.ink, tight: true, halo: true });
-    if (r.unit) vx += 0.35 * d + text(g, r.unit, vx + 0.35 * d, ly + 0.35 * d, { weight: 700, size: 1.25 * d, color: O.label, halo: true });
-    if (r.word) {
-      const wordColor = STATE_COLOR[r.state]?.() ?? (okWord ? O.ok : O.ink);
-      text(g, r.word, vx + 0.85 * d, ly + 0.4 * d, { weight: 700, size: 1.15 * d, color: wordColor, halo: true });
+  if (r.viz === 'bar' || r.viz === 'progress') {
+    const bh = 0.5 * d;
+    const by = gy + gh / 2 - bh / 2;
+    track(by, bh);
+    if (r.fill > 0) box(g, gx, by, Math.max(bh, gw * r.fill), bh, bh / 2, fillColour);
+    for (const mark of r.marks ?? []) {
+      const mx = gx + gw * mark.at;
+      g.fillStyle = O.outer;
+      g.fillRect(mx - 0.07 * d - 1, by - 0.2 * d - 1, 0.14 * d + 2, 0.9 * d + 2);
+      g.fillStyle = O.ink;
+      g.fillRect(mx - 0.07 * d, by - 0.2 * d, 0.14 * d, 0.9 * d);
     }
-    return { tx, bottom: ly + 1.33 * d };
-  };
-
-  // Suit temperature
-  const suitIcon = { crit: 'error', warn: 'warning', stale: 'link_off' }[vm.suit.state] ?? 'check_circle';
-  const s = mainRow(suitH, suitIcon, { ...vm.suit, unit: '°C' }, true);
-  const gx = s.tx;
-  const gw = x0 + w - 0.9 * d - gx;
-  const gy = s.bottom + 0.4 * d;
-  const gh = 0.46 * d;
-  box(g, gx - 1, gy - 1, gw + 2, gh + 2, gh / 2 + 1, O.outer);
-  box(g, gx, gy, gw, gh, gh / 2, 'rgba(120, 124, 130, 1)');
-  if (vm.suit.fill > 0) {
-    const fillColor = vm.suit.state === 'crit' ? T.dangerLine : vm.suit.state === 'warn' ? T.point : O.fill;
-    box(g, gx, gy, Math.max(gh, gw * vm.suit.fill), gh, gh / 2, fillColor);
-  }
-  for (const mark of [gauge.warn, gauge.crit]) {
-    const mx = gx + (gw * (mark - gauge.min)) / (gauge.max - gauge.min);
-    g.fillStyle = O.outer;
-    g.fillRect(mx - 0.08 * d - 1, gy - 0.25 * d - 1, 0.16 * d + 2, 0.98 * d + 2);
-    g.fillStyle = O.ink;
-    g.fillRect(mx - 0.08 * d, gy - 0.25 * d, 0.16 * d, 0.98 * d);
-    text(g, String(mark), mx, gy + 1.28 * d, { weight: 700, size: 0.9 * d, color: O.ink, align: 'center', halo: true });
-  }
-  y += suitH + gap;
-
-  // Remaining distance
-  mainRow(distH, vm.dist.state === 'warn' ? 'warning' : 'navigation', vm.dist);
-  y += distH + gap;
-
-  // Environment values
-  if (vm.env.length) {
-    rowFrame(envH, '');
-    let ey = y + 0.55 * d + envLine / 2;
-    for (const row of vm.env) {
-      text(g, row.k, x0 + 0.85 * d, ey, { weight: 700, size: 1.15 * d, color: O.label, halo: true });
-      let rx = x0 + w - 0.9 * d;
-      if (row.tag) rx -= tag(g, row.tag, rx, ey, d, true, true) + 0.6 * d;
-      if (row.unit) rx -= text(g, row.unit, rx, ey + 0.1 * d, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true }) + 0.35 * d;
-      rx -= text(g, row.v, rx, ey, { weight: 700, size: 1.35 * d, color: O.ink, align: 'right', halo: true });
-      if (row.state === 'warn' || row.state === 'crit') {
-        haloIcon(g, row.state === 'crit' ? 'error' : 'warning', rx - 1.1 * d, ey, 1.4 * d, STATE_COLOR[row.state]());
+    if (r.viz === 'progress') {
+      // A dot where the wearer is on the way from the start to the destination.
+      const dotX = gx + gw * Math.max(0, Math.min(1, r.fill));
+      for (const [radius, colour] of [[0.5 * d, O.outer], [0.36 * d, O.ink]]) {
+        g.beginPath();
+        g.arc(dotX, by + bh / 2, radius, 0, Math.PI * 2);
+        g.fillStyle = colour;
+        g.fill();
       }
-      ey += envLine + 0.25 * d;
     }
-    y += envH + gap;
+    return;
   }
 
-  // Foot: layer name, sol and local time
-  const fy = y + footH / 2 - 0.1 * d;
-  const lw = text(g, vm.foot.layerLabel + ' ', x0 + 0.9 * d, fy, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
-  text(g, vm.foot.layer, x0 + 0.9 * d + lw, fy, { weight: 700, size: 1.0 * d, color: O.ink, halo: true });
-  text(g, vm.foot.sol, x0 + w - 0.9 * d, fy, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true });
-  return total;
+  // A graph of the last minute, newest on the right.
+  const span = r.max - r.min || 1;
+  const yOf = (v) => gy + gh - ((Math.max(r.min, Math.min(r.max, v)) - r.min) / span) * gh;
+  g.save();
+  g.setLineDash([0.35 * d, 0.3 * d]);
+  g.lineWidth = 0.08 * d;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  for (const limit of r.lines ?? []) {
+    if (!(limit > r.min && limit < r.max)) continue; // the limits, as dashed lines across the graph
+    g.beginPath();
+    g.moveTo(gx, yOf(limit));
+    g.lineTo(gx + gw, yOf(limit));
+    g.stroke();
+  }
+  g.restore();
+  const h = r.history ?? [];
+  const xOf = (k) => gx + gw - ((h.length - 1 - k) / 59) * gw; // a minute across the graph
+  const stroke = (width, style) => {
+    g.beginPath();
+    let pen = false; // a gap in the readings is a gap in the line
+    h.forEach((v, k) => {
+      if (!Number.isFinite(v)) {
+        pen = false;
+        return;
+      }
+      if (pen) g.lineTo(xOf(k), yOf(v));
+      else g.moveTo(xOf(k), yOf(v));
+      pen = true;
+    });
+    g.lineWidth = width;
+    g.strokeStyle = style;
+    g.lineJoin = g.lineCap = 'round';
+    g.stroke();
+  };
+  stroke(0.34 * d, O.outer);
+  stroke(0.18 * d, fillColour);
+  const last = [...h].reverse().find(Number.isFinite);
+  if (last !== undefined) {
+    for (const [radius, colour] of [[0.32 * d, O.outer], [0.22 * d, O.ink]]) {
+      g.beginPath();
+      g.arc(gx + gw, yOf(last), radius, 0, Math.PI * 2);
+      g.fillStyle = colour;
+      g.fill();
+    }
+  }
 }
 
 // ---- alert card (bottom centre) ----
@@ -403,7 +414,7 @@ export function drawLayers(g, d, vm) {
     const y = pad + Math.floor(i / 2) * (tabH + pad);
     hits.push({ id: tab.id, x, y, w: tabW, h: tabH });
     const size = 1.2 * d;
-    // Feedback for a fingertip: an outline while it hovers, a filled flash when it presses.
+    // Feedback for the pointer: an outline while it hovers, a filled flash when it presses.
     if (tab.pressed) {
       box(g, x, y, tabW, tabH, 0.8 * d, T.primary);
     } else if (tab.hover && !tab.active) {
@@ -458,64 +469,105 @@ export function drawLayers(g, d, vm) {
     let kx = lp;
     for (const k of lg.keys) kx += text(g, k, kx, y, { size, color: T.muted }) + 0.55 * d;
   }
-  drawCursor(g, d, vm.cursor);
   return hits;
 }
 
-/** Fingertip cursor on a menu: a ring that tightens as the finger nears, solid once it is locked
- *  for a pinch. */
-function drawCursor(g, d, cursor) {
-  if (!cursor) return;
-  const { x, y, near, locked } = cursor;
-  g.beginPath();
-  g.arc(x, y, (locked ? 0.75 : 1.6 - 0.9 * near) * d, 0, Math.PI * 2);
-  g.strokeStyle = locked ? T.ink : T.primary;
-  g.globalAlpha = locked ? 1 : 0.4 + 0.6 * near;
-  g.lineWidth = (locked ? 0.3 : 0.22) * d;
-  g.stroke();
-  g.beginPath();
-  g.arc(x, y, 0.22 * d, 0, Math.PI * 2);
-  g.fillStyle = T.ink;
-  g.fill();
-  g.globalAlpha = 1;
-}
-
-// ---- voice command menu (back of the left hand) ----
-// vm: { title, hint, items: [{ id, label, hover, pressed }], cursor }
+// ---- command menu (above the back of the left hand) ----
+// vm: { title, hint, cols, items: [{ id, label, hover, pressed }] }
 // Returns the pressable cells in canvas pixels: [{ id, x, y, w, h }]
+// The buttons are made as large as the panel allows: they are aimed at with a pointer from a
+// distance, so size matters more than density. A last row with fewer buttons stretches to fill
+// the width. The whole card is centred on the panel, so the panel's centre is the card's centre.
 export function drawCommands(g, d, vm) {
   const W = g.canvas.width;
-  g.clearRect(0, 0, W, g.canvas.height);
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
   const hits = [];
   if (!vm.items.length) return hits;
-  const pad = 0.5 * d;
-  const headH = 3.4 * d;
-  const cellH = 3.3 * d;
-  const gap = 0.35 * d;
-  const cols = vm.cols ?? 2;
+  const pad = 0.6 * d;
+  const headH = 3.2 * d;
+  const gap = 0.5 * d;
+  const cols = vm.cols ?? 3;
   const rows = Math.ceil(vm.items.length / cols);
-  const total = pad + headH + rows * cellH + Math.max(0, rows - 1) * gap + pad;
-  box(g, 0, 0, W, total, 1.4 * d, T.surface);
-  ring(g, 0, 0, W, total, 1.4 * d);
-  icon(g, 'navigation', pad + 1.2 * d, pad + headH / 2 - 0.2 * d, 1.5 * d, T.primaryIcon, T.row);
-  text(g, vm.title, pad + 2.5 * d, pad + headH / 2 - 0.55 * d, { weight: 700, size: 1.25 * d });
-  text(g, vm.hint, pad + 2.5 * d, pad + headH / 2 + 0.75 * d, { size: 0.9 * d, color: T.muted });
-  const cellW = (W - pad * 2 - gap * (cols - 1)) / cols;
+  // The emergency button, when the card has one: a red bar across the bottom, under the commands.
+  const sosH = vm.sos ? 4.4 * d : 0;
+  const sosGap = vm.sos ? 0.8 * d : 0;
+  const cellH = Math.min(4.6 * d, (H - pad * 2 - headH - gap * (rows - 1) - sosH - sosGap) / rows);
+  const total = pad + headH + rows * cellH + (rows - 1) * gap + sosGap + sosH + pad;
+  const top = (H - total) / 2;
+  box(g, 0, top, W, total, 1.6 * d, T.surface);
+  ring(g, 0, top, W, total, 1.6 * d);
+  icon(g, 'navigation', pad + 1.3 * d, top + pad + headH / 2 - 0.25 * d, 1.6 * d, T.primaryIcon, T.row);
+  // The title gets what the hint leaves: a long one (a waypoint's spoken name) is cut short, not written over the hint.
+  const hintW = vm.hint ? measure(g, vm.hint, 400, 1.0 * d) + 1.0 * d : 0;
+  text(g, fit(g, vm.title, W - pad * 2 - 2.7 * d - hintW, 700, 1.45 * d), pad + 2.7 * d, top + pad + headH / 2 - 0.25 * d, { weight: 700, size: 1.45 * d });
+  text(g, vm.hint, W - pad - 0.4 * d, top + pad + headH / 2 - 0.25 * d, { size: 1.0 * d, color: T.muted, align: 'right' });
   vm.items.forEach((item, i) => {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, vm.items.length - row * cols);
+    const cellW = (W - pad * 2 - gap * (inRow - 1)) / inRow;
     const x = pad + (i % cols) * (cellW + gap);
-    const y = pad + headH + Math.floor(i / cols) * (cellH + gap);
+    const y = top + pad + headH + row * (cellH + gap);
     hits.push({ id: item.id, x, y, w: cellW, h: cellH });
-    box(g, x, y, cellW, cellH, 0.8 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
+    box(g, x, y, cellW, cellH, 1.0 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
     if (item.hover || item.pressed) {
       g.beginPath();
-      g.roundRect(x + 0.1 * d, y + 0.1 * d, cellW - 0.2 * d, cellH - 0.2 * d, 0.7 * d);
-      g.strokeStyle = item.pressed ? T.ink : 'rgba(255, 255, 255, 0.85)';
-      g.lineWidth = 0.2 * d;
+      g.roundRect(x + 0.14 * d, y + 0.14 * d, cellW - 0.28 * d, cellH - 0.28 * d, 0.88 * d);
+      g.strokeStyle = item.pressed ? T.ink : 'rgba(255, 255, 255, 0.9)';
+      g.lineWidth = 0.28 * d;
       g.stroke();
     }
-    const size = 1.15 * d;
-    text(g, fit(g, item.label, cellW - 1.2 * d, 600, size), x + cellW / 2, y + cellH / 2, { weight: 600, size, align: 'center' });
+    const size = 1.45 * d;
+    text(g, fit(g, item.label, cellW - 1.0 * d, 700, size), x + cellW / 2, y + cellH / 2, { weight: 700, size, align: 'center' });
   });
-  drawCursor(g, d, vm.cursor);
+  if (vm.sos) {
+    // vm.sos: { id, state: 'idle' | 'armed' | 'sent', label, sub, pulse: 0..1, hover, pressed }
+    const z = vm.sos;
+    const x = pad;
+    const y = top + pad + headH + rows * cellH + (rows - 1) * gap + sosGap;
+    const w = W - pad * 2;
+    hits.push({ id: z.id, x, y, w, h: sosH });
+    // Red whatever its state, so it is found at a glance: full red, pulsing while armed, an
+    // outlined dark red once the signal is out.
+    const fill = z.state === 'sent' ? 'rgba(120, 18, 18, 0.92)' : z.state === 'armed' ? `rgba(255, 56, 56, ${0.7 + 0.3 * z.pulse})` : '#d92626';
+    box(g, x, y, w, sosH, 1.1 * d, fill);
+    g.beginPath();
+    g.roundRect(x + 0.16 * d, y + 0.16 * d, w - 0.32 * d, sosH - 0.32 * d, 0.95 * d);
+    g.strokeStyle = z.hover || z.pressed ? '#ffffff' : z.state === 'sent' ? T.dangerLine : 'rgba(255, 255, 255, 0.5)';
+    g.lineWidth = (z.hover || z.pressed ? 0.34 : 0.18) * d;
+    g.stroke();
+    text(g, z.label, x + 1.3 * d, y + sosH / 2, { weight: 800, size: 1.8 * d, color: '#ffffff', tight: true });
+    const lw = measure(g, z.label, 800, 1.8 * d);
+    text(g, fit(g, z.sub, w - lw - 3.4 * d, 600, 1.0 * d), x + w - 1.2 * d, y + sosH / 2, { weight: 600, size: 1.0 * d, color: 'rgba(255, 255, 255, 0.92)', align: 'right' });
+  }
   return hits;
+}
+
+// ---- a vital sign (one chip beside the figure over the right palm, suit.js) ----
+// chip: { label, value, unit, tag, state: '' | 'warn' | 'crit' }                         one reading, or
+//       { label, unit, rows: [{ label, value, tag, state }], state }                     a short table
+// A dark card with its outline in the state's colour: label and where the number comes from on
+// the first line, the number large under it. The chip fills its canvas.
+export function drawVitalChip(g, d, chip) {
+  const W = g.canvas.width;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  const tone = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : null);
+  // A dark backing so the numbers read against a bright room, and no frame: a reading out of
+  // range is told by the colour of its name and number.
+  box(g, 0, 0, W, H, 1.0 * d, T.surface);
+  text(g, chip.rows && chip.unit ? `${chip.label} · ${chip.unit}` : chip.label, 0.8 * d, 1.3 * d, { weight: 600, size: 1.0 * d, color: tone(chip.state) ?? T.muted });
+  if (chip.tag) tag(g, chip.tag, W - 0.6 * d, 1.3 * d, d, true);
+  if (chip.rows) {
+    chip.rows.forEach((row, k) => {
+      const ry = 2.5 * d + (k + 0.5) * 1.75 * d;
+      const lw = text(g, row.label, 0.8 * d, ry, { weight: 600, size: 1.05 * d, color: tone(row.state) ?? T.muted });
+      if (row.tag) text(g, row.tag, 0.8 * d + lw + 0.4 * d, ry + 0.08 * d, { weight: 600, size: 0.75 * d, color: T.muted });
+      text(g, row.value, W - 0.8 * d, ry, { weight: 700, size: 1.3 * d, color: tone(row.state) ?? T.ink, align: 'right', tight: true });
+    });
+    return;
+  }
+  const size = 2.1 * d;
+  const vw = text(g, chip.value, 0.8 * d, 3.55 * d, { weight: 700, size, color: tone(chip.state) ?? T.ink, tight: true });
+  if (chip.unit) text(g, chip.unit, 0.8 * d + vw + 0.35 * d, 3.85 * d, { weight: 600, size: 1.05 * d, color: T.muted });
 }

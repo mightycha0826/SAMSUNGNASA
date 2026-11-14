@@ -32,7 +32,7 @@ There are two coordinate systems. Mixing them up is what breaks most often at in
 - The conversion is defined by the `demo` entry of `layerset.json`. A region of the map is scaled down to the size of the room floor.
 - **Only C** converts Mars longitude/latitude ↔ map grid. The browser only receives grid coordinates. One degree is about 59,274.7 m (radius 3,396,190 m).
 - All times are Unix time in milliseconds (`Date.now()`).
-- Field names end with the unit: Celsius (`C`) for temperature, meters (`M`) for distance. Examples: `suitTempC`, `distanceM`.
+- Field names end with the unit: Celsius (`C`) for temperature, meters (`M`) for distance. Examples: `suitTempC`, `distanceM`. (`suitTempC` is the **ambient temperature**: the sensor on the suit measures the air around the wearer. The field and the alert id `suit-temp` keep the names they had when it was called the suit temperature; body temperature is simulated in the headset and is not in this field.)
 
 ---
 
@@ -131,7 +131,7 @@ Fields:
 | `layers[].format` | `float32` (numeric grid) or `image` |
 | `layers[].min`, `max` | Value range of a numeric grid. Used for coloring and the legend |
 | `layers[].sourceUrl` | Address of the source data. Used as is in the submission text. **Never empty** |
-| `waypoints` | Base and survey site. `cell` is a map grid coordinate |
+| `waypoints` | Base and survey site. `cell` is a map grid coordinate. B's loader adds a third, derived one before `layers:ready`: `near`, a cell about 20 m from the base on the bearing to the survey site and not steeper than 20° (`web/src/core/waypoints.js`, `"derived": true`; `?near=<metres>` changes the distance, `?near=0` leaves it out). It is a destination like the others (`nav:request` `{ "targetId": "near" }`) |
 | `demo.regionCells` | Map region mapped onto the room `[col0, row0, col1, row1]` |
 | `demo.roomSizeM` | Room floor size that region is scaled down to `[width, depth]` |
 
@@ -222,19 +222,31 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `layers:ready` | B (core) | D, F | Once, when `layerset.json` and the files are loaded |
 | `layer:toggle` | F, B (from voice) | D | A layer is turned on or off |
 | `env:update` | B (core) | F | The next `env.json` sample is replayed |
-| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second) |
+| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second). The grid is a window of 256 × 256 cells that moves with the wearer in steps of a tile (6.4 m): **read `originXZ` from every event**. An obstacle stays in it until clear floor is seen where it stood, or the wearer walks there |
 | `nav:request` | F, B (from voice) | D | A route is requested |
 | `nav:route` | D | F | A route was computed |
-| `telemetry:update` | B (from the Jetson) | F | Suit temperature arrives (once a second) |
+| `telemetry:update` | B (from the Jetson) | F | The ambient temperature (the sensor on the suit) arrives (once a second) |
 | `alert:raise` | B (from the Jetson), D | F, D | A hazard appears |
 | `alert:clear` | B (from the Jetson), D | F, D | A hazard is gone |
 | `voice:command` | B (from the Jetson) | All modules | A voice command was understood |
 | `voice:say` | All modules | B (to the Jetson) | Something should be said aloud |
 | `mode:change` | F | All modules | The display mode changes |
 | `app:mode` | B (core) | All modules | The wearer chose the Mars map or the field map on the start page |
-| `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second) |
-| `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu over the back of the hand |
+| `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second). `scale` says how many map metres one real metre is: 1 on the field map; on the Mars map it is set for each route so that the route is about 3 m of walking |
+| `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu above the back of the hand |
 | `voice:text` | F | B (to the Jetson) | A command was picked from that menu; it runs like a spoken one |
+| `map:store` | A | B (to the Jetson) | Tiles of the field map changed (at most every 2 s): `{ run, cellSizeM, tileCells: 64, tiles: [{ x, z, runs }], source, stats }`. A tile is 64 × 64 cells; tile (x, z) starts at room position (x, z) × 6.4 m; `runs` is its cells as `[value, count, ...]` |
+| `map:request` | A | B (to the Jetson) | A session started or the room coordinates were reset: ask the hub for the map it stored last |
+| `map:stored` | B (from the Jetson) | A | The hub's newest run: `{ run, cellSizeM, tileCells, tiles: [{ x, z, runs }], startedAt, savedAt, updates }` |
+| `rescue:signal` | F (`hud/rescue.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
+| `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
+| `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }` on the Mars map, `{ room: [x, z] }` on the field map; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
+| `field:target` | F | field (B) | The target of the field map: `{ point: [x, z], label? }` in room metres (a place picked on the map, or a waypoint); `{ point: null }` deletes it |
+| `waypoint:set` | F | field (B), D (map, nav) | A waypoint was set or renamed: `{ id, label, room: [x, z] }` on the field map, `{ id, label, cell: [col, row] }` on the Mars map |
+| `waypoint:remove` | F | field (B), D (map, nav) | `{ id }`: the waypoint was deleted |
+| `voice:dictate` | F | B (to the Jetson) | `{ on, id }`: the next thing said is to come back as text, not as a command (a waypoint's name) |
+| `voice:dictation` | B (from the Jetson) | F | `{ id, text }`: what was said. `text` is empty with `unavailable: true` when there is no hub |
+| `nav:waypoint` | F | D | A destination added or moved while running: `{ id: "pick", cell: [col, row], label }`. It joins `layerSet.waypoints`; request it with `nav:request` |
 
 ### Payload formats and mock data
 
@@ -269,7 +281,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 
 The real scan (`web/src/scan/`) sends a 16 m × 16 m grid (160 × 160 cells) built from the room geometry the headset keeps (WebXR `mesh-detection` and `plane-detection`), with two extra fields: `"source": "room-scan"` and `"stats": { "meshes", "planes", "obstacles", "floor", "depth" }`. It is the room as last scanned by the headset, not live depth.
 
-With `?depth=1` the headset's live depth image is laid over the same cells twice a second: something put down about 1 to 2.3 m from the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
+With live depth the headset's depth image is laid over the same cells twice a second. The field map asks for it by default (`?depth=0` leaves it out); the Mars map only with `?depth=1`. Then something put down about 1 to 2.3 m from the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
 
 **`nav:request`**
 ```json
@@ -290,6 +302,7 @@ With `?depth=1` the headset's live depth image is laid over the same cells twice
 - `points`: room coordinates where the floor arrows go
 - `distanceM`: remaining distance in the room
 - In field mode the route to the marked target is sent with `"targetId": "mark"` and `"frame": "room"`. D's own routes are in map metres and carry no `frame`.
+- `via` (only on D's routes, and only when there are any): the ids of the marked waypoints (`waypoint:set`) the route passes, in order. D's planner takes a waypoint along when that makes the route hardly more costly (`web/src/nav/via.js`); the field route does the same by length (`web/src/field/planner.js`).
 
 **`telemetry:update`**
 ```json
@@ -299,7 +312,7 @@ With `?depth=1` the headset's live depth image is laid over the same cells twice
 
 **`alert:raise`**
 ```json
-{ "id": "suit-temp", "level": "critical", "message": "Suit temperature is critical", "ts": 1794000000000 }
+{ "id": "suit-temp", "level": "critical", "message": "Ambient temperature is critical", "ts": 1794000000000 }
 ```
 - `level`: `warn` (only the status panel color changes) or `critical` (red flashing screen)
 - `id` values: `suit-temp` (E), `route-blocked` (D), `radiation` (B, decided from `env.json`), `link-lost` (B, Jetson connection lost)
@@ -327,7 +340,7 @@ The `intent` list is in [section 6](#6-voice-commands).
 ```json
 { "mode": "field" }
 ```
-`mode`: `mars` (NASA map on the palm, route between base and survey site) or `field` (the room scan rewrites the map around the wearer; "Mark target" and arrows on the floor). `import { mode } from '../core/mode.js'` gives the current value.
+`mode`: `mars` (NASA map on the palm, route between base and survey site) or `field` (the room scan rewrites the map around the wearer; targets, waypoints and arrows on the floor). `import { mode } from '../core/mode.js'` gives the current value.
 
 **`nav:position`** — where the wearer is, in D's map metre frame (`web/src/nav/coordinates.js`)
 ```json
@@ -337,8 +350,9 @@ The session starts on the `base` waypoint. In Mars mode one real metre moves the
 
 **`voice:commands`**
 ```json
-{ "commands": [{ "say": "Status", "intent": "status.report", "slots": {} }] }
+{ "commands": [{ "say": "Status", "intent": "status.report", "slots": {} }, { "say": "Base", "intent": "nav.home", "slots": {}, "mode": "mars" }] }
 ```
+A command with `mode` is shown only on that map (`mars` or `field`). The menu is a card above the back of the left hand; it is operated by pointing at it with the right hand and pinching (`web/src/hud/pointer.js`).
 
 **`voice:text`**
 ```json
@@ -350,7 +364,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 ```json
 { "mode": "emergency" }
 ```
-`mode`: `normal`, `emergency`, `night`(P2), `record`(P2)
+`mode`: `normal`, `emergency`. (`night` and `record` were P2 ideas and are not built; no command sets them.)
 
 ---
 
@@ -374,10 +388,13 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `alert.raise` | `{ "id": "suit-temp", "level": "critical", "message": "..." }` | `alert:raise` |
 | `alert.clear` | `{ "id": "suit-temp" }` | `alert:clear` |
 | `voice.command` | `{ "intent": "...", "slots": {}, "text": "..." }` | `voice:command` |
-| `voice.commands` | `{ "commands": [{ "say", "intent", "slots" }] }` | `voice:commands`. Sent after `hello` and whenever `commands.json` changes |
+| `voice.commands` | `{ "commands": [{ "say", "intent", "slots", "mode"? }] }` | `voice:commands`. Sent after `hello` and whenever `commands.json` changes |
 | `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B prepares playback) |
 | (binary) | 16-bit PCM, mono | (B plays it) |
 | `tts.end` | `{}` | (B ends playback) |
+| `map.stored` | `{ run, cellSizeM, tileCells, tiles: [{ x, z, runs }], startedAt, savedAt, updates }` | `map:stored`. The answer to `map.request`: every tile of the newest run; nothing is sent when no map is stored |
+| `voice.dictation` | `{ "id": 3, "text": "Rock sample by the door." }` | `voice:dictation`. What this headset said after `voice.dictate`, sent to it alone |
+| `rescue.state` | `{ "active": true, "from", "at", "position", "acknowledged": false, "by": null }` | `rescue:state`. To the headset that sent the signal. The other headsets get `alert.raise` `{ "id": "crew-rescue", "level": "warn", "message": "Rescue signal from a crew member" }` and `alert.clear` when it is cancelled |
 
 ### Headset → Jetson
 
@@ -386,21 +403,40 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `hello` | `{ "client": "quest", "mock": false }` | Right after connecting |
 | `mic.begin` | `{ "sampleRate": 16000, "stream": true }` | When the microphone starts, and again after every reconnect |
 | (binary) | 16-bit PCM, mono, 16 kHz | Continuously. The hub finds the utterances itself (voice activity detection) and ignores the microphone while it is speaking |
+| `voice.dictate` | `{ "on": true, "id": 3, "seconds": 12 }` | The next utterance of this headset is sent back to it as `voice.dictation { id, text }` and is not matched against the commands. `"on": false` withdraws the request; it lapses by itself after `seconds` (12 by default) |
 | `mic.end` | `{}` | Microphone stream ends. Without `"stream": true` in `mic.begin`, everything between `mic.begin` and `mic.end` is one utterance |
 | `voice.status` | `{ "mic": "on", "audio": "running", "inputRate": 48000, "level": 0.02 }` | When the microphone or audio state changes, and every 10 s. Shows in the hub log why a headset is silent |
 | `voice.text` | `{ "text": "Status" }` | A command picked from the headset's menu. The hub handles it exactly like recognized speech |
 | `client.log` | `{ "kind": "error", "message": "..." }` | Headset diagnostics: errors, AR session events, a position heartbeat every 5 s. Written to `jetson/logs/headset.log` |
 | `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
 | `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
+| `map.store` | `{ "run": "abc-0", "cellSizeM": 0.1, "tileCells": 64, "tiles": [{ "x": -1, "z": 0, "runs": [255, 3996, 1, 100] }], "source": "room-scan+depth", "stats": {} }` | Tiles of the field map that changed, at most every 2 s. The hub keeps one file per run (`jetson/maps/field-<time>-<run>.json`) with every tile the run has sent; a later tile replaces an earlier one. A run is one stretch in one set of room coordinates. At most 4096 tiles a run |
+| `map.request` | `{}` | After connecting, and when a session starts or the room coordinates are reset |
+| `rescue.signal` | `{ "active": true, "position": [12.0, -3.5], "suitTempC": 24.5, "batteryPct": 76 }` | The emergency button. `"active": false` withdraws it. The crew is virtual: the hub acknowledges after 5 s and marks the acknowledgement as simulated |
 
-### Suit temperature thresholds (starting values)
+### The mirror: a second WebSocket
+
+`wss://<Jetson address>:8443/mirror` carries what the app draws to the hub, so it can be watched on a monitor without a Meta account or developer mode (`web/src/core/mirror.js`, `jetson/marswalk/mirror.py`). It is separate from `/ws` so that pictures never queue in front of the microphone stream and the alerts.
+
+| Direction | Message | Meaning |
+|---|---|---|
+| headset → hub | binary | One JPEG, 640 × 480, about ten a second, only while someone is watching |
+| headset → hub | `{ "info": { "width", "height", "fps", "ar", "mode", "space", "camera" } }` | When any of these change |
+| hub → headset | `{ "viewers": 1, "tune": { "fovDeg": 58, "tiltDeg": 0 } }` | How many monitor pages are open; at 0 the headset makes no pictures. `tune`, when the camera lens was set on the monitor page (`POST /monitor/tune`): the lens the virtual things are drawn with over the camera picture |
+
+The hub serves `/monitor` (the page), `/monitor.mjpg` (the pictures as one multipart response) and `/monitor.json` (state, including a rescue signal that is up).
+
+### Ambient temperature thresholds (starting values)
 
 | Range | Result |
 |---|---|
 | Below 30 °C | Normal |
 | 30 °C or above | `alert.raise` (`warn`) |
 | 35 °C or above | `alert.raise` (`critical`) |
-| Back below 28 °C | `alert.clear` |
+| Critical, then below 34 °C | `alert.raise` (`warn`): the alert steps back down |
+| Below 29 °C | `alert.clear` |
+
+The level follows the temperature in both directions. The 1 °C margin on the way down (`--margin-c`) only keeps a reading that hovers on a threshold from raising and clearing over and over. Until 2026-11-14 an alert never stepped down and cleared only below 28 °C, so the alarm kept ringing as critical while the display showed 29 °C.
 
 Chosen so that holding the sensor in a hand reaches them in the demo. E tunes them after measuring with the real sensor.
 
@@ -424,19 +460,25 @@ Chosen so that holding the sensor in a hand reaches them in the demo. E tunes th
 
 E's hub turns speech into one of the `intent` values below. Speech is English. Anything that matches no command is dropped.
 
-**The commands are data, not code: `jetson/commands.json`.** Add or change a phrase there and save; the hub reloads the file by itself. A phrase matches when its words appear in what was heard, and close misspellings by the speech recognizer match too. When several phrases match, the longest wins ("thermal off" beats "thermal"). A command may carry a `reply` the hub says back, and any new `intent` is sent to the headset as `voice:command` like the rest.
+**The commands are data, not code: `jetson/commands.json`.** Add or change a phrase there and save; the hub reloads the file by itself. A phrase matches when its words appear in what was heard, and close misspellings by the speech recognizer match too. When several phrases match, the longest wins ("stop navigation" beats "stop"). A command may carry a `reply` the hub says back, and any new `intent` is sent to the headset as `voice:command` like the rest.
 
 | intent | slots | Short form | Also | Handled by |
 |---|---|---|---|---|
 | `status.report` | `{}` | "Status" | "Status report" | E answers by voice itself |
-| `nav.start` | `{ "targetId": "site1" }` | "Navigate" | "Take me to the survey site" | D |
-| `nav.home` | `{}` | "Base" | "Go back to base" | D |
-| `nav.stop` | `{}` | "Stop" | "Stop navigation" | D |
-| `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle` |
-| `layer.hide` | `{ "id": "thermal" }` | "Thermal off" | "Hide the thermal map" | B → `layer:toggle` |
-| `nav.mark` | `{}` | "Mark target" | "Set target", "Mark here" | field (field mode): the target is where the wearer stands |
-| `nav.clear` | `{}` | "Clear target" | | field |
-| `alert.ack` | `{}` | "Confirm" | "Acknowledge alert" | F |
-| `mode.set` | `{ "mode": "night" }` | "Night mode" (P2) | | F |
+| `nav.start` | `{ "targetId": "near" }` | "Navigate" | "Take me", "Guide me", "Nearby point" | Mars map: D, to the nearby point about 20 m from the base (`near` in `waypoints`; on a map without it, `?near=0`, B's `link.js` sends the survey site instead). Field map: field (guidance to the marked target) |
+| `nav.start` | `{ "targetId": "site1" }` | — (voice only) | "Take me to the survey site", "Sulfur rocks" | Mars map: D, to the survey site (390 m by route) |
+| `nav.home` | `{}` | "Base" | "Go back", "Return to base" | D (Mars map only) |
+| `nav.mark` | `{}` | "Mark waypoint" | "Waypoint", "Set waypoint", "Mark here" | F: a waypoint where the wearer stands, or at the place picked on the map (both maps) |
+| `waypoint.record` | `{}` | "Record" | "Record label", "Record message" | F: the next thing said becomes the name of the waypoint that was just set or is picked (`voice.dictate`). Voice and the card's button |
+| `mark.delete` | `{}` | "Delete" | "Remove" | F: deletes the waypoint or target picked on the map |
+| `nav.stop` | `{}` | "Stop" | "Stop navigation", "Cancel" | D, field. Also closes the card over a picked place and disarms an armed emergency button |
+| `alert.ack` | `{}` | "Confirm" | "Acknowledge" | F. While the emergency button is armed it sends the rescue signal; while a new waypoint waits for its name it keeps the name it has |
+| `sos.arm` | `{}` | "SOS" | "Rescue", "Help", "Emergency", "Mayday" | F: arms the emergency button, as pressing the red bar once does. Voice only |
+| `sos.cancel` | `{}` | "Cancel rescue" | "Cancel emergency" | F: withdraws a rescue signal that was sent. Voice only |
+| `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle`. Voice only: the layer tabs beside the map do the same by hand |
 
-B re-emits `nav.start` and `nav.home` as `nav:request`, and `layer.show` / `layer.hide` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.
+**This is the whole list, and it is short on purpose** (pruned on 2026-11-14). Every phrase is one more thing ordinary talk can trigger by accident, so only what the demo needs is left. Removed: `layer.hide` (one layer is always shown; naming another switches to it), `nav.clear` ("Mark target" again moves the target, "Stop" ends the guidance), `mode.set` (night mode was never built), and the looser synonyms ("home", "return", "report", "copy", "roger", "let's go", "photo", "camera", "height" and others).
+
+Naming the survey site is the one longer form that changes the destination; it is not in the menu. The command menu on the headset shows six of the commands as buttons, at most five at a time: "Base" only on the Mars map (`"mode"` in `commands.json`).
+
+B re-emits `nav.start` and `nav.home` as `nav:request` (on the Mars map), and `layer.show` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.

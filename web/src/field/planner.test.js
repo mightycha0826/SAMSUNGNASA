@@ -1,7 +1,7 @@
 // node --test src/field/planner.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPath, inflate } from './planner.js';
+import { planPath, planVia, inflate, impassable } from './planner.js';
 
 function room(cols = 60, rows = 60) {
   return { originXZ: [-3, -3], cellSizeM: 0.1, cols, rows, cells: new Uint8Array(cols * rows) };
@@ -65,4 +65,120 @@ test('unknown floor is walkable', () => {
   const g = room();
   g.cells.fill(255);
   assert.equal(planPath(g, [-2, -2], [2, 2]).blocked, false);
+});
+
+// Two walls across the room with an opening of `gapM` between them at x = 0.
+function gapRoom(gapM) {
+  const g = room();
+  wall(g, -3, -0.1, -gapM / 2 - 0.001, 0.1);
+  wall(g, gapM / 2 + 0.001, -0.1, 3, 0.1);
+  return g;
+}
+
+test('a 30 cm gap can be squeezed through', () => {
+  const r = planPath(gapRoom(0.3), [0, -2], [0, 2]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.distanceM < 4.5, `straight through expected, got ${r.distanceM}`);
+});
+
+test('a 30 cm gap whose sides fall inside cells (2 free cells) still passes', () => {
+  const g = room();
+  wall(g, -3, -0.1, -0.11, 0.1);
+  wall(g, 0.11, -0.1, 3, 0.1); // free: the cells at x = -0.05 and 0.05
+  assert.equal(planPath(g, [0, -2], [0, 2]).blocked, false);
+});
+
+test('a 10 cm gap is too narrow', () => {
+  const g = room();
+  wall(g, -3, -0.1, -0.01, 0.1);
+  wall(g, 0.11, -0.1, 3, 0.1); // free: one cell
+  assert.equal(planPath(g, [0, -2], [0, 2]).blocked, true);
+  const blocked = impassable(g);
+  assert.equal(blocked[30 * g.cols + 30], 1, 'the cell in the gap is not walkable');
+});
+
+test('a diagonal pinch between two corners is too narrow', () => {
+  const g = room(20, 20);
+  g.cells[9 * 20 + 9] = 1;
+  g.cells[11 * 20 + 11] = 1; // (10, 10) sits between the two corners
+  assert.equal(impassable(g)[10 * 20 + 10], 1);
+  assert.equal(impassable(g)[10 * 20 + 12], 0);
+});
+
+test('a wide way a little longer is taken instead of the squeeze', () => {
+  const g = room();
+  wall(g, -3, -0.1, -1.6, 0.1); // a 1 m opening at x = -1.6 .. -0.6
+  wall(g, -0.6, -0.1, -0.151, 0.1);
+  wall(g, 0.151, -0.1, 3, 0.1); // and a 30 cm gap at x = 0
+  const r = planPath(g, [0, -1], [0, 1]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.points.some((p) => p[0] < -0.7), `expected the wide opening: ${JSON.stringify(r.points)}`);
+});
+
+test('the squeeze is taken when the wide way is far', () => {
+  const g = room();
+  wall(g, -2.0, -0.1, -0.151, 0.1); // the only other opening is at the far left wall
+  wall(g, 0.151, -0.1, 3, 0.1);
+  const r = planPath(g, [1, -1], [1, 1]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.points.every((p) => p[0] > -1), `expected the gap at x = 0: ${JSON.stringify(r.points)}`);
+});
+
+test('known floor is preferred to unseen floor: the known way is taken unless it is three times as long', () => {
+  // The straight way from A to B (4 m) lies on floor nobody has seen; a corridor of known floor
+  // goes around it.
+  const make = (detourHalfM) => {
+    const g = room(120, 120); // 12 m square, origin -3
+    g.originXZ = [-6, -6];
+    g.cells.fill(255);
+    const known = (x0, z0, x1, z1) => {
+      for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) {
+        const x = g.originXZ[0] + (c + 0.5) * g.cellSizeM;
+        const z = g.originXZ[1] + (r + 0.5) * g.cellSizeM;
+        if (x >= x0 && x <= x1 && z >= z0 && z <= z1) g.cells[r * g.cols + c] = 0;
+      }
+    };
+    known(-2.6, -0.6, -1.4, detourHalfM + 0.6); // up from A
+    known(-2.6, detourHalfM - 0.6, 2.6, detourHalfM + 0.6); // across
+    known(1.4, -0.6, 2.6, detourHalfM + 0.6); // down to B
+    return g;
+  };
+  const viaKnown = (r) => r.points.some((p) => p[1] > 0.5);
+  // The known way is 4 + 2 x 1.5 = 7 m against 4 m of unseen floor (costing 12): it is taken.
+  assert.equal(viaKnown(planPath(make(1.5), [-2, 0], [2, 0])), true);
+  // A known way of 4 + 2 x 5 = 14 m is more than three times the direct 4 m: straight across.
+  assert.equal(viaKnown(planPath(make(5), [-2, 0], [2, 0])), false);
+});
+
+test('a waypoint nearly on the way is passed; one that would be a detour is not', () => {
+  const g = room();
+  const direct = planPath(g, [-2, 0], [2, 0]);
+  const near = planVia(g, [-2, 0], [2, 0], [{ id: 'near', at: [0, 0.3] }, { id: 'far', at: [0, 2] }]);
+  assert.deepEqual(near.via, ['near']);
+  assert.ok(near.distanceM <= direct.distanceM + 0.5, `${near.distanceM} against ${direct.distanceM}`);
+  assert.ok(near.points.some(([x, z]) => Math.hypot(x, z - 0.3) < 0.08), 'the route goes through the waypoint');
+  assert.ok(Math.abs(length(near.points) - near.distanceM) < 1e-6);
+});
+
+test('several waypoints are passed in the order they lie on the way, while the allowance lasts', () => {
+  const g = room();
+  // Given out of order; each costs a few centimetres, all three together about 0.2 m.
+  const stops = [{ id: 'c', at: [1.2, 0.2] }, { id: 'a', at: [-1.2, 0.2] }, { id: 'b', at: [0, -0.2] }];
+  const r = planVia(g, [-2.5, 0], [2.5, 0], stops);
+  assert.deepEqual(r.via, ['a', 'b', 'c']);
+  assert.ok(r.distanceM <= 5 + 0.5 + 1e-6, String(r.distanceM));
+  // Each of these would fit alone (0.31 m each), but not both: only one is taken.
+  const two = planVia(g, [-2.5, 0], [2.5, 0], [{ id: 'p', at: [-1, 0.75] }, { id: 'q', at: [1, -0.75] }]);
+  assert.equal(two.via.length, 1);
+});
+
+test('waypoints at the start or the goal, or behind a wall, are no stops; no waypoints: the direct route', () => {
+  const g = room();
+  wall(g, -3, 0.9, 3, 1.1); // a wall across the room: what lies beyond it cannot be reached
+  const direct = planPath(g, [-2, 0], [2, 0]);
+  const r = planVia(g, [-2, 0], [2, 0], [{ id: 'here', at: [-1.8, 0] }, { id: 'there', at: [2, 0.3] }, { id: 'beyond', at: [0, 1.25] }]);
+  assert.deepEqual(r.via, []);
+  assert.deepEqual(r.points, direct.points);
+  assert.deepEqual(planVia(g, [-2, 0], [2, 0]).via, []);
+  assert.deepEqual(planVia(null, [0, 0], [3, 4], [{ id: 'w', at: [1.5, 2.05] }]).via, ['w']);
 });

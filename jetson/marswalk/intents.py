@@ -10,6 +10,9 @@ Matching is built for a speech recognizer that makes small mistakes:
      length; a similarity of at least min_score counts ("thermo mat" for "thermal map").
 Very short phrases (under 5 letters) must match exactly: "stop" must not match "shop".
 The best score wins; on a tie the longest phrase wins, so specific commands beat general ones.
+
+The command list is kept to what the demo needs (status, navigate, base, mark target, stop,
+confirm, and the four layer names). More phrases mean more false triggers from ordinary talk.
 """
 import json
 import logging
@@ -116,7 +119,10 @@ class CommandSet:
                 say = _VAR.sub(lambda m: said[m.group(1)], label)
                 slots = {k: (_VAR.sub(lambda m: value.get(m.group(1), m.group(0)), v)
                              if isinstance(v, str) else v) for k, v in cmd.get("slots", {}).items()}
-                out.append({"say": say[:1].upper() + say[1:], "intent": cmd["intent"], "slots": slots})
+                entry = {"say": say[:1].upper() + say[1:], "intent": cmd["intent"], "slots": slots}
+                if cmd.get("mode"):
+                    entry["mode"] = cmd["mode"]   # shown only in this mode of the app
+                out.append(entry)
         return out
 
     def _score(self, phrase: list[str], heard: list[str], heard_joined: str) -> float:

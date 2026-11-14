@@ -1,3 +1,5 @@
+import { NAV } from './config.js';
+
 export function createPlanningPanel({ plan, stop }) {
   const root = document.createElement('section'); root.id = 'route-planner'; root.setAttribute('aria-label', 'Planetary route planner');
   root.innerHTML = `<style>
@@ -16,7 +18,7 @@ export function createPlanningPanel({ plan, stop }) {
   <label for="route-target">Destination</label><select id="route-target"></select>
   <button id="route-plan" type="button">Plan route</button><button id="route-stop" class="secondary" type="button">Cancel</button>
   <output id="route-analysis" aria-live="polite">Select a start and destination.</output>
-  <small>Distance: map metres · unknown terrain risk ×3<br>Cells steeper than 20° excluded.</small>`;
+  <small>Distance: map metres · unknown terrain risk ×${NAV.unknownMultiplier}<br>Cells steeper than ${NAV.maxSlopeDeg}° excluded.</small>`;
   document.body.appendChild(root);
   const get = id => root.querySelector(`#${id}`), start = get('route-start'), target = get('route-target');
   const col = get('route-col'), row = get('route-row'), output = get('route-analysis');
@@ -39,7 +41,8 @@ export function createPlanningPanel({ plan, stop }) {
       }
       const custom = document.createElement('option'); custom.value = 'custom'; custom.textContent = 'Custom cell'; start.appendChild(custom);
       start.value = waypoints.some(w => w.id === 'base') ? 'base' : waypoints[0]?.id ?? 'custom';
-      target.value = waypoints.some(w => w.id === 'site1') ? 'site1' : waypoints.at(-1)?.id ?? '';
+      // The nearby destination (core/waypoints.js) when there is one: a short route to start with.
+      target.value = ['near', 'site1'].find(id => waypoints.some(w => w.id === id)) ?? waypoints.at(-1)?.id ?? '';
       col.max = layerSet.grid.cols - 1; row.max = layerSet.grid.rows - 1; setStart();
       get('route-dataset').textContent = `${layerSet.mock ? 'Synthetic example' : layerSet.site?.name ?? 'Map'} · ${layerSet.grid.cols}×${layerSet.grid.rows} · ${layerSet.grid.cellSizeM} m/cell`;
     },

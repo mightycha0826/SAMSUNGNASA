@@ -3,7 +3,7 @@
 
 export const STRINGS = {
   en: {
-    suit: 'Suit temp',
+    suit: 'Ambient temp',
     word: { normal: 'Normal', warn: 'High', crit: 'Critical' },
     lastValue: 'last value',
     distance: 'Distance',
@@ -20,7 +20,7 @@ export const STRINGS = {
     geoUnit: 'Geologic unit',
     layer: 'Layer',
     alerts: {
-      'suit-temp': { warn: 'Suit temperature high', critical: 'Suit temperature critical' },
+      'suit-temp': { warn: 'Ambient temp high', critical: 'Ambient temp critical' },
       radiation: { warn: 'Radiation high', critical: 'Radiation critical' },
       'link-lost': { warn: 'Suit hub link lost', critical: 'Suit hub link lost' },
       'route-blocked': { warn: 'Route blocked', critical: 'Route blocked' },
@@ -36,10 +36,10 @@ export const STRINGS = {
     relative: 'Relative brightness',
     keys: ['■ Base', '◆ Survey site', '▲ You'],
     layers: { topo: 'Elevation', slope: 'Slope', optical: 'Optical', thermal: 'Thermal' },
-    waypoints: { base: 'Base', site1: 'Survey site 1', mark: 'target' },
+    waypoints: { base: 'Base', site1: 'Survey site 1', mark: 'target', near: 'nearby point', pick: 'selected point' },
   },
   ko: {
-    suit: '슈트 온도',
+    suit: '주변 온도',
     word: { normal: '정상', warn: '높음', crit: '위험' },
     lastValue: '마지막 값',
     distance: '남은 거리',
@@ -56,7 +56,7 @@ export const STRINGS = {
     geoUnit: '지질 단위',
     layer: '레이어',
     alerts: {
-      'suit-temp': { warn: '슈트 온도 높음', critical: '슈트 온도 위험' },
+      'suit-temp': { warn: '주변 온도 높음', critical: '주변 온도 위험' },
       radiation: { warn: '방사선 높음', critical: '방사선 위험' },
       'link-lost': { warn: '슈트 허브 연결 끊김', critical: '슈트 허브 연결 끊김' },
       'route-blocked': { warn: '경로 막힘', critical: '경로 막힘' },

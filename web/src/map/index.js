@@ -1,6 +1,9 @@
 // map — 손바닥 지도, 레이어 표시 (D, 안현상)
 //
-// 받는 이벤트: layers:ready, layer:toggle, nav:route, hazard:update(P1)
+// 받는 이벤트: layers:ready, layer:toggle, nav:route, nav:position, hazard:update(P1),
+//              waypoint:set { id, label, cell: [col, row] }, waypoint:remove { id }
+// What stands on the map (the wearer, the target, waypoints, the picked place, the route) has
+// the shapes the field map uses (core/markers.js), so the two maps read alike.
 // 보내는 이벤트: 없음
 // 형식: docs/INTERFACES.md 3장
 //
@@ -27,98 +30,99 @@
 
 import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
-import { mapPoint, range, terrainArrays } from './terrain.js';
-import { PALM, leftPalm, makePalmState } from '../core/palm.js';
+import { mapPoint, range, sampleHeight, terrainArrays } from './terrain.js';
+import { PALM, leftPalm, handOpen, makePalmState } from '../core/palm.js';
+import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption, fadeBeyondCircle } from '../core/hologram.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
+import { MARK, makeYou, makeTarget, makeWaypoint, makePin, setLabel, place } from '../core/markers.js';
+import { makeRibbon, GUIDE } from '../field/guide.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
 let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
-let routePoints = [], routeLine, off = [], textures = new Map();
+let routePoints = [], routeBand = null, targetMarker = null, off = [], textures = new Map();
+// Waypoints the wearer marked (hud): id -> { id, label, cell }, and the marker of each on the map as it is built now.
+const marked = new Map(), markedMarkers = new Map();
+const lookDir = new THREE.Vector3(), toMap = new THREE.Vector3(), eyeAt = new THREE.Vector3();
+// How much of the map shows: `content` (the terrain and all that stands on it) is enlarged
+// `zoom` times and moved under the hologram's circle so that the wearer stays in its middle;
+// what leaves the circle fades out (core/hologram.js) or is hidden. zoom 1: the whole map.
+let content = null, zoom = 1, wantZoom = 1, me = null, laidFor = '', captionZoom = 1;
+const view = { zoom: { value: 1 }, shift: { value: new THREE.Vector2() } }; // for the fade of everything on the map
+const placed = new Map(); // marker -> { p: [x, y, z] its place on the surface, lift }
+let routeRaw = []; // the route's points on the surface, before lift
+/** Put a marker over a place of the surface. It keeps its size whatever the zoom. */
+function put(marker, p, lift) { placed.set(marker, { p, lift }); lay(marker); }
+function unput(marker) { if (marker) { placed.delete(marker); marker.visible = false; } }
+function lay(marker) {
+  const { p, lift } = placed.get(marker);
+  place(marker, p[0], p[1], p[2], lift / zoom);
+  const s = marker.getObjectByName('stem'); if (s) s.scale.y = lift; // the marker is scaled 1 / zoom, its stem with it
+  marker.scale.setScalar(1 / zoom);
+  // Outside the circle a marker would stand in the air beside the map.
+  marker.visible = Math.hypot(p[0] * zoom + view.shift.value.x, p[2] * zoom + view.shift.value.y) <= MAP.widthM * 0.49;
+}
+/** Enlarge and move the content for the zoom in use, and put everything on it in place again when that changed. */
+function applyZoom() {
+  if (!content) return;
+  const f = Math.min(1, (zoom - 1) / 0.5); // from the whole map centred to the wearer centred, over the first half step of zoom
+  const at = me ?? [0, 0, 0];
+  content.scale.setScalar(zoom);
+  content.position.set(-zoom * at[0] * f, (1 - zoom) * at[1] * f, -zoom * at[2] * f);
+  view.zoom.value = zoom; view.shift.value.set(content.position.x, content.position.z);
+  const key = `${zoom.toFixed(3)}|${content.position.x.toFixed(4)}|${content.position.z.toFixed(4)}`;
+  if (key === laidFor) return;
+  laidFor = key;
+  for (const marker of placed.keys()) lay(marker);
+  layRoute();
+  if (Math.abs(zoom - captionZoom) > 0.08 * captionZoom || (zoom === 1) !== (captionZoom === 1)) caption();
+}
+function layRoute() {
+  if (!routeBand) return;
+  const lift = MARK.youLiftM * 0.45 / zoom;
+  routeBand.mesh.visible = routeRaw.length > 1;
+  routeBand.set(routeRaw.length > 1 ? routeRaw.map(p => [p[0], p[1] + lift, p[2]]) : [], 0.0024 / zoom);
+}
+/** The zoom follows where the map is held: toward the middle of the view it shows all of it. */
+let forcedZoom = null; // PC testing: window.__map.zoom(3)
+function aimZoom(frame) {
+  if (forcedZoom != null) { zoom = wantZoom = forcedZoom; return; }
+  if (!frame.session || !root.visible) { wantZoom = 1; zoom = 1; return; }
+  ctx.camera.getWorldDirection(lookDir);
+  toMap.copy(root.position).sub(ctx.camera.getWorldPosition(eyeAt));
+  const off = THREE.MathUtils.radToDeg(toMap.angleTo(lookDir));
+  const [far, near] = MAP.zoomAtDeg;
+  wantZoom = 1 + (MAP.zoomMax - 1) * THREE.MathUtils.smoothstep(off, near, far);
+  zoom += (wantZoom - zoom) * (1 - Math.exp(-MAP.zoomRate * Math.min(0.1, frame.dt ?? 0.016)));
+  if (Math.abs(zoom - 1) < 0.004) zoom = 1;
+}
 const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
 const palmState = makePalmState();
 const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
 let beam = null;
 
-// A faint cone of light from the palm up to the map, so the map reads as projected from the hand.
-function makeBeam() {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((BEAM_SEGMENTS + 2) * 3), 3));
-  const index = [];
-  for (let i = 1; i <= BEAM_SEGMENTS; i++) index.push(0, i, i + 1);
-  geometry.setIndex(index);
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x8ab4ff, transparent: true, opacity: 0.13,
-    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }));
-  mesh.name = 'palm-beam'; mesh.frustumCulled = false; mesh.renderOrder = -1;
-  return mesh;
-}
-const BEAM_SEGMENTS = 24;
-// Apex at the palm (given in the map's own frame), rim under the edge of the map.
-function updateBeam(apex) {
-  const p = beam.geometry.attributes.position, r = MAP.widthM * 0.42;
-  p.setXYZ(0, apex.x, apex.y, apex.z);
-  for (let i = 0; i <= BEAM_SEGMENTS; i++) {
-    const t = (i / BEAM_SEGMENTS) * Math.PI * 2;
-    p.setXYZ(i + 1, Math.cos(t) * r, -0.004, Math.sin(t) * r);
-  }
-  p.needsUpdate = true;
-}
-
+// The beam from the palm and the caption on the map's cylinder are shared with the field map
+// (core/hologram.js), so the two maps look and behave alike.
+const updateBeam = apex => aimBeam(beam, apex, MAP.widthM);
 function disposeObject(object) {
   object?.traverse(o => { o.geometry?.dispose(); if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose(); });
   object?.removeFromParent();
 }
-// The caption is a card standing on the side of an imaginary cylinder whose top face is the map:
-// it hangs just below the map's edge, tangent to the cylinder, on the side nearest the wearer,
-// and slides around the cylinder as the wearer moves so that it always faces them.
-// leanDeg tips the card outward: its top edge stays under the map's rim and its bottom swings
-// toward the wearer, so it is readable when looking down at the map.
-const CAPTION = { wM: 0.28, hM: 0.07, radiusM: MAP.widthM / 2 + 0.012, dropM: 0.006, leanDeg: 35 };
-function makeLabel() {
-  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const card = new THREE.Mesh(new THREE.PlaneGeometry(CAPTION.wM, CAPTION.hM),
-    new THREE.MeshBasicMaterial({ map: texture, depthTest: false, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
-  card.name = 'map-caption'; card.renderOrder = 8;
-  card.userData = { canvas, texture }; root.add(card); return card;
-}
-const capRadial = new THREE.Vector3(), capX = new THREE.Vector3(), capBasis = new THREE.Matrix4();
-const capUp = new THREE.Vector3(), capNormal = new THREE.Vector3();
-function placeCaption() {
-  if (!label || !root.visible) return;
-  // Direction from the map centre to the viewer, in the map's own frame, flattened onto the map.
-  root.updateWorldMatrix(true, false);
-  ctx.camera.getWorldPosition(capRadial);
-  root.worldToLocal(capRadial);
-  capRadial.y = 0;
-  if (capRadial.lengthSq() < 1e-8) capRadial.set(0, 0, 1);
-  capRadial.normalize();
-  capX.crossVectors(upAxis, capRadial).normalize(); // card right = up x radial
-  // Lean: the card's face turns up toward the eyes, hinged at its top edge.
-  const lean = THREE.MathUtils.degToRad(CAPTION.leanDeg);
-  capNormal.copy(capRadial).multiplyScalar(Math.cos(lean)).addScaledVector(upAxis, Math.sin(lean));
-  capUp.copy(upAxis).multiplyScalar(Math.cos(lean)).addScaledVector(capRadial, -Math.sin(lean));
-  label.quaternion.setFromRotationMatrix(capBasis.makeBasis(capX, capUp, capNormal));
-  // top edge on the cylinder just under the rim; the centre is half a card down from it
-  label.position.copy(capRadial).multiplyScalar(CAPTION.radiusM);
-  label.position.y = -CAPTION.dropM;
-  label.position.addScaledVector(capUp, -CAPTION.hM / 2);
-}
+// The caption is a card standing on the side of an imaginary cylinder whose top face is the map
+// (core/hologram.js: the same card, placed the same way, as on the field map).
+function makeLabel() { return makeCaption(root, 'map-caption'); }
+function placeCaption() { if (label) putCaption(label, root, ctx.camera, MAP.widthM); }
 function caption(note = '') {
   if (!label || !data) return;
-  const g = label.userData.canvas.getContext('2d'); g.clearRect(0, 0, 1024, 256);
-  g.fillStyle = 'rgba(20,24,32,.93)'; g.fillRect(0, 0, 1024, 256);
-  g.fillStyle = '#f2f2f2'; g.font = '600 32px system-ui';
-  g.fillText(`${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`, 24, 40, 976);
+  captionZoom = zoom;
   const layer = data.layerSet.layers.find(l => l.id === activeLayer);
-  g.font = '26px system-ui'; g.fillStyle = '#c3c9da';
-  g.fillText(`${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`, 24, 78, 976);
-  g.fillText(`Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`, 24, 116, 976);
-  g.fillStyle = '#f4b575';
-  g.fillText(note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: start · orange: Curiosity · violet: planned route'), 24, 154, 976);
-  g.font = '22px system-ui'; g.fillStyle = '#c3c9da';
-  g.fillText('Route distances use map metres. Display size does not affect planning.', 24, 192, 976);
-  g.font = '20px system-ui'; g.fillText(layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'), 24, 230, 976);
-  label.userData.texture.needsUpdate = true;
+  writeCaption(label, [
+    `${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`,
+    `${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`,
+    zoom > 1.02 ? `Showing ${Math.round(transform.width / zoom / 10) * 10} m of ${transform.width} m around you · hold it in the middle of your view for all` : `Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`,
+    note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: you · orange diamond: target · blue: waypoints · violet: route'),
+    'Route distances use map metres. Display size does not affect planning.',
+    layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'),
+  ]);
 }
 function lineForCells(cells, color, name) {
   const vertices = []; let previous = null;
@@ -131,33 +135,60 @@ function lineForCells(cells, color, name) {
   // The terrain is drawn in the transparent pass, so anything meant to lie on top of it must be
   // transparent too and come later in the order; otherwise the terrain paints over it.
   const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
-  line.name = name; line.renderOrder = 4; root.add(line); return line;
+  fadeBeyondCircle(line.material, MAP.widthM, { view });
+  line.name = name; line.renderOrder = 4; content.add(line); return line;
 }
+/** The surface point of a cell in the map's frame, [x, y, z], or null off the terrain. */
+const onMap = cell => mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
 function drawRoute() {
-  disposeObject(routeLine); routeLine = null;
-  if (!data || !arrays) return;
+  if (!data || !arrays || !routeBand) return;
   const cells = [];
   for (let i = 1; i < routePoints.length; i++) {
     const a = worldToCell(transform, routePoints[i - 1]), b = worldToCell(transform, routePoints[i]);
     const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
     for (let k = 0; k <= steps; k++) cells.push([a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps]);
   }
-  // A tube instead of a one-pixel line: readable on a 25 cm map in the headset.
-  const points = [];
+  // A band just above the terrain, as on the field map: readable on a 25 cm map in the headset.
+  let points = [];
   for (const cell of cells) {
-    const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.0025);
-    if (p && (!points.length || points[points.length - 1].distanceToSquared(normal.fromArray(p)) > 1e-9)) points.push(new THREE.Vector3().fromArray(p));
+    const p = onMap(cell);
+    if (p && (!points.length || Math.hypot(p[0] - points[points.length - 1][0], p[2] - points[points.length - 1][2]) > 1e-5)) points.push(p);
   }
-  if (points.length < 2) return;
-  const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false, 'centripetal'), Math.min(400, points.length * 2), 0.0013, 6, false);
-  routeLine = new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0x8e9dff, depthTest: false, transparent: true }));
-  routeLine.name = 'map-planned-route'; routeLine.renderOrder = 5; root.add(routeLine);
+  if (points.length > ROUTE_SEGMENTS) { const every = Math.ceil(points.length / ROUTE_SEGMENTS); points = points.filter((_, i) => i % every === 0 || i === points.length - 1); }
+  routeRaw = points;
+  layRoute();
+  // The target: where the route ends.
+  const end = routePoints.length > 1 ? onMap(worldToCell(transform, routePoints[routePoints.length - 1])) : null;
+  if (end) put(targetMarker, end, MARK.targetLiftM); else unput(targetMarker);
 }
+const ROUTE_SEGMENTS = 480;
 function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
-  const p = mapPoint(data.grids.topo, data.layerSet.grid, worldToCell(transform, point), arrays.min, MAP.widthM, 0.003);
-  currentMarker.visible = !!p; if (p) currentMarker.position.fromArray(p);
+  const p = onMap(worldToCell(transform, point));
+  me = p ?? me; // the zoomed map is centred on the wearer
+  if (p) put(currentMarker, p, MARK.youLiftM); else unput(currentMarker);
+  applyZoom();
 }
+/** Keep the markers of the marked waypoints in step with the list, on the map as it is built now. */
+function syncMarked() {
+  for (const [id, marker] of markedMarkers) if (!marked.has(id) || marker.parent !== content) { unput(marker); marker.removeFromParent(); markedMarkers.delete(id); }
+  if (!data || !arrays) return;
+  for (const w of marked.values()) {
+    let marker = markedMarkers.get(w.id);
+    if (!marker) { marker = makeWaypoint(w.label); marker.name = `map-marked-${w.id}`; content.add(marker); markedMarkers.set(w.id, marker); }
+    setLabel(marker, w.label);
+    const p = onMap(w.cell);
+    if (p) put(marker, p, MARK.waypointLiftM); else unput(marker);
+  }
+}
+/** Every frame: the wearer's arrow points where they face (north on the map is -z), the target turns. */
+function tickMarkers() {
+  if (!root?.visible || !data) return;
+  if (currentMarker) { ctx.camera.getWorldDirection(lookDir); currentMarker.rotation.y = -Math.atan2(lookDir.x, -lookDir.z); }
+  if (targetMarker?.visible) targetMarker.rotation.y = performance.now() / 900;
+}
+/** How many times larger than the whole map the map is shown right now (hud: distances on the map). */
+export const mapZoom = () => zoom;
 function numericTexture(id) {
   const grid = data.grids[id]; if (!grid) throw new Error(`missing-${id}`);
   const bounds = range(grid), out = new Uint8Array(grid.length * 4);
@@ -216,7 +247,8 @@ function clearData() {
   for (const texture of textures.values()) texture.dispose(); textures.clear();
   if (label) label.userData.texture.dispose();
   if (root) for (const child of [...root.children]) disposeObject(child);
-  surface = label = currentMarker = routeLine = beam = null; data = arrays = transform = null;
+  surface = label = currentMarker = routeBand = targetMarker = beam = content = null; data = arrays = transform = null; markedMarkers.clear();
+  placed.clear(); routeRaw = []; me = null; laidFor = '';
   routePoints = []; activeLayer = null;
 }
 function load(payload) {
@@ -227,30 +259,111 @@ function load(payload) {
     geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(arrays.uv, 2));
     geometry.setIndex(arrays.indices); geometry.computeVertexNormals();
     surface = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, alphaTest: 0.01 }));
-    surface.name = 'map-terrain'; root.add(surface);
+    content = new THREE.Group(); content.name = 'map-content'; root.add(content);
+    fadeBeyondCircle(surface.material, MAP.widthM, { view }); // the map dissolves outside the circle its hologram stands on
+    surface.name = 'map-terrain'; content.add(surface);
     lineForCells(data.traverse?.points?.map(p => p.cell) ?? [], 0xf27a0a, 'map-curiosity-traverse');
+    // The places the data names (base, survey site, the nearby point): waypoints, as the ones the wearer marks.
     for (const wp of data.layerSet.waypoints ?? []) {
-      const p = mapPoint(data.grids.topo, data.layerSet.grid, wp.cell, arrays.min, MAP.widthM, 0.002);
+      const p = onMap(wp.cell);
       if (!p) continue;
-      const marker = new THREE.Mesh(new THREE.ConeGeometry(0.003, 0.01, 8), new THREE.MeshBasicMaterial({ color: wp.id === 'base' ? 0xf27a0a : 0xffffff, depthTest: false, transparent: true }));
-      marker.position.fromArray(p); marker.position.y += 0.005; marker.name = `map-waypoint-${wp.id}`; marker.renderOrder = 6; root.add(marker);
+      const marker = makeWaypoint(String(wp.labelEn ?? wp.label ?? wp.id).split(' · ')[0]);
+      marker.name = `map-waypoint-${wp.id}`; content.add(marker); put(marker, p, MARK.waypointLiftM);
     }
-    currentMarker = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba, depthTest: false, transparent: true }));
-    currentMarker.name = 'map-explorer'; currentMarker.renderOrder = 7; root.add(currentMarker);
+    routeBand = makeRibbon(ROUTE_SEGMENTS, new THREE.MeshBasicMaterial({ color: GUIDE.path, opacity: 0.95, side: THREE.DoubleSide, depthTest: false, transparent: true }));
+    fadeBeyondCircle(routeBand.mesh.material, MAP.widthM, { view });
+    routeBand.mesh.name = 'map-planned-route'; routeBand.mesh.renderOrder = 21; routeBand.mesh.visible = false; content.add(routeBand.mesh);
+    targetMarker = makeTarget(); targetMarker.name = 'map-target'; content.add(targetMarker);
+    currentMarker = makeYou(); currentMarker.name = 'map-explorer'; content.add(currentMarker);
     const base = data.layerSet.waypoints?.find(w => w.id === 'base');
-    if (base) setCurrent(cellToWorld(transform, base.cell)); else currentMarker.visible = false;
+    if (base) setCurrent(cellToWorld(transform, base.cell));
+    syncMarked();
     label = makeLabel(); caption();
   } catch (err) { console.warn('[map] 지형을 표시할 수 없습니다:', err.message); }
 }
+// ---- picking a place on the map (hud/index.js points a hand's ray at it) ----
+const rayFrom = new THREE.Vector3(), rayStep = new THREE.Vector3(), probe = new THREE.Vector3(), toLocal = new THREE.Matrix4();
+let pin = null;
+/** The cell under a point of the map's own frame, and the terrain's height there (map frame), or null off the map. */
+function cellAt(x, z) {
+  const grid = data.layerSet.grid, depth = MAP.widthM * grid.rows / grid.cols;
+  const cell = [(x / MAP.widthM + 0.5) * grid.cols - 0.5, (0.5 - z / depth) * grid.rows - 0.5];
+  const h = sampleHeight(data.grids.topo, grid, cell[0], cell[1]);
+  return Number.isFinite(h) ? { cell, y: (h - arrays.min) * MAP.widthM / (grid.cols * grid.cellSizeM) } : null;
+}
+/**
+ * Where a ray meets the terrain of the map: { cell: [col, row], point: Vector3 in room
+ * coordinates, t: metres along the ray }, or null when the map is not shown or the ray misses.
+ * The terrain is a height field, so the ray is walked in small steps until it goes under the
+ * surface, and the crossing is then narrowed down: no triangle is tested.
+ */
+export function pickOnMap(origin, direction, maxM = 3) {
+  if (!root?.visible || !data || !arrays || !content) return null;
+  content.updateWorldMatrix(true, false);
+  toLocal.copy(content.matrixWorld).invert();
+  rayFrom.copy(origin).applyMatrix4(toLocal);
+  rayStep.copy(origin).add(direction).applyMatrix4(toLocal).sub(rayFrom); // one metre of the ray, in the map's frame
+  const under = t => {
+    probe.copy(rayFrom).addScaledVector(rayStep, t);
+    const at = cellAt(probe.x, probe.z);
+    return at ? probe.y - at.y : NaN;
+  };
+  const STEPS = 160;
+  let before = NaN, tBefore = 0;
+  for (let i = 0; i <= STEPS; i++) {
+    const t = maxM * i / STEPS, gap = under(t);
+    if (before > 0 && gap <= 0) {
+      let a = tBefore, b = t;
+      for (let k = 0; k < 8; k++) { const mid = (a + b) / 2; if (under(mid) > 0) a = mid; else b = mid; }
+      probe.copy(rayFrom).addScaledVector(rayStep, b);
+      const at = cellAt(probe.x, probe.z);
+      if (!at || !inCircle(probe.x, probe.z)) return null; // off the terrain, or on a part of it that is outside the circle
+      return { cell: at.cell, point: content.localToWorld(new THREE.Vector3(probe.x, at.y, probe.z)), t: b };
+    }
+    before = gap; tBefore = t;
+  }
+  return null;
+}
+/** Where a cell of the map is in the room right now (for a card that stands over it), or null. */
+export function mapCellInRoom(cell) {
+  if (!root?.visible || !data || !arrays || !content) return null;
+  const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
+  return p && inCircle(p[0], p[2]) ? content.localToWorld(new THREE.Vector3().fromArray(p)) : null;
+}
+/** Is a point of the map's content inside the hologram's circle, at the zoom in use? */
+const inCircle = (x, z) => Math.hypot(x * zoom + view.shift.value.x, z * zoom + view.shift.value.y) <= MAP.widthM * 0.5;
+/** Put the pin on a cell of the map, or take it away (null). */
+export function showPick(cell) {
+  if (!root || !data || !arrays) return;
+  if (pin && pin.parent !== content) pin = null; // the map was rebuilt
+  if (!cell) { unput(pin); return; }
+  const p = onMap(cell);
+  if (!p) return;
+  if (!pin) { pin = makePin(); pin.name = 'map-pick'; content.add(pin); }
+  put(pin, p, 0);
+}
+/** The cell of a point in map metres ([x, 0, z], as nav:position gives it), or null before the data is there (hud: "Mark waypoint"). */
+export function cellOfMapPoint(point) {
+  return transform && point ? worldToCell(transform, point) : null;
+}
+/** Where the route on the map ends, as a cell, or null when there is none (hud: picking the target). */
+export function mapTargetCell() {
+  return transform && routePoints.length > 1 ? worldToCell(transform, routePoints[routePoints.length - 1]) : null;
+}
+
 export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
+  // PC testing without a headset: __map.zoom(3) shows the map three times larger around the wearer; __map.zoom(null) gives it back.
+  if (typeof window !== 'undefined') window.__map = { zoom: z => { forcedZoom = z; }, state: () => ({ zoom, shownM: transform ? transform.width / zoom : null, markers: [...placed.keys()].map(m => `${m.name}${m.visible ? '' : ' (hidden)'}`) }) };
   root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
   off.push(ctx.bus.on('layers:ready', load), ctx.bus.on('layer:toggle', ({ id, visible }) => { void selectLayer(id, visible); }),
     ctx.bus.on('nav:position', ({ point }) => setCurrent(point)), ctx.bus.on('nav:route', event => {
       if (event.frame === 'room') return; // field-mode routes are in room coordinates, not map metres
       if (event.points?.length) setCurrent(event.points[0]);
       routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
-    }));
+    }),
+    ctx.bus.on('waypoint:set', w => { if (w?.id != null && w.cell) { marked.set(w.id, { id: w.id, label: w.label ?? '', cell: w.cell }); if (root) syncMarked(); } }),
+    ctx.bus.on('waypoint:remove', ({ id }) => { if (marked.delete(id) && root) syncMarked(); }));
   off.push(ctx.xr.onSessionStart(session => {
     shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
@@ -264,6 +377,8 @@ export function init(context) {
   }));
 }
 export function update(frame) {
+  if (root && data) { aimZoom(frame); applyZoom(); }
+  tickMarkers();
   if (root && data && !frame.session) placeCaption(); // PC view
   if (!root || !data || !arrays || !frame.session) return;
   const { xrFrame, refSpace, session, time, dt } = frame;
@@ -277,7 +392,9 @@ export function update(frame) {
   if (left) {
     if (!wrist) { root.visible = false; shownSince = null; return; }
     const q = wrist.transform.orientation; wristQuat.set(q.x, q.y, q.z, q.w);
-    const up = normal.set(0, 1, 0).applyQuaternion(wristQuat).y < MAP.palmUpDot;
+    // The map shows over an open palm turned up; a hand that points or closes does not bring it up.
+    palmState.open = handOpen(left.hand, xrFrame, refSpace, palmState.open);
+    const up = normal.set(0, 1, 0).applyQuaternion(wristQuat).y < MAP.palmUpDot && palmState.open;
     if (!up) { shownSince = null; root.visible = false; return; }
     if (shownSince === null) shownSince = time;
     if (time - shownSince < MAP.holdMs) { root.visible = false; return; }

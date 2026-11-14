@@ -29,13 +29,13 @@ def temp_words(temp_c: float) -> str:
 
 
 def status_sentence(temp_c, source, alerts: dict, state: dict) -> str:
-    """Answer to "status report": suit temperature, active alerts, route state."""
+    """Answer to "status report": ambient temperature (the sensor on the suit), active alerts, route state."""
     parts = []
     if temp_c is not None:
-        parts.append(f"Suit temperature {temp_words(temp_c)}"
+        parts.append(f"Ambient temperature {temp_words(temp_c)}"
                      + (", simulated" if source == "mock" else ""))
     else:
-        parts.append("Suit temperature sensor is not responding")
+        parts.append("Ambient temperature sensor is not responding")
     if alerts:
         worst = "critical" if any(a.get("level") == "critical" for a in alerts.values()) else "warn"
         n = len(alerts)

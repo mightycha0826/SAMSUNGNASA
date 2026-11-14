@@ -17,30 +17,33 @@ Source: https://www.spaceappschallenge.org/resources/project-submission-guide/
 
 ## Before submitting
 
-The text below the line has no `[TODO]` marks left. It describes the project **as merged on 2026-11-14**. Check these before pressing Submit:
+The text below the line has no `[TODO]` marks left. It describes the project **as on `main` at 16:07 on 2026-11-14**. Check these before pressing Submit:
 
 - [ ] **Demo link.** The only thing still missing. Replace `DEMO LINK HERE` in "Link to Project Demo" with the public link (video of 30 s or less, or 7 slides or fewer).
-- [ ] **If a feature changes before the deadline, change its sentence.** The table below says what the text assumes. In particular: if A's obstacle scan or the destination photo gets built, move it from "Next steps" to "What it does"; if the app is run on the headset, update the "What has been tested" paragraph.
+- [ ] **Headset results.** Nothing in the repository records a run on the Quest 3, so "What has been tested" says the headset-only parts do not run in a desktop browser. Once the team has run them on the headset, replace that bullet with what actually happened (what worked, what did not).
+- [ ] **If a feature changes before the deadline, change its sentence.** The table below says what the text assumes.
 - [ ] **Use of Super Intelligence.** Filled in from the repository (commit records and file contents). Each member should confirm it and add any tool that is not listed.
 - [ ] Open the demo link and the final project link in a private window.
 - [ ] Ask B to make `main` the default branch of the repository. The final project link points to `main`; the repository's front page still shows an old branch.
 - [ ] Choose the images to upload to the submission page. `docs/figures/layers.png` (the four layers) and `route.png` (route comparison) are ready. Images up to 10 MB can be uploaded directly.
 
-**What the text assumes is built** (from the code on `main`, 2026-11-14):
+**What the text assumes is built** (from the code on `main`):
 
 | Part | Slot | State |
 |---|---|---|
 | NASA data layers, checks, figures | C | Built. 54 checks pass |
 | Skeleton, event bus, loader, mock mode, radiation alert | B | Built |
-| HUD: status panel, alerts, layer tabs and legend | B, F | Built |
+| HUD: status panel, alerts, layer tabs and legend, command menu operated by pointing and pinching | B, F | Built. 11 tests on the pointer pass |
 | Palm map with four layers, Curiosity's path, waypoints | D | Built |
-| Route planner on the slope layer, return to base on a critical alert | D | Built. 18 tests pass. The route is drawn on the map, not as arrows on the floor |
-| Suit hub, temperature alerts, voice assistant, firmware | E | Built. Voice measured with synthetic speech only; no sensor wired yet |
-| Field obstacle scan (`web/src/scan/`) | A | **Not built** (empty module). The planner accepts obstacle grids, but nothing feeds it from the headset |
+| Route planner on the slope layer, return to base on a critical alert | D | Built. 18 tests pass. The route is drawn on the map |
+| Wearer's position on the map from head tracking | B | Built |
+| Field obstacle scan from the headset's room model (`web/src/scan/`) | A | Built. Uses the room geometry the Quest 3 stores. Live depth is laid over it in field mode: written and tested off the headset, **not yet checked on the headset** |
+| Field map mode: 1 : 1 relief map, scanned structure standing on it, arrows on the floor (`web/src/field/`) | A, B | Built. 6 tests on its path planner pass |
+| Suit hub, temperature alerts, voice assistant, firmware | E | Built. Voice measured with synthetic speech only. The temperature sensor is wired and read by the hub; warming it by hand raises the alerts |
 | Destination photo on the HUD | F | **Not built**. The photos are ready in `pov.json` |
 | Run on the Quest 3 headset | all | **Not recorded anywhere in the repository** |
 
-Where the numbers come from: every data number in the text was computed from the actual files by `data-pipeline/validate.py` (`data-pipeline/validation_report.json`); the route numbers are from `web/src/nav/README.md`; the voice numbers are from `jetson/README.md`. The files are described in [DATA.md](DATA.md) and the source data in [RESOURCES.md](RESOURCES.md).
+Where the numbers come from: every data number in the text was computed from the actual files by `data-pipeline/validate.py` (`data-pipeline/validation_report.json`); the route numbers are from `web/src/nav/README.md`; the voice numbers are from `jetson/README.md`; the scan and field-mode numbers are the constants in `web/src/scan/index.js` and `web/src/field/index.js`. The files are described in [DATA.md](DATA.md) and the source data in [RESOURCES.md](RESOURCES.md).
 
 ---
 
@@ -50,17 +53,18 @@ Marswalk Visor
 
 ## High-Level Project Summary
 
-**Marswalk Visor** is a helmet heads-up display for an astronaut walking on Mars. It layers data from four NASA Mars missions into one map of a single walkable site, plans a route across it that a person in a spacesuit could walk, and keeps the crew's safety data in view while their hands stay free.
+**Marswalk Visor** is a helmet heads-up display for an astronaut walking on Mars. It layers data from four NASA Mars missions into one map of a single walkable site, plans a route across it that a person in a spacesuit could walk, rewrites the map with what the helmet itself sees nearby, and keeps the crew's safety data in view while their hands stay free.
 
 Orbital maps of Mars are built for regional views. At the scale of a spacewalk they run out of detail: across our 2 km site the best optical image resolves about 0.64 m per pixel, and the thermal image is only 25 pixels wide. NASA's own experience at our site shows the gap. When the Curiosity rover reached a pale patch of ground in Gediz Vallis channel, it found a field of pure sulfur stones that, as JPL reported, had been "too small for MRO's High-Resolution Imaging Science Experiment (HiRISE) to see."
 
-Our display has three parts:
+Our display has four parts:
 
 1. **Orbital map** — terrain, slope, optical and thermal data from NASA orbiters, shown as a 3D map that appears above the astronaut's open palm, with the path Curiosity actually drove drawn on it.
 2. **Route** — a path from base to the survey site computed from the slope of the terrain, checked against the path a real rover took between the same two points.
-3. **Survival information** — radiation, air pressure and temperature measured by Curiosity at this site, suit temperature, and an emergency mode that redirects the astronaut to base.
+3. **Field map** — the same map zoomed to the 20 m around the astronaut, where the orbital data is a blur. Whatever the helmet has scanned there replaces the blur, and the way back to a marked spot is drawn as arrows on the ground.
+4. **Survival information** — radiation, air pressure and temperature measured by Curiosity at this site, the temperature around the suit, and an emergency mode that redirects the astronaut to base.
 
-It matters because a crew on foot needs one view of the exact place they are walking, built from everything the orbiters and rovers already know about it, and honest about where that knowledge stops.
+It matters because a crew on foot needs one view of the exact place they are walking, built from everything the orbiters and rovers already know about it, honest about where that knowledge stops, and able to take over from there.
 
 ## Link to Project Demo
 
@@ -84,12 +88,17 @@ We chose a site Curiosity explored so that orbital data, ground-truth positions,
 
 ### What it does
 
-- **Palm map.** Turning the left palm up brings up a 3D model of the site, 25 cm across, above the hand. The astronaut switches between four layers: elevation, slope, optical image and night thermal image. Curiosity's actual path is drawn on the map in orange, with markers for base and the survey site, and the credit for the layer on display is shown beside it.
-- **Route.** The route from base to the survey site is computed from the slope layer and drawn on the map. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. The planned route is 390 m long, climbs 45 m, and never crosses ground steeper than 14.9°. A panel shows its length, ascent, descent and slopes.
-- **Safety.** A status panel in the corner of the view shows suit temperature, radiation, air pressure and temperature, the elevation of the survey site and the geologic unit. A suit temperature above the warning level draws an orange border; above the critical level the edges of the view flash red, a spoken alert plays, and the route changes to lead back to base. Radiation raises the same alerts if it climbs well above the values Curiosity measured here, as it would in a solar particle event.
-- **Voice.** The astronaut speaks commands in English: "Take me to the survey site", "Return to base", "Show the thermal map", "Status report", "Acknowledge alert". Speech is recognized and answered on a small computer carried with the suit (an NVIDIA Jetson), with no internet connection. A spoken status report reads out suit temperature, alerts and route state, and the display shows what was heard so the wearer knows the command was taken.
+The start page offers two modes, **Mars map** and **Field map**.
 
-Everything is controlled by a palm gesture and voice, because gloved hands cannot press buttons.
+- **Palm map.** Turning the left palm up brings up a 3D model of the site, 25 cm across, above the hand. The astronaut switches between four layers: elevation, slope, optical image and night thermal image. Curiosity's actual path is drawn on the map in orange, with markers for base and the survey site, and the credit for the layer on display is shown beside it.
+- **Route.** The route from base to the survey site is computed from the slope layer and drawn above the terrain on the map. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. The planned route is 390 m long, climbs 45 m, and never crosses ground steeper than 14.9°. A panel shows its length, ascent, descent and slopes.
+- **Where you are.** The headset's tracking of the wearer's head moves a marker on the map. On the 2 km map a real step is magnified (one meter walked counts as 100 m) so that crossing a room crosses a visible part of the site.
+- **Field map.** In this mode the astronaut is taken to be standing at base. The palm map shows the 20 m around them at true scale, where the orbital image is only a few dozen pixels. Like the 2 km map it is a small relief above the palm: the Mars terrain is its ground, and wherever the helmet has scanned the surroundings, the map is redrawn with what is really there, structure standing on clear ground. Everywhere else it is still the NASA data. Saying "Mark target" sets a target at the spot where the astronaut stands; after walking away, the way back is planned around the scanned obstacles and shown both as arrows on the ground and as a line on the map.
+- **Safety.** Readings stand as tiles beside the line of sight: battery, oxygen and the temperature around the suit always, and beside them whatever matters most at the moment (heart rate, body temperature, radiation, the distance left on a route). An ambient temperature above the warning level brings its tile to the middle of the view, raises an alert card and lights the whole view softly in orange with each alarm beep; above the critical level the light is red, a spoken alert plays, and the route changes to lead back to base. The alert steps back down as the temperature falls. Radiation raises the same alerts if it climbs well above the values Curiosity measured here, as it would in a solar particle event. Only the ambient temperature and the battery are measured; oxygen, heart rate, suit pressure and body temperature are simulated and marked so.
+- **Voice.** The astronaut speaks short commands in English: "Take me to the survey site", "Return to base", "Show the thermal map", "Status report", "Mark waypoint", "Acknowledge". Speech is recognized and answered on a small computer carried with the suit (an NVIDIA Jetson), with no internet connection. A spoken status report reads out suit temperature, alerts and route state, and the display shows what was heard so the wearer knows the command was taken.
+- **Command menu.** Turning the back of the left hand up, as when looking at a watch, brings up the main commands as a card of large buttons above the hand. The astronaut points at it with the right hand from where that hand is, as with the headset's own hand pointer, and pinches to pick one: nothing has to be touched, and everything still works when speech is not an option.
+
+Everything is controlled by hand gestures and voice, because gloved hands cannot press buttons.
 
 ### How it works
 
@@ -97,19 +106,30 @@ A Python pipeline downloads the NASA data, cuts every source to the same map are
 
 The route planner works in real map meters on the terrain grid. Each cell costs its length times (1 + (slope / 15°)²); cells steeper than 20° are closed. It precomputes the cheapest way to each destination from every cell, so a new request or a change in the map is answered quickly, and it runs in a background worker so the display does not stall.
 
+The field map takes its obstacles from the model of the surroundings that the headset already keeps, read through WebXR mesh and plane detection. Every surface between 0.15 m and 1.9 m above the ground blocks the 10 cm cell under it; surfaces near the ground mark the cell as clear. A second, small planner finds the way back to the marked target around those cells. In our demo the surroundings are a room, so to the map it is as if a structure had appeared on Mars; on Mars the same step would add the rocks and ledges that orbital data cannot show.
+
 Everything outside the headset runs on an NVIDIA Jetson, standing in for the suit's computer. It serves the app to the headset over HTTPS, reads an Arduino temperature sensor (standing in for a suit sensor) once a second, decides when an alert starts and clears, and handles voice. Voice activity detection (Silero VAD), speech recognition (SenseVoice) and speech synthesis (Supertonic 3) all run on the Jetson's CPU through sherpa-onnx. A recognized sentence is matched to one of a fixed set of commands by a table of phrases the team wrote, not by a language model, so the assistant only does what is on the list.
 
 ### What has been tested
 
-- The data: 54 automated checks, including the cross-checks against Curiosity's record described under "NASA Data". Rebuilding all data files from the NASA sources gives byte-identical results.
+- The data: 54 automated checks, including the cross-checks against Curiosity's record described under "NASA Data". Rebuilding all data files from the NASA sources gives byte-identical results on the same system, and the same content on a second one (Linux on ARM), where the largest difference was 0.0000076° in the slope layer.
 - The route planner: 18 automated tests on the real terrain.
-- The suit hub: unit tests for alerts and commands. Voice recognition was measured with synthetic speech (18 of 18 commands), not yet with real voices and a real microphone.
-- The app: run in desktop browsers with the real data, where the map, the layers, the route, the status panel and the alerts work together.
+- The field map's planner: 6 automated tests on synthetic rooms (around a wall, sealed off, target next to a wall).
+- The hand pointer for the menus: 11 automated tests with a simulated hand (aiming, one press per pinch, a hand that twitches as it pinches).
+- The suit hub: unit tests for alerts and commands. Voice recognition was measured with synthetic speech (18 of 18 test sentences, before the command list was shortened to the seven the demo needs), not yet with real voices and a real microphone.
+- The app: run in desktop browsers with the real data, where the map, the layers, the route, the status panel and the alerts work together, and connected to the suit hub running on a PC, which sent its telemetry, alerts and synthesized speech to the app.
+- The parts that need the headset itself (hand tracking, the scan of the surroundings, the arrows on the ground) do not run in a desktop browser.
 - The temperature alert levels (30 °C and 35 °C) are starting values; they have not been tuned with a sensor on a person.
+
+### Limits of the field map
+
+- It relies on the model of the surroundings the headset stored when the space was set up. The code that lays the headset's live depth image over it, so that something put down afterwards shows up within a few seconds, is written and passes its tests, but we have not yet checked it on the headset.
+- It shows that something is in the way, not what it is.
+- The scan is laid over the NASA map at an assumed position (base). We do not locate the astronaut on Mars from the scan.
 
 ### Next steps
 
-- **Obstacles the orbit cannot see.** The planner already accepts a grid of obstacles and replans around it; we tested this with a synthetic obstacle on the real terrain. Feeding it from the headset's depth sensor, so that a rock in front of the astronaut reroutes the walk, is the step we did not finish. This is the gap that the sulfur stones stand for: things too small for HiRISE.
+- **Live obstacles.** Check the live depth layer on the headset and tune it, so that a rock that was not there a minute ago reroutes the walk.
 - **Destination preview.** We prepared photos Curiosity took from base and from the survey site, each matched to its position on the map. Showing the photo as the astronaut approaches is not built yet.
 - **A walking-slope limit for Mars.** Our limits come from the Moon. A limit for Mars gravity and a real suit would replace them.
 
@@ -117,7 +137,7 @@ Everything outside the headset runs on an NVIDIA Jetson, standing in for the sui
 
 - One view of a walkable site that combines five kinds of NASA data instead of separate regional maps.
 - A route that is planned from orbital data and checked against a path a real rover drove.
-- An honest picture of where orbital data stops being enough.
+- An honest picture of where orbital data stops being enough, and a first way to fill that gap in the field.
 
 ### Tools
 
@@ -185,7 +205,7 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 
 - **ESA (European Space Agency) — Mars Express · HRSC:** the USGS terrain file we use was built from HiRISE, CTX and HRSC elevation models tied to MOLA, so it includes ESA data. The file is produced and distributed by USGS.
 
-**Non-NASA inputs:** only two — the headset's own tracking of the wearer's hand and head, and an Arduino temperature sensor standing in for a suit sensor. Both act on top of the map and route made from NASA data.
+**Non-NASA inputs:** three — the headset's own tracking of the wearer's hands and head, the model of the surroundings the headset keeps, and an Arduino temperature sensor standing in for a suit sensor. All three act on top of the map and route made from NASA data.
 
 **References**
 
