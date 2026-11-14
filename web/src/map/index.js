@@ -70,7 +70,9 @@ function disposeObject(object) {
 // The caption is a card standing on the side of an imaginary cylinder whose top face is the map:
 // it hangs just below the map's edge, tangent to the cylinder, on the side nearest the wearer,
 // and slides around the cylinder as the wearer moves so that it always faces them.
-const CAPTION = { wM: 0.28, hM: 0.07, radiusM: MAP.widthM / 2 + 0.012, dropM: 0.006 };
+// leanDeg tips the card outward: its top edge stays under the map's rim and its bottom swings
+// toward the wearer, so it is readable when looking down at the map.
+const CAPTION = { wM: 0.28, hM: 0.07, radiusM: MAP.widthM / 2 + 0.012, dropM: 0.006, leanDeg: 35 };
 function makeLabel() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
@@ -80,6 +82,7 @@ function makeLabel() {
   card.userData = { canvas, texture }; root.add(card); return card;
 }
 const capRadial = new THREE.Vector3(), capX = new THREE.Vector3(), capBasis = new THREE.Matrix4();
+const capUp = new THREE.Vector3(), capNormal = new THREE.Vector3();
 function placeCaption() {
   if (!label || !root.visible) return;
   // Direction from the map centre to the viewer, in the map's own frame, flattened onto the map.
@@ -89,10 +92,16 @@ function placeCaption() {
   capRadial.y = 0;
   if (capRadial.lengthSq() < 1e-8) capRadial.set(0, 0, 1);
   capRadial.normalize();
-  capX.crossVectors(upAxis, capRadial).normalize(); // card right = up x normal
-  label.quaternion.setFromRotationMatrix(capBasis.makeBasis(capX, upAxis, capRadial));
+  capX.crossVectors(upAxis, capRadial).normalize(); // card right = up x radial
+  // Lean: the card's face turns up toward the eyes, hinged at its top edge.
+  const lean = THREE.MathUtils.degToRad(CAPTION.leanDeg);
+  capNormal.copy(capRadial).multiplyScalar(Math.cos(lean)).addScaledVector(upAxis, Math.sin(lean));
+  capUp.copy(upAxis).multiplyScalar(Math.cos(lean)).addScaledVector(capRadial, -Math.sin(lean));
+  label.quaternion.setFromRotationMatrix(capBasis.makeBasis(capX, capUp, capNormal));
+  // top edge on the cylinder just under the rim; the centre is half a card down from it
   label.position.copy(capRadial).multiplyScalar(CAPTION.radiusM);
-  label.position.y = -(CAPTION.hM / 2 + CAPTION.dropM);
+  label.position.y = -CAPTION.dropM;
+  label.position.addScaledVector(capUp, -CAPTION.hM / 2);
 }
 function caption(note = '') {
   if (!label || !data) return;
