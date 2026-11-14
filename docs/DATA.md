@@ -193,7 +193,23 @@ We computed a route with the rule above and compared it with the path the rover 
 - The rover's path is probably longer because it detoured for science (not verified).
 - The route is saved as a list of cells in `data-pipeline/reference_route.json`. It **does not replace D's route**; it is there to compare D's result against.
 
-## 8. Limits to keep in mind
+## 8. Credits and terms of use
+
+The challenge's Resources tab says: "For non-U.S. Government websites, participants must comply with any data use parameters of that specific website." What we use, and on what terms:
+
+| What | From | Credit line | Terms |
+|---|---|---|---|
+| HiRISE optical image | NASA/JPL Mars Trek | NASA/JPL-Caltech/University of Arizona | U.S. Government site. JPL Image Use Policy |
+| THEMIS thermal image | NASA/JPL Mars Trek | NASA/JPL-Caltech/Arizona State University | Same |
+| Terrain | USGS Astrogeology | USGS Astrogeology Science Center; includes ESA Mars Express HRSC data (ESA/DLR/FU Berlin) | U.S. Government site |
+| Rover path, rover photos | NASA Mars Exploration (mars.nasa.gov) | NASA/JPL-Caltech | U.S. Government site. JPL Image Use Policy |
+| Radiation (RAD), atmosphere (REMS) | NASA Planetary Data System nodes, hosted at UCLA and New Mexico State University | NASA Planetary Data System; MSL RAD and REMS instrument teams | NASA's public science archive, hosted on university servers |
+
+- The JPL Image Use Policy, as we read it in a search summary rather than on the page itself, allows use without prior permission, asks for the credit "Courtesy NASA/JPL-Caltech" unless a caption says otherwise, and forbids implying endorsement or using the JPL logo ([policy](https://www.jpl.nasa.gov/jpl-image-use-policy)). We show no NASA or JPL logo anywhere in the project.
+- The two non-NASA references for the slope limits (an EPSC abstract under CC BY 4.0 and a Universe Today article) are only cited and briefly quoted, not reproduced.
+- We did not find a separate data-use statement on the two PDS node sites. **Not verified:** whether those nodes ask for a specific citation.
+
+## 9. Limits to keep in mind
 
 - Not run on the headset. If `optical.png` (7.8 MB, 4096 pixels) is too heavy, change `OPTICAL_PX` to 2048 in `build_data.py` and rebuild.
 - The optical and thermal images are grayscale, and thermal brightness is not temperature.

@@ -190,5 +190,8 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - NASA, Curiosity's Proposed Path up Mount Sharp — https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
 - W. Iqbal, J. W. Head et al., "Astronaut experiences on the slopes along Apollo EVAs," EPSC Abstracts Vol. 17, EPSC2024-196, 2024 — https://doi.org/10.5194/epsc2024-196 (slope limit for walking)
 - Universe Today, "Lunar Astronauts Will Need Easy Walking Trails Around the Moon's South Pole" (2023), quoting David A. Kring — https://www.universetoday.com/articles/lunar-astronauts-will-need-easy-walking-trails-around-the-moons-south-pole (slope limit for Artemis walking traverses)
-- Software: Three.js, Vite, NumPy, Rasterio, Pillow, Requests, aiohttp, pySerial `[TODO: only what was actually used; check licenses]`
-- sherpa-onnx (speech recognition and synthesis runtime), with the SenseVoice and Supertonic 3 models from its releases — https://github.com/k2-fsa/sherpa-onnx `[TODO: check the model licenses]`
+- Open-source software: Three.js (MIT), Vite (MIT), NumPy (BSD-3-Clause), Rasterio (BSD-3-Clause), Pillow (MIT-CMU), Requests (Apache-2.0), aiohttp (Apache-2.0), pySerial (BSD-3-Clause) `[TODO: only what was actually used]`
+- sherpa-onnx, speech recognition and synthesis runtime (Apache-2.0) — https://github.com/k2-fsa/sherpa-onnx
+- SenseVoice speech recognition model by FunAudioLLM, released under the FunASR Model License — https://huggingface.co/FunAudioLLM/SenseVoiceSmall `[TODO: E to read the license text; we have only seen the model card]`
+- Supertonic 3 speech synthesis model by Supertone, released under the OpenRAIL-M license, which requires disclosing that the speech is machine-generated — https://huggingface.co/Supertone/supertonic `[TODO: E to read the license text; we have only seen the model card]`
+- NASA and JPL images are used under the JPL Image Use Policy with the credit lines given in [DATA.md](DATA.md) — https://www.jpl.nasa.gov/jpl-image-use-policy
