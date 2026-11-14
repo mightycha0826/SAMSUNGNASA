@@ -1,0 +1,38 @@
+{
+  "_help": [
+    "Voice commands of the Marswalk hub. Edit this file and save: the hub reloads it by itself.",
+    "Each command has an intent (sent to the headset as voice.command), optional slots, and the phrases that trigger it.",
+    "A phrase matches when its words appear in what was heard; close misspellings by the speech recognizer also match.",
+    "When several phrases match, the longest one wins, so 'hide thermal' beats 'thermal'.",
+    "{name} in a phrase or slot stands for every entry of vars.name: the key is the slot value, the list is how it may be said.",
+    "Optional 'reply': a sentence the hub says back. Optional 'wake_word': only obey speech that contains it.",
+    "Check a change without a headset:  .venv/bin/python tools/voice_selftest.py --text 'what you would say'"
+  ],
+  "wake_word": null,
+  "min_score": 0.8,
+  "vars": {
+    "layer": {
+      "thermal": ["thermal", "thermo", "heat", "infrared"],
+      "optical": ["optical", "optic", "photo", "satellite", "camera"],
+      "slope": ["slope", "slopes", "steepness"],
+      "topo": ["elevation", "terrain", "topo", "height"]
+    }
+  },
+  "commands": [
+    { "intent": "status.report", "phrases": ["status", "report", "how am i doing", "situation"] },
+
+    { "intent": "nav.start", "slots": { "targetId": "site1" },
+      "phrases": ["navigate", "guide me", "take me", "survey site", "to the site", "sulfur", "start route", "let's go"] },
+    { "intent": "nav.home", "phrases": ["base", "home", "go back", "return", "habitat"] },
+    { "intent": "nav.stop", "phrases": ["stop", "cancel", "stop navigation", "end route", "stop route"] },
+
+    { "intent": "layer.show", "slots": { "id": "{layer}" },
+      "phrases": ["{layer}", "show {layer}", "{layer} map", "{layer} layer", "{layer} on"] },
+    { "intent": "layer.hide", "slots": { "id": "{layer}" },
+      "phrases": ["hide {layer}", "{layer} off", "turn off {layer}", "no {layer}", "remove {layer}"] },
+
+    { "intent": "alert.ack", "phrases": ["acknowledge", "confirm", "copy", "roger", "understood"] },
+    { "intent": "mode.set", "slots": { "mode": "night" }, "phrases": ["night", "night mode", "night vision"] },
+    { "intent": "mode.set", "slots": { "mode": "normal" }, "phrases": ["day mode", "normal mode"] }
+  ]
+}

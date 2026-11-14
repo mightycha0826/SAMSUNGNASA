@@ -23,14 +23,16 @@ TTS_RATE = 22050  # docs/INTERFACES.md section 4 (tts.begin sampleRate)
 MODELS = Path(__file__).resolve().parent.parent / "models"
 STT_DIR = MODELS / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
 TTS_DIR = MODELS / "sherpa-onnx-supertonic-3-tts-int8-2026-05-11"
+VAD_FILE = MODELS / "silero_vad.onnx"
 
 
 # ---------- fallbacks ----------
 class NullSTT:
     name = "null"
 
-    def transcribe(self, pcm: bytes, sample_rate: int) -> str:
-        secs = len(pcm) / 2 / max(sample_rate, 1)
+    def transcribe(self, pcm, sample_rate: int) -> str:
+        n = len(pcm) / 2 if isinstance(pcm, (bytes, bytearray)) else len(pcm)
+        secs = n / max(sample_rate, 1)
         log.info("STT not configured; got %.1fs of audio", secs)
         return ""
 
@@ -68,9 +70,13 @@ class SenseVoiceSTT:
         self._lock = threading.Lock()
         log.info("SenseVoice STT loaded in %.1fs (lang=%s)", time.monotonic() - t, lang)
 
-    def transcribe(self, pcm: bytes, sample_rate: int) -> str:
+    def transcribe(self, pcm, sample_rate: int) -> str:
+        """`pcm` is 16-bit mono PCM bytes, or float32 samples in -1..1."""
         import numpy as np
-        samples = np.frombuffer(pcm[:len(pcm) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+        if isinstance(pcm, (bytes, bytearray)):
+            samples = np.frombuffer(pcm[:len(pcm) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+        else:
+            samples = np.asarray(pcm, dtype=np.float32)
         secs = len(samples) / max(sample_rate, 1)
         if secs < self.MIN_S:
             log.info("STT: %.2fs of audio, too short", secs)
@@ -142,6 +148,81 @@ class SupertonicTTS:
         """Synthesize fixed sentences ahead of time so alerts speak without the ~1 s delay."""
         for text in texts:
             self._cache[text] = self.synthesize(text)
+
+
+class StreamSegmenter:
+    """Cuts a continuous microphone stream into utterances with the Silero voice activity
+    detector. The headset just streams audio; deciding what is speech happens here, where a
+    neural detector copes with noise and automatic gain far better than a loudness threshold.
+
+    feed() takes 16-bit mono PCM at any rate and returns the finished utterances as
+    (float32 samples, 16000). One instance per connection; not thread safe.
+    """
+    RATE = 16000
+    PAD_S = 0.25   # audio kept before the detected start, so the first consonant is not cut
+
+    def __init__(self, threshold: float = 0.5, min_silence_s: float = 0.5,
+                 min_speech_s: float = 0.15, max_speech_s: float = 8.0):
+        import numpy as np
+        import sherpa_onnx
+        self._np = np
+        cfg = sherpa_onnx.VadModelConfig()
+        cfg.silero_vad.model = str(VAD_FILE)
+        cfg.silero_vad.threshold = threshold
+        cfg.silero_vad.min_silence_duration = min_silence_s
+        cfg.silero_vad.min_speech_duration = min_speech_s
+        cfg.silero_vad.max_speech_duration = max_speech_s
+        cfg.sample_rate = self.RATE
+        self._vad = sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=30)
+        self._history = np.zeros(0, dtype=np.float32)   # recent audio, for the pre-roll
+        self._fed = 0                                   # samples given to the detector
+
+    def _to_16k(self, pcm: bytes, rate: int):
+        np = self._np
+        x = np.frombuffer(pcm[:len(pcm) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+        if rate == self.RATE or not len(x):
+            return x
+        n = int(len(x) * self.RATE / rate)   # the headset already sends 16 kHz; this is a fallback
+        return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+
+    def feed(self, pcm: bytes, rate: int = 16000) -> list:
+        np = self._np
+        x = self._to_16k(pcm, rate)
+        if not len(x):
+            return []
+        self._history = np.concatenate([self._history, x])[-self.RATE * 12:]
+        self._fed += len(x)
+        self._vad.accept_waveform(x)
+        out = []
+        while not self._vad.empty():
+            seg = self._vad.front
+            samples = np.asarray(seg.samples, dtype=np.float32)
+            # prepend the pre-roll from the history, if it is still there
+            first_kept = self._fed - len(self._history)
+            want = max(first_kept, seg.start - int(self.PAD_S * self.RATE))
+            if want < seg.start:
+                pre = self._history[want - first_kept: seg.start - first_kept]
+                samples = np.concatenate([pre, samples])
+            out.append(samples)
+            self._vad.pop()
+        return out
+
+    @property
+    def speaking(self) -> bool:
+        return self._vad.is_speech_detected()
+
+    def reset(self):
+        """Forget audio in progress (called while the hub itself is speaking)."""
+        self._vad.reset()
+        self._history = self._np.zeros(0, dtype=self._np.float32)
+        self._fed = 0
+
+
+def make_segmenter():
+    """None when the detector model or sherpa-onnx is missing (streaming mics are then ignored)."""
+    if VAD_FILE.exists() and _has_sherpa():
+        return StreamSegmenter()
+    return None
 
 
 # ---------- factories ----------
