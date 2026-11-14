@@ -7,7 +7,8 @@ import { resolve } from 'node:path';
 export default defineConfig({
   base: './',
   plugins: [basicSsl()],
-  server: { host: true, port: 5173 },
+  // design-system/(저장소 루트)의 토큰과 글꼴을 HUD가 가져다 쓴다.
+  server: { host: true, port: 5173, fs: { allow: ['..'] } },
   preview: { host: true, port: 4173 },
   build: {
     target: 'es2022',
