@@ -1,18 +1,19 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <title>Marswalk Visor HUD Mockup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=check_circle,error,layers,link_off,navigation,warning&display=block">
 <style>
 /* Layout: helmet view (stage) on top, then controls, event log and the spec tables.
    Tokens are the Point design system, combo 1 (cobalt + orange). HUD sizes are in degrees of visual angle. */
-@font-face{font-family:"Wanted Sans";src:url("fonts/WantedSansVariable.woff2") format("woff2");font-weight:400 1000;font-display:swap}
 :root{
   --bg:#ffffff; --surface:#ffffff; --row:#f3f3f3; --track:#dadada; --ink:#111111; --ink-muted:#5c5c5c;
   --primary:#2f45d8; --on-primary:#ffffff; --primary-text:#2f45d8; --point-text:#b85d08; --danger:#ce2f27;
   --badge-bg:#ffffff; --focus:#141414; --shadow-card:0 12px 32px rgba(17,17,17,.08); --shadow-seg:0 1px 3px rgba(0,0,0,.12);
   /* HUD: the system's dark theme, fixed, because the backdrop is the real room */
-  --h-surface:rgba(38,38,38,.88); --h-row:#2e2e2e; --h-track:#3d3d3d; --h-badge:#3b3b3b; --h-toast:rgba(63,63,63,.94);
+  --h-surface:rgba(38,38,38,.90); --h-row:#2e2e2e; --h-track:#3d3d3d; --h-badge:#3b3b3b; --h-toast:rgba(63,63,63,.94);
   --h-ink:#f2f2f2; --h-muted:#a8a8a8; --h-primary:#596ae0; --h-primary-icon:#7a88e6; --h-point:#f27a0a; --h-danger:#ed716b; --h-danger-line:#e5342b;
-  --sans:"Wanted Sans","Apple SD Gothic Neo",system-ui,sans-serif; --icon:"Material Symbols Rounded";
+  --sans:"Atkinson Hyperlegible","Pretendard","Apple SD Gothic Neo",system-ui,sans-serif; --icon:"Material Symbols Rounded";
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --bg:#1e1e1e; --surface:#262626; --row:#2e2e2e; --track:#3d3d3d; --ink:#f2f2f2; --ink-muted:#a8a8a8;
@@ -28,8 +29,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16p
 .page{max-width:1280px;margin:0 auto;padding-block:24px 48px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   display:flex;flex-direction:column;gap:24px}
-h1{font-size:26px;line-height:34px;font-weight:650;letter-spacing:-.02em;margin:0;text-wrap:balance}
-h2{font-size:17px;line-height:24px;font-weight:600;margin:0 0 12px}
+h1{font-size:26px;line-height:34px;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:17px;line-height:24px;font-weight:700;margin:0 0 12px}
 p{margin:0}
 .lede{color:var(--ink-muted);max-width:68ch}
 .notice{background:var(--row);border-radius:16px;padding:12px 16px;font-size:15px;line-height:22px;display:flex;gap:8px;align-items:flex-start;max-width:max-content}
@@ -48,68 +49,106 @@ a{color:var(--primary-text)}
 .hud,.hud *{box-sizing:border-box}
 .hud button{pointer-events:auto;font:inherit;color:inherit;letter-spacing:inherit}
 .hud .ms{font-size:calc(1.7*var(--d));line-height:1}
-.tag{display:inline-block;font-size:calc(.95*var(--d));font-weight:600;padding:calc(.05*var(--d)) calc(.5*var(--d));background:var(--h-badge);border-radius:999px;color:var(--h-muted);vertical-align:middle;white-space:nowrap}
+.tag{display:inline-block;font-size:calc(.95*var(--d));font-weight:700;padding:calc(.05*var(--d)) calc(.5*var(--d));background:var(--h-badge);border-radius:999px;color:var(--h-muted);vertical-align:middle;white-space:nowrap}
 
-/* emergency edge: the only red surface in the HUD */
-.edge{position:absolute;inset:0;opacity:0}
-.hud.crit .edge{opacity:1}
-.edge .glow{position:absolute;inset:0;box-shadow:inset 0 0 calc(4.5*var(--d)) calc(1.4*var(--d)) var(--h-danger-line);animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite}
-.edge .br{position:absolute;width:calc(7*var(--d));height:calc(7*var(--d));border:calc(.7*var(--d)) solid var(--h-danger-line);border-radius:calc(1.6*var(--d));animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite;display:none}
+/* alert & emergency edge: orange in warn, red in critical */
+.edge{position:absolute;inset:0;opacity:0;--edge-col:var(--h-danger-line)}
+.hud.warn .edge{opacity:1;--edge-col:var(--h-point)}
+.hud.crit .edge{opacity:1;--edge-col:var(--h-danger-line)}
+.edge .glow{position:absolute;inset:0;box-shadow:inset 0 0 calc(4.5*var(--d)) calc(1.4*var(--d)) var(--edge-col);animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite}
+.edge .br{position:absolute;width:calc(7*var(--d));height:calc(7*var(--d));border:calc(.7*var(--d)) solid var(--edge-col);border-radius:calc(1.6*var(--d));animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite;display:none}
 .edge .br.a{left:calc(1.5*var(--d));top:calc(1.5*var(--d));border-right:0;border-bottom:0;border-radius:calc(1.6*var(--d)) 0 0 0}
 .edge .br.b{right:calc(1.5*var(--d));top:calc(1.5*var(--d));border-left:0;border-bottom:0;border-radius:0 calc(1.6*var(--d)) 0 0}
 .edge .br.c{left:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-right:0;border-top:0;border-radius:0 0 0 calc(1.6*var(--d))}
 .edge .br.e{right:calc(1.5*var(--d));bottom:calc(1.5*var(--d));border-left:0;border-top:0;border-radius:0 0 calc(1.6*var(--d)) 0}
-.hud.blink-bracket .edge .glow{box-shadow:inset 0 0 0 calc(.25*var(--d)) var(--h-danger-line);animation:none;opacity:.55}
+.hud.blink-bracket .edge .glow{box-shadow:inset 0 0 0 calc(.25*var(--d)) var(--edge-col);animation:none;opacity:.55}
 .hud.blink-bracket .edge .br{display:block}
 .hud.blink-steady .edge .glow,.hud.acked .edge .glow,.hud.acked .edge .br{animation:none}
 .hud.acked .edge{opacity:.5}
 @keyframes pulse{0%,100%{opacity:.28}50%{opacity:1}}
 @media (prefers-reduced-motion: reduce){.edge .glow,.edge .br,.chev{animation:none!important}}
 
-/* status card */
-.status{position:absolute;left:calc(3.5*var(--d));top:calc(4.5*var(--d));width:calc(20*var(--d));background:var(--h-surface);border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d));display:flex;flex-direction:column;gap:calc(.6*var(--d));box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+/* status card: transparent background + high-contrast dual outline & crisp text */
+.status{
+  position:absolute;left:calc(3.5*var(--d));top:calc(4.5*var(--d));width:calc(20.5*var(--d));
+  background:transparent;
+  border:calc(.18*var(--d)) solid #ffffff;
+  border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d));
+  display:flex;flex-direction:column;gap:calc(.6*var(--d));
+  box-shadow:0 0 0 calc(.12*var(--d)) rgba(0,0,0,.88),inset 0 0 0 calc(.1*var(--d)) rgba(0,0,0,.78);
+  color:#ffffff;
+  text-shadow:0 1px 2px rgba(0,0,0,.98),0 0 6px rgba(0,0,0,.92),0 0 12px rgba(0,0,0,.75);
+}
 .hud.pos-tr .status{left:auto;right:calc(3.5*var(--d))}
 .hud.pos-bl .status{top:auto;bottom:calc(4.5*var(--d))}
 .hud.pos-strip .status{left:50%;transform:translateX(-50%);width:max-content;max-width:calc(72*var(--d));flex-direction:row;align-items:stretch}
-.st-main{background:var(--h-row);border-radius:calc(1.25*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));display:flex;gap:calc(.7*var(--d));align-items:center}
-.st-main .ms{color:var(--h-muted);flex:none;font-size:calc(2*var(--d))}
+
+.st-main{
+  background:transparent;
+  border:calc(.13*var(--d)) solid rgba(255,255,255,.85);
+  box-shadow:0 0 0 calc(.09*var(--d)) rgba(0,0,0,.78),inset 0 0 0 calc(.08*var(--d)) rgba(0,0,0,.68);
+  border-radius:calc(1.25*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));
+  display:flex;gap:calc(.7*var(--d));align-items:center;
+}
+.st-main.warn{border-color:var(--h-point)}
+.st-main.crit{border-color:var(--h-danger-line)}
+.st-main .ms{color:#ffffff;flex:none;font-size:calc(2*var(--d));filter:drop-shadow(0 1px 2px rgba(0,0,0,.98)) drop-shadow(0 0 4px rgba(0,0,0,.85))}
 .st-body{flex:1;min-width:0}
-.st-lab{color:var(--h-muted);font-weight:600;font-size:calc(1.1*var(--d));display:flex;gap:calc(.5*var(--d));align-items:center;flex-wrap:wrap}
+.st-lab{color:#f4f7fa;font-weight:700;font-size:calc(1.1*var(--d));display:flex;gap:calc(.5*var(--d));align-items:center;flex-wrap:wrap}
 .st-val{display:flex;align-items:baseline;gap:calc(.35*var(--d));white-space:nowrap}
-.st-val b{font-size:calc(2.4*var(--d));font-weight:650;line-height:1.15;letter-spacing:-.02em}
-.st-val i{font-style:normal;font-size:calc(1.3*var(--d));color:var(--h-muted)}
-.st-val em{font-style:normal;font-weight:600;font-size:calc(1.2*var(--d));margin-left:calc(.5*var(--d))}
-.st-main.warn .ms,.st-main.warn .st-val em{color:var(--h-point)}
-.st-main.crit .ms,.st-main.crit .st-val em{color:var(--h-danger)}
-.st-main.stale .st-val b{color:var(--h-muted)}
-.gauge{position:relative;height:calc(.45*var(--d));margin:calc(.45*var(--d)) 0 calc(1.25*var(--d));background:var(--h-track);border-radius:999px}
-.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--h-primary)}
+.st-val b{font-size:calc(2.4*var(--d));font-weight:700;line-height:1.15;letter-spacing:-.02em;color:#ffffff}
+.st-val i{font-style:normal;font-size:calc(1.3*var(--d));font-weight:700;color:#f4f7fa}
+.st-val em{font-style:normal;font-weight:700;font-size:calc(1.2*var(--d));margin-left:calc(.5*var(--d));color:#8ce99a}
+.st-main.warn .ms,.st-main.warn .st-val em{color:#ffa94d}
+.st-main.crit .ms,.st-main.crit .st-val em{color:#ff8787}
+.st-main.stale .st-val b{color:#d0d7de}
+
+.gauge{position:relative;height:calc(.48*var(--d));margin:calc(.45*var(--d)) 0 calc(1.25*var(--d));background:rgba(255,255,255,.28);border-radius:999px;box-shadow:0 0 0 1px rgba(0,0,0,.88)}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:#748ffc}
 .st-main.warn .gauge .fill{background:var(--h-point)} .st-main.crit .gauge .fill{background:var(--h-danger-line)}
-.gauge s{position:absolute;top:calc(-.25*var(--d));width:calc(.14*var(--d));height:calc(.95*var(--d));background:var(--h-ink)}
-.gauge u{position:absolute;top:calc(.65*var(--d));font-size:calc(.95*var(--d));text-decoration:none;color:var(--h-muted);transform:translateX(-50%)}
-.st-env{background:var(--h-row);border-radius:calc(1.25*var(--d));padding:calc(.6*var(--d)) calc(.9*var(--d));display:grid;grid-template-columns:1fr auto auto;gap:calc(.3*var(--d)) calc(.6*var(--d));align-items:baseline}
-.st-env .k{color:var(--h-muted)}
-.st-env .v{font-size:calc(1.4*var(--d));font-weight:600;text-align:right;white-space:nowrap}
-.st-env .v small{font-size:calc(1.05*var(--d));color:var(--h-muted);font-weight:500}
-.st-env .v .ms{font-size:calc(1.4*var(--d));vertical-align:-.2em}
-.st-env .v.warn .ms{color:var(--h-point)} .st-env .v.crit .ms{color:var(--h-danger)}
-.st-foot{color:var(--h-muted);font-size:calc(1.05*var(--d));padding:0 calc(.9*var(--d)) calc(.2*var(--d));display:flex;justify-content:space-between;gap:calc(.6*var(--d));flex-wrap:wrap}
-.st-foot b{color:var(--h-ink);font-weight:600}
+.gauge s{position:absolute;top:calc(-.25*var(--d));width:calc(.16*var(--d));height:calc(.98*var(--d));background:#ffffff;box-shadow:0 0 2px #000}
+.gauge u{position:absolute;top:calc(.68*var(--d));font-size:calc(.95*var(--d));font-weight:700;text-decoration:none;color:#ffffff;transform:translateX(-50%)}
+
+.st-env{
+  background:transparent;
+  border:calc(.13*var(--d)) solid rgba(255,255,255,.85);
+  box-shadow:0 0 0 calc(.09*var(--d)) rgba(0,0,0,.78),inset 0 0 0 calc(.08*var(--d)) rgba(0,0,0,.68);
+  border-radius:calc(1.25*var(--d));padding:calc(.6*var(--d)) calc(.9*var(--d));
+  display:grid;grid-template-columns:1fr auto auto;gap:calc(.3*var(--d)) calc(.6*var(--d));align-items:baseline;
+}
+.st-env .k{color:#f4f7fa;font-weight:700}
+.st-env .v{font-size:calc(1.4*var(--d));font-weight:700;text-align:right;white-space:nowrap;color:#ffffff}
+.st-env .v small{font-size:calc(1.05*var(--d));color:#f4f7fa;font-weight:700}
+.st-env .v .ms{font-size:calc(1.4*var(--d));vertical-align:-.2em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.98))}
+.st-env .v.warn .ms{color:#ffa94d} .st-env .v.crit .ms{color:#ff8787}
+
+.status .tag{background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.88);color:#ffffff;text-shadow:none}
+.st-foot{color:#f4f7fa;font-weight:700;font-size:calc(1.05*var(--d));padding:0 calc(.9*var(--d)) calc(.2*var(--d));display:flex;justify-content:space-between;gap:calc(.6*var(--d));flex-wrap:wrap}
+.st-foot b{color:#ffffff;font-weight:700}
 .hud.pos-strip .gauge{display:none}
 .hud.pos-strip .st-foot{flex-direction:column;justify-content:center;padding:0 calc(.6*var(--d))}
 
-/* top centre: alert card + route toast */
+/* top centre: route toast */
 .topc{position:absolute;top:calc(4.5*var(--d));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:calc(.7*var(--d));width:calc(30*var(--d))}
 .hud.pos-strip .topc{top:calc(14*var(--d))}
-.banner{display:flex;gap:calc(.9*var(--d));align-items:center;background:var(--h-surface);border-radius:calc(1.6*var(--d));padding:calc(.8*var(--d)) calc(1.3*var(--d));max-width:100%;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 calc(.8*var(--d)) calc(2*var(--d)) rgba(0,0,0,.5)}
-.banner > .ms{font-size:calc(2.4*var(--d));color:var(--h-point)}
-.banner .b-title{font-size:calc(1.5*var(--d));font-weight:600}
+.toast{background:var(--h-toast);border-radius:calc(1.25*var(--d));padding:calc(.55*var(--d)) calc(1.2*var(--d));font-size:calc(1.3*var(--d));font-weight:700;display:flex;gap:calc(.5*var(--d));align-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.toast .ms{color:var(--h-primary-icon);font-size:calc(1.6*var(--d))}
+
+/* dead centre: warn & critical alert card */
+.banner{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;
+  display:flex;gap:calc(.9*var(--d));align-items:center;
+  background:var(--h-surface);border-radius:calc(1.6*var(--d));
+  padding:calc(1*var(--d)) calc(1.5*var(--d));
+  width:max-content;max-width:calc(36*var(--d));
+  box-shadow:0 0 0 1.5px rgba(255,255,255,.16),0 calc(.8*var(--d)) calc(2.4*var(--d)) rgba(0,0,0,.65);
+}
+.banner > .ms{font-size:calc(2.6*var(--d));color:var(--h-point)}
+.banner .b-title{font-size:calc(1.6*var(--d));font-weight:700}
 .banner .b-sub{color:var(--h-muted)}
 .banner.crit > .ms{color:var(--h-danger);font-size:calc(3.4*var(--d))}
-.banner.crit .b-title{font-size:calc(1.9*var(--d));font-weight:650;letter-spacing:-.02em}
+.banner.crit .b-title{font-size:calc(1.9*var(--d));font-weight:700;letter-spacing:-.02em}
 .banner .more{margin-left:calc(.4*var(--d))}
-.toast{background:var(--h-toast);border-radius:calc(1.25*var(--d));padding:calc(.55*var(--d)) calc(1.2*var(--d));font-size:calc(1.3*var(--d));font-weight:500;display:flex;gap:calc(.5*var(--d));align-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
-.toast .ms{color:var(--h-primary-icon);font-size:calc(1.6*var(--d))}
 
 /* palm map */
 .palm{position:absolute;left:calc(3.5*var(--d));bottom:calc(3.5*var(--d));display:flex;gap:calc(1*var(--d));align-items:flex-end}
@@ -122,7 +161,7 @@ a{color:var(--primary-text)}
 .seg-hud{display:grid;grid-template-columns:1fr 1fr;gap:calc(.3*var(--d));background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.3*var(--d))}
 .tab{border:0;background:transparent;border-radius:calc(.8*var(--d));min-height:calc(3.2*var(--d));padding:calc(.4*var(--d)) calc(.6*var(--d));color:var(--h-muted)!important;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:calc(.4*var(--d))}
 .tab .ms{display:none;color:var(--h-primary-icon);font-size:calc(1.4*var(--d))}
-.tab[aria-pressed="true"]{background:var(--h-badge);color:var(--h-ink)!important;font-weight:600}
+.tab[aria-pressed="true"]{background:var(--h-badge);color:var(--h-ink)!important;font-weight:700}
 .tab[aria-pressed="true"] .ms{display:inline}
 .legend{background:var(--h-surface);border-radius:calc(1.1*var(--d));padding:calc(.7*var(--d)) calc(.9*var(--d));display:flex;flex-direction:column;gap:calc(.3*var(--d));font-size:calc(1.05*var(--d))}
 .legend .ramp{height:calc(.8*var(--d));border-radius:999px}
@@ -133,11 +172,11 @@ a{color:var(--primary-text)}
 /* ---------- controls (Point system: grey surfaces, one primary) ---------- */
 .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 24px}
 .ctl{display:flex;flex-direction:column;gap:8px;min-width:0}
-.ctl > span,.ctl label{font-size:14px;line-height:20px;font-weight:600;color:var(--ink-muted)}
+.ctl > span,.ctl label{font-size:14px;line-height:20px;font-weight:700;color:var(--ink-muted)}
 .seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--row);border-radius:14px;padding:4px;width:max-content;max-width:100%}
 .seg button{font:inherit;font-size:15px;line-height:22px;font-weight:500;letter-spacing:inherit;padding:7px 14px;border:0;background:transparent;color:var(--ink-muted);border-radius:10px;cursor:pointer;transition:transform 140ms cubic-bezier(.3,0,.5,1)}
 .seg button:active{transform:scale(.95)}
-.seg button[aria-pressed="true"]{background:var(--badge-bg);color:var(--ink);font-weight:600;box-shadow:var(--shadow-seg)}
+.seg button[aria-pressed="true"]{background:var(--badge-bg);color:var(--ink);font-weight:700;box-shadow:var(--shadow-seg)}
 .seg button:disabled{opacity:.4;cursor:default}
 .ctl.primary{grid-column:1/-1}
 .ctl.primary .seg button[aria-pressed="true"]{background:var(--primary);color:var(--on-primary);box-shadow:none}
@@ -148,7 +187,7 @@ pre{margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
 .tbl{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:15px;line-height:22px}
 th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--track);vertical-align:top}
-th{color:var(--ink-muted);font-weight:600;font-size:14px}
+th{color:var(--ink-muted);font-weight:700;font-size:14px}
 td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
 .card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:22px}
 .small{font-size:13px;line-height:18px;color:var(--ink-muted)}
@@ -197,12 +236,13 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
           </div>
 
           <div class="topc">
-            <div class="banner" id="banner" hidden>
-              <span class="ms" id="bIco">warning</span>
-              <div><div class="b-title" id="bTitle"></div><div class="b-sub" id="bSub"></div></div>
-              <span class="tag more" id="bMore" hidden></span>
-            </div>
             <div class="toast" id="toast" hidden></div>
+          </div>
+
+          <div class="banner" id="banner" hidden>
+            <span class="ms" id="bIco">warning</span>
+            <div><div class="b-title" id="bTitle"></div><div class="b-sub" id="bSub"></div></div>
+            <span class="tag more" id="bMore" hidden></span>
           </div>
 
           <div class="palm" id="palm">
@@ -230,7 +270,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         </div>
       </div>
     </div>
-    <p class="caption" style="margin-top:8px">Quest 3 has a 110° horizontal field of view; this drawing covers the central 70° × 47°. The red frame is assumed to sit about ±31° from the centre of view, not at the physical display edge. On a monitor everything looks far smaller than in the headset, so judge type sizes by the angles in the table below.</p>
+    <p class="caption" style="margin-top:8px">Quest 3 has a 110° horizontal field of view; this drawing covers the central 70° × 47°. The alert frame is assumed to sit about ±31° from the centre of view, not at the physical display edge. On a monitor everything looks far smaller than in the headset, so judge type sizes by the angles in the table below.</p>
   </div>
 
   <div class="controls" id="controls">
@@ -250,7 +290,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <div class="seg"><button id="c-bg-bright" data-k="bg" data-v="bright">Bright</button><button id="c-bg-dark" data-k="bg" data-v="dark">Dark</button><button id="c-bg-busy" data-k="bg" data-v="busy">Cluttered</button></div></div>
     <div class="ctl"><span>Status card position</span>
       <div class="seg"><button id="c-pos-tl" data-k="pos" data-v="tl">Top left</button><button id="c-pos-tr" data-k="pos" data-v="tr">Top right</button><button id="c-pos-strip" data-k="pos" data-v="strip">Top strip</button><button id="c-pos-bl" data-k="pos" data-v="bl">Bottom left</button></div></div>
-    <div class="ctl"><span>Emergency frame</span>
+    <div class="ctl"><span>Alert frame</span>
       <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Edge glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner brackets</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
     <div class="ctl"><label for="c-period">Pulse period <b id="periodOut"></b></label>
       <input type="range" id="c-period" min="0.8" max="3" step="0.1" value="1.6"></div>
@@ -272,11 +312,11 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <h2>Type scale</h2>
       <div class="tbl"><table>
         <tr><th>Role</th><th>Point style</th><th>Angle</th><th>At 1 m</th><th>Quest 3</th></tr>
-        <tr><td>Main value</td><td>text-amount, 650</td><td class="n">2.4°</td><td class="n">42 mm</td><td class="n">60 px</td></tr>
-        <tr><td>Emergency title</td><td>text-title, 650</td><td class="n">1.9°</td><td class="n">33 mm</td><td class="n">48 px</td></tr>
-        <tr><td>Alert title, small value</td><td>text-heading, 600</td><td class="n">1.4–1.5°</td><td class="n">24–26 mm</td><td class="n">35–38 px</td></tr>
+        <tr><td>Main value</td><td>text-amount, 700</td><td class="n">2.4°</td><td class="n">42 mm</td><td class="n">60 px</td></tr>
+        <tr><td>Emergency title</td><td>text-title, 700</td><td class="n">1.9°</td><td class="n">33 mm</td><td class="n">48 px</td></tr>
+        <tr><td>Alert title, small value</td><td>text-heading, 700</td><td class="n">1.4–1.5°</td><td class="n">24–26 mm</td><td class="n">35–38 px</td></tr>
         <tr><td>Body, tab, toast</td><td>text-row, 500</td><td class="n">1.2–1.3°</td><td class="n">21–23 mm</td><td class="n">30–33 px</td></tr>
-        <tr><td>Label</td><td>text-label, 600</td><td class="n">1.1°</td><td class="n">19 mm</td><td class="n">28 px</td></tr>
+        <tr><td>Label</td><td>text-label, 700</td><td class="n">1.1°</td><td class="n">19 mm</td><td class="n">28 px</td></tr>
         <tr><td>Tag, legend</td><td>text-caption</td><td class="n">0.95–1.05°</td><td class="n">17–18 mm</td><td class="n">24–26 px</td></tr>
       </table></div>
       <p class="small" style="margin-top:8px">Pixels use Quest 3’s 25 pixels per degree (<a href="https://www.meta.com/gb/quest/compare/">Meta comparison page</a>, confirmed from a search summary). Height is tan(angle) × 1 m. Whether these sizes read well in the headset is not verified.</p>
@@ -288,20 +328,20 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <h2>How the Point system is applied</h2>
       <ul>
         <li><b>Two accents only.</b> Cobalt marks what is current: floor arrows, the destination, your position, the active layer. Orange marks the one thing to watch: a warn alert.</li>
-        <li><b>Alerts are grey surfaces.</b> Alert cards and toasts keep a grey face and carry a small coloured icon. Nothing is filled red except the emergency frame.</li>
-        <li><b>Red is for errors.</b> Critical alerts and obstacles use red, always with an exclamation icon and a word, never colour alone (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
-        <li><b>Dark grey, not black.</b> Card <code>#262626</code>, rows <code>#2e2e2e</code>, tracks <code>#3d3d3d</code>. A dark face keeps text readable against bright walls (<a href="https://developers.meta.com/horizon/design/styles_typography/">Meta typography guidance</a>, search summary).</li>
-        <li><b>Type.</b> Wanted Sans, weights 400–650, tabular numerals, −0.02em tracking on large sizes.</li>
+        <li><b>Transparent status HUD with high-contrast outlines.</b> The status card keeps a transparent background so passthrough surroundings remain unobstructed, relying on crisp white-and-black dual outlines and shadowed typography for legibility in bright or dark rooms.</li>
+        <li><b>Red is for critical errors.</b> Critical alerts and obstacles use red (and orange for warn perimeter frames), always with an icon and a word, never colour alone (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>).</li>
+        <li><b>High-legibility typography.</b> Atkinson Hyperlegible paired with Pretendard, tabular numerals, and −0.02em tracking on large values to prevent character ambiguity (such as 0/O or 1/I/l).</li>
         <li><b>Shape.</b> Cards 20, rows and toasts 16, segmented control 14 with a 10 selected cell, scaled to degrees.</li>
         <li><b>No explanatory sentences in the HUD.</b> Titles, data and state words only.</li>
-        <li><b>Slow pulse.</b> The frame brightens once every 1.6 s, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
+        <li><b>Slow pulse.</b> The perimeter frame pulses once every 1.6 s in both Warn (orange) and Critical (red) states, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
       </ul>
     </div>
     <div class="card">
       <h2>Behaviour this mockup settles</h2>
       <ul>
-        <li><b>Status card</b> sits top left. Bottom left collides with the palm map; the top strip pushes alerts into the centre.</li>
-        <li><b>Acknowledge alert</b> stops the pulse. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
+        <li><b>Status card</b> sits top left with a transparent face. Bottom left collides with the palm map; the top strip keeps route toasts clear below it.</li>
+        <li><b>Centre-gaze alerts.</b> Warn and Critical alert cards render dead-centre in the user’s direct line of sight, while route toasts stay at top centre.</li>
+        <li><b>Acknowledge alert</b> stops the perimeter pulse in both Warn and Critical states. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
         <li><b>Several alerts.</b> The card shows the highest level and a “+1” tag for the rest.</li>
         <li><b>Critical clears.</b> The route returns to the previous target.</li>
         <li><b>Link lost.</b> The last suit temperature stays, greyed, tagged “last value”.</li>
@@ -310,7 +350,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         <li><b>Distance</b> shows <code>distanceM</code> as sent, in room metres.</li>
         <li><b>Obstacles</b> are danger red with a hatch and a label.</li>
       </ul>
-      <p class="small" style="margin-top:12px">Still unverified, needs the headset: translucent cards in the Quest browser (the spec says video passthrough uses alpha-blend, <a href="https://developer.mozilla.org/en-US/docs/Web/API/XRSession/environmentBlendMode">MDN</a>), head-locked versus lazy-follow comfort, and whether layer tabs are large enough for a gloved poke. Radiation thresholds are not defined yet.</p>
+      <p class="small" style="margin-top:12px">Still unverified, needs the headset: translucent/outlined cards in the Quest browser (the spec says video passthrough uses alpha-blend, <a href="https://developer.mozilla.org/en-US/docs/Web/API/XRSession/environmentBlendMode">MDN</a>), head-locked versus lazy-follow comfort, and whether layer tabs are large enough for a gloved poke. Radiation thresholds are not defined yet.</p>
     </div>
   </div>
 </div>
@@ -365,7 +405,7 @@ function box(x0,x1,y0,y1,z0,z1,c){
 function pill(x,y,icon,iconCol,text){var size=25,w=text.length*size*0.56+72,h=size+20;
   return '<g><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-h/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h+'" rx="16" fill="'+C.surface+'"/>'+
     '<text x="'+(x-w/2+14).toFixed(1)+'" y="'+(y+15).toFixed(1)+'" class="msv" font-size="30" fill="'+iconCol+'">'+icon+'</text>'+
-    '<text x="'+(x-w/2+52).toFixed(1)+'" y="'+(y+size*0.34).toFixed(1)+'" font-size="'+size+'" font-weight="600" fill="'+C.ink+'">'+text+'</text></g>';}
+    '<text x="'+(x-w/2+52).toFixed(1)+'" y="'+(y+size*0.34).toFixed(1)+'" font-size="'+size+'" font-weight="700" fill="'+C.ink+'">'+text+'</text></g>';}
 function routeLen(r){var s=0;for(var i=1;i<r.length;i++)s+=Math.hypot(r[i][0]-r[i-1][0],r[i][2]-r[i-1][2]);return s;}
 
 function drawRoom(){
@@ -420,7 +460,7 @@ function drawDest(p,label){
   var t=P(p[0],0.72,p[2]);return o+pill(t[0],t[1],'navigation',C.primaryIcon,label);
 }
 function drawGrid(){
-  var o='',st='stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"',tx='font-size="22" fill="#fff" stroke="#111" stroke-width="5" paint-order="stroke"';
+  var o='',st='stroke="#fff" stroke-opacity=".55" stroke-dasharray="6 8" stroke-width="2"',tx='font-size="22" font-weight="700" fill="#fff" stroke="#111" stroke-width="5" paint-order="stroke"';
   for(var a=-30;a<=30;a+=10){var x=W/2+F*Math.tan(a*Math.PI/180);
     o+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" '+st+'/><text x="'+(x+6)+'" y="'+(H/2-8)+'" '+tx+'>'+a+'°</text>';}
   for(var b=-20;b<=20;b+=10){var y=H/2-F*Math.tan(b*Math.PI/180);
@@ -469,7 +509,7 @@ function render(){
   alerts.sort(function(a,b){return (b.level==="critical")-(a.level==="critical")});
 
   var hud=$("hud");
-  hud.className="hud pos-"+S.pos+" blink-"+S.blink+(crit?" crit":"")+(S.ack?" acked":"");
+  hud.className="hud pos-"+S.pos+" blink-"+S.blink+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
   hud.style.setProperty("--period",S.period+"s");
   $("periodOut").textContent=S.period.toFixed(1)+" s ("+(1/S.period).toFixed(2)+" Hz)";
 
@@ -497,12 +537,12 @@ function render(){
   $("layName").textContent=layer.label;
   $("solLine").innerHTML='Sol — · —:— <span class="tag">TBD</span>';
 
-  /* alert card */
+  /* alert card (dead centre) */
   var bn=$("banner"),top=alerts[0];bn.hidden=!top;
   if(top){var tc=top.level==="critical";bn.className="banner"+(tc?" crit":"");
     $("bIco").textContent=tc?"error":"warning";
     $("bTitle").textContent=ALERTS[top.id][top.level];
-    var sub=tc?(S.ack?"Acknowledged · Returning to base":"Returning to base"):(top.id==="link-lost"?"Showing last value":"");
+    var sub=tc?(S.ack?"Acknowledged · Returning to base":"Returning to base"):(S.ack?"Acknowledged":(top.id==="link-lost"?"Showing last value":""));
     $("bSub").textContent=sub;$("bSub").hidden=!sub;
     $("bMore").hidden=alerts.length<2;$("bMore").textContent="+"+(alerts.length-1);}
   /* route toast */
@@ -518,7 +558,7 @@ function render(){
   if(nav==="ok")sv+=drawRoute(route,tLabel);
   else if(nav==="arrived"||nav==="blocked")sv+=drawDest(ROUTES.site1[2],tLabel);
   if(S.grid)sv+=drawGrid();
-  $("scene").innerHTML='<style>.chev{animation:flow 1.6s linear infinite}@keyframes flow{0%,100%{opacity:.6}40%{opacity:1}}text{font-family:"Wanted Sans",system-ui,sans-serif}text.msv{font-family:"Material Symbols Rounded";font-variation-settings:"FILL" 1}</style>'+sv;
+  $("scene").innerHTML='<style>.chev{animation:flow 1.6s linear infinite}@keyframes flow{0%,100%{opacity:.6}40%{opacity:1}}text{font-family:"Atkinson Hyperlegible","Pretendard",system-ui,sans-serif}text.msv{font-family:"Material Symbols Rounded";font-variation-settings:"FILL" 1}</style>'+sv;
 
   /* palm map */
   $("palm").hidden=!S.palm;buildTabs();drawMap(nav,target);
@@ -530,7 +570,7 @@ function render(){
   /* controls */
   document.querySelectorAll("#controls [data-k]").forEach(function(b){b.setAttribute("aria-pressed",String(S[b.dataset.k])===b.dataset.v);});
   document.querySelectorAll("#controls [data-tog]").forEach(function(b){b.setAttribute("aria-pressed",!!S[b.dataset.tog]);});
-  $("c-ack").disabled=!crit;$("c-ack").setAttribute("aria-pressed",S.ack);
+  $("c-ack").disabled=!(crit||warn);$("c-ack").setAttribute("aria-pressed",S.ack);
 
   /* event log */
   var ts=Date.now(),L=[];
@@ -541,7 +581,7 @@ function render(){
   L.push("nav:route         "+JSON.stringify({status:nav,targetId:target,points:nav==="ok"?route:[],distanceM:dist===null?0:dist,reason:nav==="blocked"?"no-path":""}));
   alerts.forEach(function(a){L.push("alert:raise       "+JSON.stringify({id:a.id,level:a.level,message:ALERTS[a.id][a.level],ts:ts}));});
   L.push("mode:change       "+JSON.stringify({mode:crit?"emergency":"normal"}));
-  if(crit&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"Acknowledge alert"}));
+  if((crit||warn)&&S.ack)L.push("voice:command     "+JSON.stringify({intent:"alert.ack",slots:{},text:"Acknowledge alert"}));
   $("log").textContent=L.join("\n");
 }
 
