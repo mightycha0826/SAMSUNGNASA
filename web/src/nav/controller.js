@@ -14,6 +14,9 @@ export class Navigation {
     this.lastPlanAt = -Infinity; this.lastPublishAt = -Infinity; this.dirty = false;
     this.lastStatus = null; this.blockReason = ''; this.warned = false; this.stats = null;
     this.searchStart = null; this.analysis = null;
+    // Waypoints the wearer marked (id -> cell): the planner leads a route through those nearly
+    // on the way. via: the ones the present route passes; passed: those already reached on it.
+    this.vias = new Map(); this.via = []; this.passed = new Set();
     const on = (name, fn) => this.off.push(bus.on(name, fn));
     on('layers:ready', data => this.load(data));
     on('nav:request', ({ targetId }) => this.request(targetId));
@@ -21,6 +24,8 @@ export class Navigation {
     on('nav:waypoint', wp => this.setWaypoint(wp));
     // The wearer's position in map metres, from the headset's tracking (field/index.js).
     on('nav:position', ({ point }) => this.setPosition(point));
+    on('waypoint:set', w => { if (w?.id != null && w.cell) this.setVia(w.id, w.cell); });
+    on('waypoint:remove', ({ id }) => this.removeVia(id));
     on('hazard:update', h => this.updateHazard(h));
     on('voice:command', ({ intent }) => { if (intent === 'nav.stop') this.cancel(); });
     on('alert:raise', ({ id, level }) => {
@@ -46,6 +51,7 @@ export class Navigation {
     if (this.hazard?.frameId !== this.transform.frameId) { this.hazard = null; this.hfield = null; }
     this.analysis = null;
     this.worker.postMessage({ type: 'setup', version: ++this.version, ...data, hazard: this.hazard });
+    for (const [id, cell] of this.vias) if (containsCell(this.transform, cell)) this.worker.postMessage({ type: 'via', id, cell });
     if (this.targetId) this.dirty = true;
   }
   invalidate() {
@@ -55,6 +61,7 @@ export class Navigation {
   publish(status, points = [], distanceM = 0, reason = '') {
     this.lastStatus = status; this.blockReason = reason; this.lastPublishAt = this.now();
     const payload = { status, targetId: this.targetId, points, distanceM, reason };
+    if (status === 'ok' && this.via.length) payload.via = this.via.slice(); // the marked waypoints the route passes, in order
     this.onRoute(payload); this.bus.emit('nav:route', payload);
   }
   clearWarning() {
@@ -71,7 +78,7 @@ export class Navigation {
   request(targetId) {
     const hadRoute = this.route.length > 0 || this.lastStatus === 'ok';
     this.invalidate(); this.targetId = this.critical.size ? 'base' : targetId;
-    this.route = [];
+    this.route = []; this.via = []; this.passed = new Set();
     if (hadRoute) this.publish('cancelled', [], 0, 'new-request');
     else this.onRoute({ status: 'cancelled', points: [] });
     this.lastPlanAt = -Infinity; this.dirty = true;
@@ -84,6 +91,19 @@ export class Navigation {
     const i = list.findIndex(w => w.id === id);
     if (i >= 0) list[i] = wp; else list.push(wp);
     this.worker.postMessage({ type: 'waypoint', id, cell: wp.cell });
+  }
+  /** A marked waypoint: the planner may lead routes through it. A route in progress is planned again. */
+  setVia(id, cell) {
+    const at = [Math.round(cell[0]), Math.round(cell[1])];
+    this.vias.set(id, at);
+    if (!this.transform || !containsCell(this.transform, at)) return;
+    this.worker.postMessage({ type: 'via', id, cell: at });
+    if (this.targetId && this.targetId !== id) this.dirty = true;
+  }
+  removeVia(id) {
+    if (!this.vias.delete(id)) return;
+    this.worker.postMessage({ type: 'unvia', id });
+    if (this.targetId && this.via.includes(id)) this.dirty = true;
   }
   cancel() {
     this.invalidate(); this.route = []; this.dirty = false;
@@ -150,6 +170,9 @@ export class Navigation {
       if (m.version === this.version) { this.pending = null; this.dirty = false; this.fail(m.reason || 'planner-error'); }
       return;
     }
+    // Every tree is ready now, and the last route was planned without some of them: plan again,
+    // so that waypoints on the way are taken along.
+    if (m.type === 'trees') { if (m.version === this.version && this.targetId && this.vias.size) this.dirty = true; return; }
     if (m.type !== 'result' || m.id !== this.pending || m.version !== this.version || !this.targetId) return;
     this.pending = null;
     this.stats = m.stats;
@@ -158,13 +181,19 @@ export class Navigation {
     if (!this.position || !route.length) { this.dirty = true; return; }
     const rest = remainingPath(route, this.position);
     if (rest.deviationM > NAV.offRouteM || !this.routeClear(rest.points)) { this.dirty = true; return; }
-    this.route = route; this.analysis = analyzeRoute(this.data, m.points, m.cost); this.clearWarning();
+    this.route = route; this.via = m.via ?? []; this.analysis = analyzeRoute(this.data, m.points, m.cost); this.clearWarning();
     this.progress(true);
   }
   progress(force = false) {
     if (!this.position || !this.route.length || !this.targetId) return;
     const rest = remainingPath(this.route, this.position);
     const end = this.route.at(-1);
+    // A waypoint the wearer has reached on this route is not led back to when the route is planned again.
+    for (const id of this.via) {
+      if (this.passed.has(id)) continue;
+      const at = cellToWorld(this.transform, this.vias.get(id) ?? [NaN, NaN]);
+      if (Math.hypot(this.position[0] - at[0], this.position[2] - at[2]) <= NAV.arrivalM) this.passed.add(id);
+    }
     if (!this.routeClear(rest.points)) {
       this.invalidate(); this.route = []; this.dirty = true; this.publish('blocked', [], 0, 'route-changed'); return;
     }
@@ -193,7 +222,7 @@ export class Navigation {
     if (!wp || !containsCell(this.transform, wp.cell)) { this.dirty = false; this.fail('invalid-target'); return; }
     this.pending = ++this.serial; this.lastPlanAt = this.now(); this.dirty = false;
     this.searchStart = this.position.slice();
-    this.worker.postMessage({ type: 'plan', id: this.pending, start, targetId: wp.id });
+    this.worker.postMessage({ type: 'plan', id: this.pending, start, targetId: wp.id, skip: [...this.passed] });
   }
   dispose() { this.off.forEach(off => off()); this.worker.terminate(); this.route = []; }
 }

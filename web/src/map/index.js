@@ -42,7 +42,59 @@ let activeLayer = null, request = 0, generation = 0, shownSince = null, controll
 let routePoints = [], routeBand = null, targetMarker = null, off = [], textures = new Map();
 // Waypoints the wearer marked (hud): id -> { id, label, cell }, and the marker of each on the map as it is built now.
 const marked = new Map(), markedMarkers = new Map();
-const lookDir = new THREE.Vector3();
+const lookDir = new THREE.Vector3(), toMap = new THREE.Vector3(), eyeAt = new THREE.Vector3();
+// How much of the map shows: `content` (the terrain and all that stands on it) is enlarged
+// `zoom` times and moved under the hologram's circle so that the wearer stays in its middle;
+// what leaves the circle fades out (core/hologram.js) or is hidden. zoom 1: the whole map.
+let content = null, zoom = 1, wantZoom = 1, me = null, laidFor = '', captionZoom = 1;
+const view = { zoom: { value: 1 }, shift: { value: new THREE.Vector2() } }; // for the fade of everything on the map
+const placed = new Map(); // marker -> { p: [x, y, z] its place on the surface, lift }
+let routeRaw = []; // the route's points on the surface, before lift
+/** Put a marker over a place of the surface. It keeps its size whatever the zoom. */
+function put(marker, p, lift) { placed.set(marker, { p, lift }); lay(marker); }
+function unput(marker) { if (marker) { placed.delete(marker); marker.visible = false; } }
+function lay(marker) {
+  const { p, lift } = placed.get(marker);
+  place(marker, p[0], p[1], p[2], lift / zoom);
+  const s = marker.getObjectByName('stem'); if (s) s.scale.y = lift; // the marker is scaled 1 / zoom, its stem with it
+  marker.scale.setScalar(1 / zoom);
+  // Outside the circle a marker would stand in the air beside the map.
+  marker.visible = Math.hypot(p[0] * zoom + view.shift.value.x, p[2] * zoom + view.shift.value.y) <= MAP.widthM * 0.49;
+}
+/** Enlarge and move the content for the zoom in use, and put everything on it in place again when that changed. */
+function applyZoom() {
+  if (!content) return;
+  const f = Math.min(1, (zoom - 1) / 0.5); // from the whole map centred to the wearer centred, over the first half step of zoom
+  const at = me ?? [0, 0, 0];
+  content.scale.setScalar(zoom);
+  content.position.set(-zoom * at[0] * f, (1 - zoom) * at[1] * f, -zoom * at[2] * f);
+  view.zoom.value = zoom; view.shift.value.set(content.position.x, content.position.z);
+  const key = `${zoom.toFixed(3)}|${content.position.x.toFixed(4)}|${content.position.z.toFixed(4)}`;
+  if (key === laidFor) return;
+  laidFor = key;
+  for (const marker of placed.keys()) lay(marker);
+  layRoute();
+  if (Math.abs(zoom - captionZoom) > 0.08 * captionZoom || (zoom === 1) !== (captionZoom === 1)) caption();
+}
+function layRoute() {
+  if (!routeBand) return;
+  const lift = MARK.youLiftM * 0.45 / zoom;
+  routeBand.mesh.visible = routeRaw.length > 1;
+  routeBand.set(routeRaw.length > 1 ? routeRaw.map(p => [p[0], p[1] + lift, p[2]]) : [], 0.0024 / zoom);
+}
+/** The zoom follows where the map is held: toward the middle of the view it shows all of it. */
+let forcedZoom = null; // PC testing: window.__map.zoom(3)
+function aimZoom(frame) {
+  if (forcedZoom != null) { zoom = wantZoom = forcedZoom; return; }
+  if (!frame.session || !root.visible) { wantZoom = 1; zoom = 1; return; }
+  ctx.camera.getWorldDirection(lookDir);
+  toMap.copy(root.position).sub(ctx.camera.getWorldPosition(eyeAt));
+  const off = THREE.MathUtils.radToDeg(toMap.angleTo(lookDir));
+  const [far, near] = MAP.zoomAtDeg;
+  wantZoom = 1 + (MAP.zoomMax - 1) * THREE.MathUtils.smoothstep(off, near, far);
+  zoom += (wantZoom - zoom) * (1 - Math.exp(-MAP.zoomRate * Math.min(0.1, frame.dt ?? 0.016)));
+  if (Math.abs(zoom - 1) < 0.004) zoom = 1;
+}
 const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
 const palmState = makePalmState();
 const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
@@ -61,11 +113,12 @@ function makeLabel() { return makeCaption(root, 'map-caption'); }
 function placeCaption() { if (label) putCaption(label, root, ctx.camera, MAP.widthM); }
 function caption(note = '') {
   if (!label || !data) return;
+  captionZoom = zoom;
   const layer = data.layerSet.layers.find(l => l.id === activeLayer);
   writeCaption(label, [
     `${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`,
     `${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`,
-    `Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`,
+    zoom > 1.02 ? `Showing ${Math.round(transform.width / zoom / 10) * 10} m of ${transform.width} m around you · hold it in the middle of your view for all` : `Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`,
     note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: you · orange diamond: target · blue: waypoints · violet: route'),
     'Route distances use map metres. Display size does not affect planning.',
     layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'),
@@ -82,7 +135,8 @@ function lineForCells(cells, color, name) {
   // The terrain is drawn in the transparent pass, so anything meant to lie on top of it must be
   // transparent too and come later in the order; otherwise the terrain paints over it.
   const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
-  line.name = name; line.renderOrder = 4; root.add(line); return line;
+  fadeBeyondCircle(line.material, MAP.widthM, { view });
+  line.name = name; line.renderOrder = 4; content.add(line); return line;
 }
 /** The surface point of a cell in the map's frame, [x, y, z], or null off the terrain. */
 const onMap = cell => mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
@@ -97,32 +151,34 @@ function drawRoute() {
   // A band just above the terrain, as on the field map: readable on a 25 cm map in the headset.
   let points = [];
   for (const cell of cells) {
-    const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, MARK.youLiftM * 0.45);
+    const p = onMap(cell);
     if (p && (!points.length || Math.hypot(p[0] - points[points.length - 1][0], p[2] - points[points.length - 1][2]) > 1e-5)) points.push(p);
   }
   if (points.length > ROUTE_SEGMENTS) { const every = Math.ceil(points.length / ROUTE_SEGMENTS); points = points.filter((_, i) => i % every === 0 || i === points.length - 1); }
-  routeBand.mesh.visible = points.length > 1;
-  routeBand.set(points.length > 1 ? points : [], 0.0024);
+  routeRaw = points;
+  layRoute();
   // The target: where the route ends.
   const end = routePoints.length > 1 ? onMap(worldToCell(transform, routePoints[routePoints.length - 1])) : null;
-  if (targetMarker) { targetMarker.visible = false; if (end) place(targetMarker, ...end, MARK.targetLiftM); }
+  if (end) put(targetMarker, end, MARK.targetLiftM); else unput(targetMarker);
 }
 const ROUTE_SEGMENTS = 480;
 function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
   const p = onMap(worldToCell(transform, point));
-  currentMarker.visible = false; if (p) place(currentMarker, ...p, MARK.youLiftM);
+  me = p ?? me; // the zoomed map is centred on the wearer
+  if (p) put(currentMarker, p, MARK.youLiftM); else unput(currentMarker);
+  applyZoom();
 }
 /** Keep the markers of the marked waypoints in step with the list, on the map as it is built now. */
 function syncMarked() {
-  for (const [id, marker] of markedMarkers) if (!marked.has(id) || marker.parent !== root) { marker.removeFromParent(); markedMarkers.delete(id); }
+  for (const [id, marker] of markedMarkers) if (!marked.has(id) || marker.parent !== content) { unput(marker); marker.removeFromParent(); markedMarkers.delete(id); }
   if (!data || !arrays) return;
   for (const w of marked.values()) {
     let marker = markedMarkers.get(w.id);
-    if (!marker) { marker = makeWaypoint(w.label); marker.name = `map-marked-${w.id}`; root.add(marker); markedMarkers.set(w.id, marker); }
+    if (!marker) { marker = makeWaypoint(w.label); marker.name = `map-marked-${w.id}`; content.add(marker); markedMarkers.set(w.id, marker); }
     setLabel(marker, w.label);
     const p = onMap(w.cell);
-    marker.visible = false; if (p) place(marker, ...p, MARK.waypointLiftM);
+    if (p) put(marker, p, MARK.waypointLiftM); else unput(marker);
   }
 }
 /** Every frame: the wearer's arrow points where they face (north on the map is -z), the target turns. */
@@ -131,6 +187,8 @@ function tickMarkers() {
   if (currentMarker) { ctx.camera.getWorldDirection(lookDir); currentMarker.rotation.y = -Math.atan2(lookDir.x, -lookDir.z); }
   if (targetMarker?.visible) targetMarker.rotation.y = performance.now() / 900;
 }
+/** How many times larger than the whole map the map is shown right now (hud: distances on the map). */
+export const mapZoom = () => zoom;
 function numericTexture(id) {
   const grid = data.grids[id]; if (!grid) throw new Error(`missing-${id}`);
   const bounds = range(grid), out = new Uint8Array(grid.length * 4);
@@ -189,7 +247,8 @@ function clearData() {
   for (const texture of textures.values()) texture.dispose(); textures.clear();
   if (label) label.userData.texture.dispose();
   if (root) for (const child of [...root.children]) disposeObject(child);
-  surface = label = currentMarker = routeBand = targetMarker = beam = null; data = arrays = transform = null; markedMarkers.clear();
+  surface = label = currentMarker = routeBand = targetMarker = beam = content = null; data = arrays = transform = null; markedMarkers.clear();
+  placed.clear(); routeRaw = []; me = null; laidFor = '';
   routePoints = []; activeLayer = null;
 }
 function load(payload) {
@@ -200,20 +259,22 @@ function load(payload) {
     geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(arrays.uv, 2));
     geometry.setIndex(arrays.indices); geometry.computeVertexNormals();
     surface = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, alphaTest: 0.01 }));
-    fadeBeyondCircle(surface.material, MAP.widthM); // the map dissolves outside the circle its hologram stands on
-    surface.name = 'map-terrain'; root.add(surface);
+    content = new THREE.Group(); content.name = 'map-content'; root.add(content);
+    fadeBeyondCircle(surface.material, MAP.widthM, { view }); // the map dissolves outside the circle its hologram stands on
+    surface.name = 'map-terrain'; content.add(surface);
     lineForCells(data.traverse?.points?.map(p => p.cell) ?? [], 0xf27a0a, 'map-curiosity-traverse');
     // The places the data names (base, survey site, the nearby point): waypoints, as the ones the wearer marks.
     for (const wp of data.layerSet.waypoints ?? []) {
       const p = onMap(wp.cell);
       if (!p) continue;
       const marker = makeWaypoint(String(wp.labelEn ?? wp.label ?? wp.id).split(' · ')[0]);
-      marker.name = `map-waypoint-${wp.id}`; root.add(marker); place(marker, ...p, MARK.waypointLiftM);
+      marker.name = `map-waypoint-${wp.id}`; content.add(marker); put(marker, p, MARK.waypointLiftM);
     }
     routeBand = makeRibbon(ROUTE_SEGMENTS, new THREE.MeshBasicMaterial({ color: GUIDE.path, opacity: 0.95, side: THREE.DoubleSide, depthTest: false, transparent: true }));
-    routeBand.mesh.name = 'map-planned-route'; routeBand.mesh.renderOrder = 21; routeBand.mesh.visible = false; root.add(routeBand.mesh);
-    targetMarker = makeTarget(); targetMarker.name = 'map-target'; root.add(targetMarker);
-    currentMarker = makeYou(); currentMarker.name = 'map-explorer'; root.add(currentMarker);
+    fadeBeyondCircle(routeBand.mesh.material, MAP.widthM, { view });
+    routeBand.mesh.name = 'map-planned-route'; routeBand.mesh.renderOrder = 21; routeBand.mesh.visible = false; content.add(routeBand.mesh);
+    targetMarker = makeTarget(); targetMarker.name = 'map-target'; content.add(targetMarker);
+    currentMarker = makeYou(); currentMarker.name = 'map-explorer'; content.add(currentMarker);
     const base = data.layerSet.waypoints?.find(w => w.id === 'base');
     if (base) setCurrent(cellToWorld(transform, base.cell));
     syncMarked();
@@ -237,9 +298,9 @@ function cellAt(x, z) {
  * surface, and the crossing is then narrowed down: no triangle is tested.
  */
 export function pickOnMap(origin, direction, maxM = 3) {
-  if (!root?.visible || !data || !arrays) return null;
-  root.updateWorldMatrix(true, false);
-  toLocal.copy(root.matrixWorld).invert();
+  if (!root?.visible || !data || !arrays || !content) return null;
+  content.updateWorldMatrix(true, false);
+  toLocal.copy(content.matrixWorld).invert();
   rayFrom.copy(origin).applyMatrix4(toLocal);
   rayStep.copy(origin).add(direction).applyMatrix4(toLocal).sub(rayFrom); // one metre of the ray, in the map's frame
   const under = t => {
@@ -256,8 +317,8 @@ export function pickOnMap(origin, direction, maxM = 3) {
       for (let k = 0; k < 8; k++) { const mid = (a + b) / 2; if (under(mid) > 0) a = mid; else b = mid; }
       probe.copy(rayFrom).addScaledVector(rayStep, b);
       const at = cellAt(probe.x, probe.z);
-      if (!at) return null;
-      return { cell: at.cell, point: root.localToWorld(new THREE.Vector3(probe.x, at.y, probe.z)), t: b };
+      if (!at || !inCircle(probe.x, probe.z)) return null; // off the terrain, or on a part of it that is outside the circle
+      return { cell: at.cell, point: content.localToWorld(new THREE.Vector3(probe.x, at.y, probe.z)), t: b };
     }
     before = gap; tBefore = t;
   }
@@ -265,19 +326,21 @@ export function pickOnMap(origin, direction, maxM = 3) {
 }
 /** Where a cell of the map is in the room right now (for a card that stands over it), or null. */
 export function mapCellInRoom(cell) {
-  if (!root?.visible || !data || !arrays) return null;
+  if (!root?.visible || !data || !arrays || !content) return null;
   const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
-  return p ? root.localToWorld(new THREE.Vector3().fromArray(p)) : null;
+  return p && inCircle(p[0], p[2]) ? content.localToWorld(new THREE.Vector3().fromArray(p)) : null;
 }
+/** Is a point of the map's content inside the hologram's circle, at the zoom in use? */
+const inCircle = (x, z) => Math.hypot(x * zoom + view.shift.value.x, z * zoom + view.shift.value.y) <= MAP.widthM * 0.5;
 /** Put the pin on a cell of the map, or take it away (null). */
 export function showPick(cell) {
   if (!root || !data || !arrays) return;
-  if (pin && pin.parent !== root) pin = null; // the map was rebuilt
-  if (!cell) { if (pin) pin.visible = false; return; }
+  if (pin && pin.parent !== content) pin = null; // the map was rebuilt
+  if (!cell) { unput(pin); return; }
   const p = onMap(cell);
   if (!p) return;
-  if (!pin) { pin = makePin(); pin.name = 'map-pick'; root.add(pin); }
-  pin.position.fromArray(p); pin.visible = true;
+  if (!pin) { pin = makePin(); pin.name = 'map-pick'; content.add(pin); }
+  put(pin, p, 0);
 }
 /** The cell of a point in map metres ([x, 0, z], as nav:position gives it), or null before the data is there (hud: "Mark waypoint"). */
 export function cellOfMapPoint(point) {
@@ -290,6 +353,8 @@ export function mapTargetCell() {
 
 export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
+  // PC testing without a headset: __map.zoom(3) shows the map three times larger around the wearer; __map.zoom(null) gives it back.
+  if (typeof window !== 'undefined') window.__map = { zoom: z => { forcedZoom = z; }, state: () => ({ zoom, shownM: transform ? transform.width / zoom : null, markers: [...placed.keys()].map(m => `${m.name}${m.visible ? '' : ' (hidden)'}`) }) };
   root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
   off.push(ctx.bus.on('layers:ready', load), ctx.bus.on('layer:toggle', ({ id, visible }) => { void selectLayer(id, visible); }),
     ctx.bus.on('nav:position', ({ point }) => setCurrent(point)), ctx.bus.on('nav:route', event => {
@@ -312,6 +377,7 @@ export function init(context) {
   }));
 }
 export function update(frame) {
+  if (root && data) { aimZoom(frame); applyZoom(); }
   tickMarkers();
   if (root && data && !frame.session) placeCaption(); // PC view
   if (!root || !data || !arrays || !frame.session) return;

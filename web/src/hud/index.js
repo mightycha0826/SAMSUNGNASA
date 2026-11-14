@@ -36,7 +36,7 @@ import { walkableNear, reachableFrom } from '../core/waypoints.js';
 import { choose, importance, trend } from './importance.js';
 import { createDash } from './dash.js';
 import { sizeOf } from './layout.js';
-import { pickOnMap, mapCellInRoom, showPick, cellOfMapPoint, mapTargetCell } from '../map/index.js';
+import { pickOnMap, mapCellInRoom, showPick, cellOfMapPoint, mapTargetCell, mapZoom } from '../map/index.js';
 import { MAP } from '../map/config.js';
 import { FIELD, pickOnFieldMap, fieldPlaceOnMap, showFieldPick, fieldHere, fieldTarget, fieldSpan } from '../field/index.js';
 
@@ -269,7 +269,7 @@ function markNear(place) {
     if (t) take('target', null, t, far(t) * 0.8); // the target is the larger marker: it wins a tie
     for (const w of waypoints.values()) if (w.room) take('waypoint', w.id, w.room, far(w.room));
   } else if (state.layerSet) {
-    const reach = (HUD.pick.snapM / MAP.widthM) * state.layerSet.grid.cols; // in cells
+    const reach = (HUD.pick.snapM / (MAP.widthM * mapZoom())) * state.layerSet.grid.cols; // in cells, on the map as large as it shows now
     const far = (at) => Math.hypot(at[0] - place.cell[0], at[1] - place.cell[1]) / reach;
     const t = mapTargetCell();
     if (t) take('target', null, t, far(t) * 0.8);

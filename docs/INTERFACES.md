@@ -242,8 +242,8 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
 | `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }` on the Mars map, `{ room: [x, z] }` on the field map; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
 | `field:target` | F | field (B) | The target of the field map: `{ point: [x, z], label? }` in room metres (a place picked on the map, or a waypoint); `{ point: null }` deletes it |
-| `waypoint:set` | F | field (B), D (map) | A waypoint was set or renamed: `{ id, label, room: [x, z] }` on the field map, `{ id, label, cell: [col, row] }` on the Mars map |
-| `waypoint:remove` | F | field (B), D (map) | `{ id }`: the waypoint was deleted |
+| `waypoint:set` | F | field (B), D (map, nav) | A waypoint was set or renamed: `{ id, label, room: [x, z] }` on the field map, `{ id, label, cell: [col, row] }` on the Mars map |
+| `waypoint:remove` | F | field (B), D (map, nav) | `{ id }`: the waypoint was deleted |
 | `voice:dictate` | F | B (to the Jetson) | `{ on, id }`: the next thing said is to come back as text, not as a command (a waypoint's name) |
 | `voice:dictation` | B (from the Jetson) | F | `{ id, text }`: what was said. `text` is empty with `unavailable: true` when there is no hub |
 | `nav:waypoint` | F | D | A destination added or moved while running: `{ id: "pick", cell: [col, row], label }`. It joins `layerSet.waypoints`; request it with `nav:request` |
@@ -302,6 +302,7 @@ With live depth the headset's depth image is laid over the same cells twice a se
 - `points`: room coordinates where the floor arrows go
 - `distanceM`: remaining distance in the room
 - In field mode the route to the marked target is sent with `"targetId": "mark"` and `"frame": "room"`. D's own routes are in map metres and carry no `frame`.
+- `via` (only on D's routes, and only when there are any): the ids of the marked waypoints (`waypoint:set`) the route passes, in order. D's planner takes a waypoint along when that makes the route hardly more costly (`web/src/nav/via.js`); the field route does the same by length (`web/src/field/planner.js`).
 
 **`telemetry:update`**
 ```json

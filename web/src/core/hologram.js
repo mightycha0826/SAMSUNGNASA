@@ -136,12 +136,19 @@ export function makeBeam(name = 'palm-beam') {
  * surface's own material (any of three.js's built-in ones); the map lies in its x-z plane
  * around its origin.
  */
-export function fadeBeyondCircle(material, mapWidthM, { from = 0.4, to = 0.5 } = {}) {
+export function fadeBeyondCircle(material, mapWidthM, { from = 0.4, to = 0.5, view = null } = {}) {
   const range = new THREE.Vector2(mapWidthM * from, mapWidthM * to);
+  // `view`: { zoom: { value }, shift: { value: Vector2 } }, shared by everything that belongs to
+  // a map whose content is enlarged and moved under the circle (map/index.js): the circle stays
+  // where the hologram is while the map slides under it.
+  const zoom = view?.zoom ?? { value: 1 };
+  const shift = view?.shift ?? { value: new THREE.Vector2() };
   material.transparent = true;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.holoFade = { value: range };
-    shader.vertexShader = `varying float vHoloR;\n${shader.vertexShader}`.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHoloR = length(position.xz);');
+    shader.uniforms.holoZoom = zoom;
+    shader.uniforms.holoShift = shift;
+    shader.vertexShader = `uniform float holoZoom;\nuniform vec2 holoShift;\nvarying float vHoloR;\n${shader.vertexShader}`.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHoloR = length(position.xz * holoZoom + holoShift);');
     shader.fragmentShader = `uniform vec2 holoFade;\nvarying float vHoloR;\n${shader.fragmentShader}`.replace(
       '#include <dithering_fragment>',
       'gl_FragColor.a *= 1.0 - smoothstep(holoFade.x, holoFade.y, vHoloR);\n  if (gl_FragColor.a < 0.004) discard;\n  #include <dithering_fragment>',

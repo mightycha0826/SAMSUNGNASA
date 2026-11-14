@@ -596,8 +596,14 @@ function fitRoute(distanceM) {
   console.info('[field] Mars walking scale: 1 m here is', marsScale.toFixed(1), 'm on Mars');
 }
 
-function onMarsRoute({ status, targetId, points, distanceM, frame }) {
+function onMarsRoute({ status, targetId, points, distanceM, frame, via }) {
   if (frame === 'room' || mode.current !== 'mars') return;
+  // The marked waypoints the route passes (nav/via.js): said once when they change.
+  const stops = status === 'ok' ? (via ?? []).map((id) => waypoints.get(id)?.label ?? id).join(', ') : viaSaid;
+  if (stops !== viaSaid) {
+    viaSaid = stops;
+    if (stops) say(`The route passes ${stops}.`);
+  }
   if (status === 'ok' && points?.length > 1) {
     if (fitNext) {
       fitNext = false;
@@ -731,6 +737,7 @@ export function init(context) {
   ctx.bus.on('voice:command', onVoice);
   ctx.bus.on('nav:route', onMarsRoute);
   ctx.bus.on('nav:request', () => {
+    viaSaid = '';
     fitNext = true;
   });
   ctx.bus.on('field:target', ({ point, label }) => {
