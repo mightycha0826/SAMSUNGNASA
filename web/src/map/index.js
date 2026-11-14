@@ -67,19 +67,32 @@ function disposeObject(object) {
   object?.traverse(o => { o.geometry?.dispose(); if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose(); });
   object?.removeFromParent();
 }
+// The caption is a card standing on the side of an imaginary cylinder whose top face is the map:
+// it hangs just below the map's edge, tangent to the cylinder, on the side nearest the wearer,
+// and slides around the cylinder as the wearer moves so that it always faces them.
+const CAPTION = { wM: 0.28, hM: 0.07, radiusM: MAP.widthM / 2 + 0.012, dropM: 0.006 };
 function makeLabel() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-  sprite.name = 'map-caption'; sprite.renderOrder = 8;
-  if (ctx.xr.presenting) placeCaptionUnderMap(sprite);
-  else { sprite.scale.set(0.28, 0.07, 1); sprite.position.set(0, 0.06, -0.19); }
-  sprite.userData = { canvas, texture }; root.add(sprite); return sprite;
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(CAPTION.wM, CAPTION.hM),
+    new THREE.MeshBasicMaterial({ map: texture, depthTest: false, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
+  card.name = 'map-caption'; card.renderOrder = 8;
+  card.userData = { canvas, texture }; root.add(card); return card;
 }
-// In the headset the caption floats under the map, in the gap between the palm and the map,
-// a little smaller than on a PC screen.
-function placeCaptionUnderMap(sprite) {
-  sprite.scale.set(0.17, 0.0425, 1); sprite.position.set(0, -PALM.liftM * 0.5, 0);
+const capRadial = new THREE.Vector3(), capX = new THREE.Vector3(), capBasis = new THREE.Matrix4();
+function placeCaption() {
+  if (!label || !root.visible) return;
+  // Direction from the map centre to the viewer, in the map's own frame, flattened onto the map.
+  root.updateWorldMatrix(true, false);
+  ctx.camera.getWorldPosition(capRadial);
+  root.worldToLocal(capRadial);
+  capRadial.y = 0;
+  if (capRadial.lengthSq() < 1e-8) capRadial.set(0, 0, 1);
+  capRadial.normalize();
+  capX.crossVectors(upAxis, capRadial).normalize(); // card right = up x normal
+  label.quaternion.setFromRotationMatrix(capBasis.makeBasis(capX, upAxis, capRadial));
+  label.position.copy(capRadial).multiplyScalar(CAPTION.radiusM);
+  label.position.y = -(CAPTION.hM / 2 + CAPTION.dropM);
 }
 function caption(note = '') {
   if (!label || !data) return;
@@ -231,7 +244,6 @@ export function init(context) {
     }));
   off.push(ctx.xr.onSessionStart(session => {
     shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
-    if (label) placeCaptionUnderMap(label);
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
     session.addEventListener('select', select);
     const cleanup = () => session.removeEventListener('select', select);
@@ -239,10 +251,11 @@ export function init(context) {
   }), ctx.xr.onSessionEnd(() => {
     if (beam) beam.visible = false;
     root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.rotation.x = MAP.desktopTiltRad;
-    root.scale.setScalar(MAP.desktopScale); shownSince = null; if (label) { label.scale.set(0.28, 0.07, 1); label.position.set(0, 0.06, -0.19); }
+    root.scale.setScalar(MAP.desktopScale); shownSince = null;
   }));
 }
 export function update(frame) {
+  if (root && data && !frame.session) placeCaption(); // PC view
   if (!root || !data || !arrays || !frame.session) return;
   const { xrFrame, refSpace, session, time, dt } = frame;
   if (!xrFrame || !refSpace) { root.visible = false; return; }
@@ -281,6 +294,7 @@ export function update(frame) {
     tiltAxis.copy(upAxis).multiplyScalar(Math.cos(tilt)).addScaledVector(palmState.forward, -Math.sin(tilt));
     root.quaternion.copy(tiltQuat.setFromUnitVectors(upAxis, tiltAxis));
   }
+  placeCaption();
   if (beam && left) {
     beam.visible = true;
     // palm position in the map's own (tilted) frame
