@@ -1,0 +1,9 @@
+<!-- @dsCard group="입력" height=150 -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Segmented</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block"></head>
+<body>
+<div class="pt-col" style="max-width:358px"><div class="pt-seg" role="tablist" aria-label="기간" style="--n:3;--i:1"><span class="pt-seg__ind" aria-hidden="true"></span><button type="button" role="tab" class="pt-seg__btn" aria-selected="false">주</button><button type="button" role="tab" class="pt-seg__btn" aria-selected="true">월</button><button type="button" role="tab" class="pt-seg__btn" aria-selected="false">년</button></div><div class="pt-seg" role="tablist" aria-label="기간" style="--n:2;--i:0"><span class="pt-seg__ind" aria-hidden="true"></span><button type="button" role="tab" class="pt-seg__btn" aria-selected="true">지출</button><button type="button" role="tab" class="pt-seg__btn" aria-selected="false">수입</button></div></div>
+<script>document.querySelectorAll(".pt-seg").forEach(function(g){var bs=g.querySelectorAll(".pt-seg__btn");bs.forEach(function(b,i){b.addEventListener("click",function(){g.style.setProperty("--i",i);bs.forEach(function(o){o.setAttribute("aria-selected",o===b);});});});});</script>
+</body>
+</html>

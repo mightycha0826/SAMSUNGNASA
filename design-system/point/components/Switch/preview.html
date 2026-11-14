@@ -1,0 +1,9 @@
+<!-- @dsCard group="입력" height=120 -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Switch</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block"></head>
+<body>
+<div class="pt-row" style="gap:20px"><button type="button" role="switch" class="pt-switch" aria-checked="true" aria-label="켜짐"><span class="pt-switch__knob"></span></button><button type="button" role="switch" class="pt-switch" aria-checked="false" aria-label="꺼짐"><span class="pt-switch__knob"></span></button><button type="button" role="switch" class="pt-switch is-active" aria-checked="true" aria-label="누르는 중"><span class="pt-switch__knob"></span></button><button type="button" role="switch" class="pt-switch is-active" aria-checked="false" aria-label="누르는 중 꺼짐"><span class="pt-switch__knob"></span></button><button type="button" role="switch" class="pt-switch" aria-checked="true" aria-label="비활성" disabled><span class="pt-switch__knob"></span></button></div>
+<script>document.querySelectorAll(".pt-switch").forEach(function(b){if(b.disabled)return;b.addEventListener("click",function(){b.setAttribute("aria-checked",b.getAttribute("aria-checked")!=="true");});});</script>
+</body>
+</html>
