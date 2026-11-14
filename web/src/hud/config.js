@@ -38,6 +38,12 @@ export const HUD = {
    *  start of every period, fading to lowOpacity by 48% of it, 0.1 s after the alarm beep.
    *  "Confirm" stops the pulse and the beep (ackedOpacity). */
   edge: { periodS: 1.6, lowOpacity: 0.16, ackedOpacity: 0.36, flashDelayS: 0.1 },
+  /** Soft light over the whole view, flashing with the alert card: orange for warn, red for
+   *  critical. `warnPeak` / `criticalPeak` are its opacity at the brightest moment of each
+   *  pulse, kept low so the room and the map stay readable through it; `centre` is how much of
+   *  that reaches the middle of the view (the edges get all of it). It is dark between flashes
+   *  and after "Confirm". `?wash=0` turns it off. */
+  wash: { enabled: q.get('wash') !== '0', warnPeak: 0.13, criticalPeak: 0.18, centre: 0.6 },
   /** Alarm beep before each flash: one soft 880 Hz tone for warn, two sharp 2350 Hz pulses for
    *  critical (mockup). `?sound=0` turns it off. */
   alarm: { enabled: q.get('sound') !== '0', warnHz: 880, criticalHz: 2350, gain: 0.2 },

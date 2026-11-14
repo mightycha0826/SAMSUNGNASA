@@ -3,6 +3,7 @@
 // 받는 이벤트: layers:ready, layer:toggle, env:update, telemetry:update, alert:raise, alert:clear,
 //              nav:route, voice:command (intent가 alert.ack일 때), voice:commands, app:mode
 // 테두리: critical 경보는 빨강, warn 경보는 같은 테두리를 주황으로 점멸한다.
+// The same pulse also lights the whole view softly in that colour (HUD.wash).
 // 보내는 이벤트: layer:toggle (탭을 누를 때, 그리고 layers:ready 직후 기본 레이어 한 번),
 //                mode:change (critical 경보가 생기면 emergency, 모두 풀리면 원래 모드)
 // 형식: docs/INTERFACES.md 3장. 디자인: mockups/hud-mockup.html, design-system/point
@@ -52,6 +53,7 @@ const dirty = { status: true, banner: true, layers: true, commands: true };
 let rigid; // 카메라에 붙는 묶음 (비상 테두리, 그리고 followRate가 0이면 카드도)
 let cards; // 상태창·경보 카드 묶음
 let pStatus, pBanner, pAlert, pLayers, pEdge, pCommands;
+let wash; // the soft light over the whole view while an alert rings
 let layerHits = [];
 let layersOnPalm = false;
 const palmState = makePalmState();
@@ -190,6 +192,35 @@ function makePanel(wDeg, hDeg, pxW = Math.round(wDeg * HUD.pxPerDeg), pxH = Math
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wDeg * UNIT, hDeg * UNIT), mat);
   mesh.renderOrder = 1000;
   return { canvas, g: canvas.getContext('2d'), tex, mat, mesh, wM: wDeg * UNIT, hM: hDeg * UNIT };
+}
+
+/**
+ * The alert light over the whole view: a sheet of colour fixed in front of the eyes, larger than
+ * the field of view. It is a little weaker in the middle than toward the edges, so what the
+ * wearer is looking at stays clear. Drawn under the HUD cards, over everything else.
+ */
+function makeWash() {
+  const N = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = N;
+  const g = canvas.getContext('2d');
+  // The sheet is 3 m wide half a metre away; the view ends about 0.7 m from its centre, which
+  // is where the gradient reaches full strength.
+  const grad = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, (N / 2) * 0.47);
+  grad.addColorStop(0, `rgba(255, 255, 255, ${HUD.wash.centre})`);
+  grad.addColorStop(1, 'rgba(255, 255, 255, 1)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, N, N);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3, 3),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }),
+  );
+  mesh.name = 'hud-alert-wash';
+  mesh.position.z = -0.5;
+  mesh.renderOrder = 900; // after the map and the room, before the HUD cards (999 and up)
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  return mesh;
 }
 
 /** 목업 화면 좌표(왼쪽 위 기준, 도)의 사각형을 눈앞 평면 위에 놓는다. */
@@ -667,6 +698,8 @@ export function init(context) {
   pAlert = makePanel(A.wDeg, A.hDeg);
   place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
   cards.add(pStatus.mesh, pBanner.mesh, pEdge.mesh, pAlert.mesh);
+  wash = makeWash();
+  camera.add(wash);
   placeLayersFixed();
 
   wire(ctx.bus);
@@ -697,6 +730,7 @@ export function init(context) {
     tabScreenXY,
     frameLevel,
     statusOpacity: () => pStatus.mat.opacity,
+    wash: () => ({ visible: wash.visible, opacity: wash.material.opacity, color: `#${wash.material.color.getHexString()}` }),
   };
 }
 
@@ -748,6 +782,7 @@ export function update(frame) {
     alarm.t0 = now;
     alarm.beeps = 0;
   }
+  let pulse = 0; // 1 at the flash, 0 between flashes and after "Confirm"
   if (level) {
     const E = HUD.edge;
     pEdge.mat.color.set(level === 'critical' ? T.dangerLine : T.point);
@@ -763,9 +798,17 @@ export function update(frame) {
       const since = now - alarm.t0 - E.flashDelayS * 1000;
       const p = since < 0 ? 0.6 : (since % periodMs) / periodMs;
       const ease = (x) => x * x * (3 - 2 * x);
-      const k = p < 0.48 ? 1 - ease(p / 0.48) : p < 0.92 ? 0 : ease((p - 0.92) / 0.08);
-      pEdge.mat.opacity = E.lowOpacity + (1 - E.lowOpacity) * k;
+      pulse = p < 0.48 ? 1 - ease(p / 0.48) : p < 0.92 ? 0 : ease((p - 0.92) / 0.08);
+      pEdge.mat.opacity = E.lowOpacity + (1 - E.lowOpacity) * pulse;
     }
+  }
+  // The same pulse as a soft light over the whole view: orange for warn, red for critical.
+  // It goes dark between flashes and stays dark after "Confirm".
+  const washOpacity = HUD.wash.enabled && ringing ? pulse * (ringing === 'critical' ? HUD.wash.criticalPeak : HUD.wash.warnPeak) : 0;
+  wash.visible = washOpacity > 0.002;
+  if (wash.visible) {
+    wash.material.color.set(ringing === 'critical' ? T.dangerLine : T.point);
+    wash.material.opacity = washOpacity;
   }
 
   // Status card: lighter while the map is in view so the terrain shows through, full when any

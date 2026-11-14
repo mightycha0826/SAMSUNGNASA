@@ -501,8 +501,8 @@ export function drawCommands(g, d, vm) {
       g.lineWidth = 0.28 * d;
       g.stroke();
     }
-    const size = 1.6 * d;
-    text(g, fit(g, item.label, cellW - 1.4 * d, 700, size), x + cellW / 2, y + cellH / 2, { weight: 700, size, align: 'center' });
+    const size = 1.45 * d;
+    text(g, fit(g, item.label, cellW - 1.0 * d, 700, size), x + cellW / 2, y + cellH / 2, { weight: 700, size, align: 'center' });
   });
   return hits;
 }
