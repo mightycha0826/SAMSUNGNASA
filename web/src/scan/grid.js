@@ -18,7 +18,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const cells = new Uint8Array(n).fill(UNKNOWN);
   const sightings = new Uint8Array(n); // reads so far that saw an obstacle here, up to setScans
   const hold = new Uint8Array(n); // floor-only reads still needed before the obstacle is cleared
-  const unseen = new Uint8Array(n); // reads since the cell last got a point, up to forgetScans
+  const unseen = new Uint8Array(n); // reads since the cell last got a point, up to forgetScans (when that is on)
   const obstacle = new Uint16Array(n); // points that fell into the cell during this read
   const floor = new Uint16Array(n);
 
@@ -39,9 +39,9 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
     /**
      * Fold the current read into the cells. True when a cell changed.
      * A cell where the read is unclear (too few points, or floor with a little of something
-     * else) keeps its state. So does a cell that was not seen, until it has been out of sight
-     * for forgetScans reads: an obstacle is then forgotten, because what stood there (a person,
-     * a chair that was carried off) may be gone and nothing would ever clear it.
+     * else) keeps its state. So does a cell that was not seen: an obstacle stays on the map
+     * until the sensor sees clear floor where it stood. Only with cfg.forgetScans > 0 is an
+     * obstacle forgotten after that many reads out of sight.
      */
     commit() {
       let changed = false;
@@ -62,7 +62,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
           sightings[i] = 0; // not seen as a thing in this read: the count starts over
         }
         if (obstacle[i] || floor[i]) unseen[i] = 0;
-        else if (unseen[i] < cfg.forgetScans && ++unseen[i] === cfg.forgetScans) {
+        else if (cfg.forgetScans > 0 && unseen[i] < cfg.forgetScans && ++unseen[i] === cfg.forgetScans) {
           sightings[i] = hold[i] = 0;
           if (next === OBSTACLE) next = UNKNOWN;
         }

@@ -8,10 +8,12 @@
 //                      nav.start / nav.home     → nav:request (Mars map mode only)
 //                      layer.show               → layer:toggle
 //   tts.begin / binary / tts.end → played by voice.js
+//   map.stored     → map:stored         (the field map the hub stored last, for scan/)
 //
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
 //   mode:change·nav:route가 바뀌면 state,
+//   map:store → map.store (the field map, kept on the Jetson's disk), map:request → map.request,
 //   a continuous microphone stream (mic.begin + binary) and voice.status (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
@@ -55,6 +57,9 @@ export function handleMessage(msg) {
       break;
     case 'voice.commands':
       bus.emit('voice:commands', { commands: payload.commands ?? [] });
+      break;
+    case 'map.stored':
+      bus.emit('map:stored', payload);
       break;
     case 'tts.begin':
     case 'tts.end':
@@ -134,6 +139,7 @@ function connect() {
     clearLost();
     send('hello', { client: 'quest', mock: false });
     send('state', state);
+    send('map.request', {}); // the field map the hub stored last (scan/memory.js)
     voiceLinkOpened();
     flushDiag();
   };
@@ -175,6 +181,9 @@ export async function initLink(xr) {
   bus.on('voice:text', ({ text, intent, slots }) => {
     if (!send('voice.text', { text }) && intent) handleVoiceCommand({ intent, slots: slots ?? {}, text });
   });
+  // The field map goes to the hub's disk; a map that cannot be sent now is sent with the next change.
+  bus.on('map:store', (map) => send('map.store', map));
+  bus.on('map:request', () => send('map.request', {}));
   bus.on('mode:change', ({ mode }) => sendState({ mode }));
   bus.on('nav:route', ({ status, targetId }) => sendState({ navStatus: status, targetId: targetId ?? null }));
 
@@ -183,6 +192,6 @@ export async function initLink(xr) {
     startMockJetson(handleMessage, { speed: mock.speed });
     return;
   }
-  initVoice({ sendJson: send, sendBinary });
+  initVoice({ sendJson: send, sendBinary }, xr);
   connect();
 }

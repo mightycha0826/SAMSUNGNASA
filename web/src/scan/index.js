@@ -14,12 +14,17 @@
 //   - If the headset has no room scan, nothing arrives from it and every cell stays "not seen".
 //     The wearer has to run Space Setup once (Settings > Environment setup).
 //
-// Live depth (only with ?depth=1, which asks the session for `depth-sensing`): twice a second
+// Live depth (when the session has `depth-sensing`: field mode, or ?depth=1): twice a second
 // the depth image of the left eye is laid over the same cells (depth.js, grid.js). It adds what
-// stands within depthRangeM of the wearer now and takes it away again once only floor is seen
-// there, so a chair put down after the scan appears, and clears within a few seconds of being
-// taken away, or once it has been out of sight for forgetScans reads. It never clears structure
-// that came from the room scan. Not yet checked on the headset.
+// stands within depthRangeM of the wearer now, so a chair put down after the scan appears.
+// What it has marked stays on the map when the wearer walks away or looks elsewhere: an
+// obstacle is only taken off again once the sensor sees clear floor where it stood. It never
+// clears structure that came from the room scan. Not yet checked on the headset.
+//
+// The map is kept on the Jetson (memory.js): every change goes to the hub as `map:store`
+// (at most every storeMs) and the hub writes it to disk. When a session starts the hub hands
+// back the map it stored last (`map:stored`); once the new scan lines up with it, it fills in
+// what this session has not seen yet. ?remember=0 turns the handing back off.
 //
 // Known gap: Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid.
 //
@@ -32,6 +37,7 @@ import { startMockHazard } from '../mock/hazard.js';
 import { createGrid, mergeLayers } from './grid.js';
 import { readDepth } from './depth.js';
 import { initOverlay } from './overlay.js';
+import { encodeRuns, decodeRuns, linesUp, fillUnknown } from './memory.js';
 
 export const SCAN = {
   sizeM: 16, // the grid covers sizeM x sizeM, centred where the session started
@@ -53,7 +59,11 @@ export const SCAN = {
   minPoints: 3, // samples needed in a cell before a read says anything about it
   setScans: 2, // reads in a row that must see an obstacle before it counts (2 = 1 s): not someone walking past
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
-  forgetScans: 40, // reads out of sight before a live obstacle is forgotten (40 = 20 s): it may have walked away
+  forgetScans: 0, // reads out of sight before a live obstacle is forgotten; 0 = never: the map keeps what it has seen
+
+  // The map on the Jetson.
+  storeMs: 2000, // a changed map goes to the hub at most this often
+  remember: new URLSearchParams(globalThis.location?.search ?? '').get('remember') !== '0', // take the stored map back
 
   // Outline on the floor, [r, g, b, a] 0-255.
   edgeRGBA: [255, 48, 48, 230], // cells on the rim of an obstacle
@@ -78,6 +88,15 @@ let said = {}; // what has been reported once this session
 let sent = null; // the cells of the last hazard:update
 let started = 0; // time of the session's first frame
 let space = null; // the reference space whose 'reset' is being listened to
+// The map on the Jetson. A run is one stretch in one set of room coordinates: a page load, and
+// a new one after every recentre, so a map in old coordinates is not overwritten by the next.
+const page = Date.now().toString(36);
+let runNo = 0;
+let run = `${page}-0`;
+let stored = null; // the hub's last map, when it fits this grid: Uint8Array
+let trusted = false; // the stored map lines up with this session's scan and is being used
+let toStore = false; // the map changed since it last went to the hub
+let lastStore = 0;
 
 function reset() {
   cols = Math.round(SCAN.sizeM / SCAN.cellM);
@@ -92,6 +111,41 @@ function reset() {
   waitFrom = started = 0;
   said = {};
   sent = null;
+  // New coordinates (a session start or a recentre): a new run, and the stored map has to
+  // prove itself again. Ask the hub for its latest; the answer comes as map:stored.
+  run = `${page}-${runNo++}`;
+  trusted = false;
+  toStore = false;
+  if (SCAN.remember) ctx.bus.emit('map:request', {});
+}
+
+/** The hub's stored map, if it is this grid: same cells, same size, same origin. */
+function takeStored(m) {
+  if (!SCAN.remember || !m || m.cols !== cols || m.rows !== cols || Math.abs(m.cellSizeM - SCAN.cellM) > 1e-6) return;
+  if (Math.abs(m.originXZ?.[0] - origin[0]) > 1e-6 || Math.abs(m.originXZ?.[1] - origin[1]) > 1e-6) return;
+  if (m.run === run) return; // what this run stored itself: nothing new in it
+  const cellsBack = decodeRuns(m.runs, cols * cols);
+  if (!cellsBack) return console.warn('[scan] the stored map from the hub is not a grid');
+  stored = cellsBack;
+  trusted = false;
+  dirty = true;
+  console.info('[scan] stored map from the hub:', m.run, m.savedAt ?? '');
+}
+
+/** Send the map to the hub (link.js forwards map:store). */
+function store(time) {
+  toStore = false;
+  lastStore = time;
+  ctx.bus.emit('map:store', {
+    run,
+    originXZ: [...origin],
+    cellSizeM: SCAN.cellM,
+    cols,
+    rows: cols,
+    runs: encodeRuns(sent),
+    source: depthSeen ? 'room-scan+depth' : 'room-scan',
+    stats,
+  });
 }
 
 function mark(x, y, z) {
@@ -176,13 +230,15 @@ export function init(context) {
   // Mock mode: the fake obstacle grid stands in for the scan.
   if (ctx.mock.hazard) startMockHazard(ctx.bus, { speed: ctx.mock.speed });
   ctx.xr.onSessionStart(() => reset());
+  ctx.xr.onSessionEnd(() => { if (toStore && sent) store(0); }); // the last changes, before the wearer takes the headset off
+  ctx.bus.on('map:stored', takeStored);
   // With depth-sensing three.js would draw a mesh that hides every virtual object behind real
   // surfaces (the reason depth is off by default, core/xr.js), and would leave clearing the
   // frame to that mesh. The scan only wants the numbers: no mesh, and the usual clear.
   ctx.renderer.xr.getDepthSensingMesh = () => null;
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
-  window.__scan = { stats: () => ({ ...stats, queued: jobs.length }) };
+  window.__scan = { stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted }) };
 }
 
 export function update(frame) {
@@ -232,12 +288,6 @@ export function update(frame) {
   let read = false;
   if (depthOn && time - lastDepth >= SCAN.depthMs) {
     try {
-      // Nothing read for a while (headset off, menu up, no images): what was marked may be gone.
-      if (depthSeen && time - lastDepth > 5000) {
-        live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
-        depthSeen = false;
-        dirty = true;
-      }
       read = readDepth(ctx.renderer, frame, live, SCAN);
       if (read) {
         lastDepth = time;
@@ -252,9 +302,7 @@ export function update(frame) {
         said.noDepth = true;
       }
     } catch (err) {
-      depthOn = depthSeen = false; // the room scan carries on without it, and without what it had marked
-      live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
-      dirty = true;
+      depthOn = false; // the room scan carries on without it; what it had marked stays on the map
       console.error('[scan] live depth switched off:', err);
     }
   }
@@ -263,12 +311,30 @@ export function update(frame) {
   if (dirty && !read && !jobs.length && time - lastEmit >= SCAN.emitMs) {
     dirty = false;
     const { cells: merged, ...counts } = mergeLayers(cells, live.cells);
+    // The map the hub kept from before: used once this session's scan has found enough of the
+    // same obstacles in the same places, and only where this session has seen nothing yet.
+    let kept = 0;
+    if (stored) {
+      if (!trusted && linesUp(stored, merged, cols, cols)) {
+        trusted = true;
+        console.info('[scan] the stored map lines up with this room: using it for what is not seen yet');
+      }
+      if (trusted) {
+        kept = fillUnknown(merged, stored);
+        counts.obstacles = counts.floor = 0;
+        for (const cell of merged) {
+          if (cell === 1) counts.obstacles++;
+          else if (cell === 0) counts.floor++;
+        }
+      }
+    }
     // A live cell can change without changing what is sent (floor seen where the room scan
     // already has floor, flicker on a cell the room scan blocks): nothing to say then.
     if (sent && merged.every((cell, i) => cell === sent[i])) return;
     sent = merged;
     lastEmit = time;
-    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts };
+    toStore = true;
+    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept };
     ctx.bus.emit('hazard:update', {
       originXZ: [...origin],
       cellSizeM: SCAN.cellM,
@@ -280,4 +346,6 @@ export function update(frame) {
       stats,
     });
   }
+
+  if (toStore && sent && time - lastStore >= SCAN.storeMs) store(time);
 }

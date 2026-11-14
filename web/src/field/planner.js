@@ -5,16 +5,18 @@
 //   points [x, z] in room metres
 
 export const PLAN = {
-  clearanceM: 0.3, // keep this far from obstacles (about half a body width)
+  clearanceM: 0.3, // the route keeps this far from obstacles where it can (about half a body width)
+  squeezeM: 0.3, // the narrowest gap a person can still get through, walking sideways
+  squeezeCost: 4, // walking right beside an obstacle costs up to 1 + this: a wide way is taken unless it is some 3 m longer
   unknownCost: 1.4, // walking through unseen floor is allowed but costs more
-  snapM: 0.8, // a start or goal inside an obstacle's margin may move this far to free floor
+  snapM: 0.8, // a start or goal on an obstacle may move this far to free floor
 };
 
 const cellOf = (g, x, z) => [Math.floor((x - g.originXZ[0]) / g.cellSizeM), Math.floor((z - g.originXZ[1]) / g.cellSizeM)];
 const centre = (g, c, r) => [g.originXZ[0] + (c + 0.5) * g.cellSizeM, g.originXZ[1] + (r + 0.5) * g.cellSizeM];
 const inside = (g, c, r) => c >= 0 && r >= 0 && c < g.cols && r < g.rows;
 
-/** 1 where walking is not allowed: obstacles grown by the clearance. */
+/** 1 within the clearance of an obstacle: where the route prefers not to go (see crowding). */
 export function inflate(grid, clearanceM = PLAN.clearanceM) {
   const { cols, rows, cells } = grid;
   const k = Math.ceil(clearanceM / grid.cellSizeM);
@@ -28,6 +30,81 @@ export function inflate(grid, clearanceM = PLAN.clearanceM) {
         const cc = c + dc;
         const rr = r + dr;
         if (cc >= 0 && rr >= 0 && cc < cols && rr < rows) out[rr * cols + cc] = 1;
+      }
+    }
+  }
+  return out;
+}
+
+// The four lines through a cell: across, along and the two diagonals.
+const AXES = [[1, 0], [0, 1], [1, 1], [1, -1]];
+
+/**
+ * 1 where walking is not possible at all: obstacles, and floor in a gap narrower than squeezeM.
+ * A real gap of squeezeM shows up in the grid as one cell fewer when its sides fall inside
+ * cells (30 cm between two walls can be 2 free cells of 10 cm), so that many free cells pass.
+ * The edge of the grid does not count as a wall.
+ */
+export function impassable(grid, squeezeM = PLAN.squeezeM) {
+  const { cols, rows, cells } = grid;
+  const need = Math.max(1, Math.round(squeezeM / grid.cellSizeM) - 1); // free cells a gap must have
+  const out = new Uint8Array(cols * rows);
+  // Free cells from (c, r) in one direction before an obstacle, or -1 when none is met within reach.
+  const reach = (c, r, dc, dr) => {
+    for (let k = 1; k <= need; k++) {
+      const cc = c + dc * k;
+      const rr = r + dr * k;
+      if (cc < 0 || rr < 0 || cc >= cols || rr >= rows) return -1;
+      if (cells[rr * cols + cc] === 1) return k - 1;
+    }
+    return -1;
+  };
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      if (cells[i] === 1) {
+        out[i] = 1;
+        continue;
+      }
+      for (const [dc, dr] of AXES) {
+        const a = reach(c, r, dc, dr);
+        const b = a < 0 ? -1 : reach(c, r, -dc, -dr);
+        if (a >= 0 && b >= 0 && 1 + a + b < need) {
+          out[i] = 1; // walled in on both sides of this line, with too little room between
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * How much more a step onto each cell costs for being close to an obstacle: 1 beyond the
+ * clearance, rising to 1 + squeezeCost right beside one. The route keeps its distance where
+ * there is room and still goes through a narrow gap when that is the way.
+ */
+export function crowding(grid, clearanceM = PLAN.clearanceM, squeezeCost = PLAN.squeezeCost) {
+  const { cols, rows, cells } = grid;
+  const k = Math.ceil(clearanceM / grid.cellSizeM);
+  const out = new Float32Array(cols * rows).fill(1);
+  if (!(k > 0 && squeezeCost > 0)) return out;
+  const offsets = [];
+  for (let dr = -k; dr <= k; dr++) {
+    for (let dc = -k; dc <= k; dc++) {
+      const d = Math.hypot(dc, dr);
+      if (d > 0 && d <= k) offsets.push([dc, dr, 1 + (squeezeCost * (k + 1 - d)) / k]);
+    }
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (cells[r * cols + c] !== 1) continue;
+      for (const [dc, dr, w] of offsets) {
+        const cc = c + dc;
+        const rr = r + dr;
+        if (cc < 0 || rr < 0 || cc >= cols || rr >= rows) continue;
+        const j = rr * cols + cc;
+        if (w > out[j]) out[j] = w;
       }
     }
   }
@@ -57,13 +134,18 @@ function nearestFree(grid, blocked, c, r, maxCells) {
   return null;
 }
 
-/** True when the straight segment between two cells crosses no blocked cell. */
-function clear(grid, blocked, a, b) {
+/**
+ * True when the straight segment between two cells crosses no blocked cell, and none closer to
+ * an obstacle than maxCrowd allows (so a shortcut never hugs a wall the path had kept away from).
+ */
+function clear(grid, blocked, a, b, crowd, maxCrowd) {
   const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2);
   for (let i = 0; i <= n; i++) {
     const c = Math.round(a[0] + ((b[0] - a[0]) * i) / (n || 1));
     const r = Math.round(a[1] + ((b[1] - a[1]) * i) / (n || 1));
-    if (!inside(grid, c, r) || blocked[r * grid.cols + c]) return false;
+    if (!inside(grid, c, r)) return false;
+    const j = r * grid.cols + c;
+    if (blocked[j] || crowd[j] > maxCrowd + 1e-6) return false;
   }
   return true;
 }
@@ -118,7 +200,8 @@ export function planPath(grid, start, goal, opts = {}) {
   const straight = () => ({ points: [start, goal], distanceM: Math.hypot(goal[0] - start[0], goal[1] - start[1]), blocked: false });
   if (!grid?.cells?.length) return straight();
 
-  const blocked = inflate(grid, P.clearanceM);
+  const blocked = impassable(grid, P.squeezeM);
+  const crowd = crowding(grid, P.clearanceM, P.squeezeCost);
   const snap = Math.ceil(P.snapM / grid.cellSizeM);
   const s0 = cellOf(grid, start[0], start[1]);
   const g0 = cellOf(grid, goal[0], goal[1]);
@@ -155,7 +238,7 @@ export function planPath(grid, start, goal, opts = {}) {
       if (done[j] || blocked[j]) continue;
       // no cutting corners between two blocked cells
       if (dc && dr && (blocked[r * cols + cc] || blocked[rr * cols + c])) continue;
-      const step = w * (cells[j] === 255 ? P.unknownCost : 1);
+      const step = w * crowd[j] * (cells[j] === 255 ? P.unknownCost : 1);
       if (cost[i] + step < cost[j]) {
         cost[j] = cost[i] + step;
         from[j] = i;
@@ -168,13 +251,18 @@ export function planPath(grid, start, goal, opts = {}) {
   const path = [];
   for (let i = gi; i !== -1; i = from[i]) path.push([i % cols, Math.floor(i / cols)]);
   path.reverse();
-  // String pulling: drop every cell that can be skipped in a straight line.
+  // String pulling: drop every cell that can be skipped in a straight line, as long as the
+  // shortcut comes no closer to an obstacle than the stretch of path it replaces.
+  const at = ([c, r]) => crowd[r * cols + c];
   const kept = [path[0]];
   let anchor = 0;
+  let worst = Math.max(at(path[0]), path.length > 1 ? at(path[1]) : 1);
   for (let i = 2; i < path.length; i++) {
-    if (!clear(grid, blocked, path[anchor], path[i])) {
+    worst = Math.max(worst, at(path[i]));
+    if (!clear(grid, blocked, path[anchor], path[i], crowd, worst)) {
       kept.push(path[i - 1]);
       anchor = i - 1;
+      worst = Math.max(at(path[i - 1]), at(path[i]));
     }
   }
   kept.push(path[path.length - 1]);

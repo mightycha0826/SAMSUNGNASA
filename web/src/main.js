@@ -10,6 +10,7 @@ import { initDebug } from './core/debug.js';
 import { initRadiation } from './core/radiation.js';
 import { mode, setMode } from './core/mode.js';
 import { diagFrame } from './core/diag.js';
+import { initMirror } from './core/mirror.js';
 import { MOCK_KEYS_HELP } from './mock/jetson.js';
 
 import * as scan from './scan/index.js';
@@ -74,6 +75,9 @@ async function main() {
       console.error(`[main] ${name}.init 실패. 이 모듈 없이 계속합니다.`, err);
     }
   }
+
+  // Last, so the picture it sends is of this frame: every module has placed its things by then.
+  core.addModule('mirror', initMirror(core));
 
   initRadiation();
   core.run();

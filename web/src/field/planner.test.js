@@ -1,7 +1,7 @@
 // node --test src/field/planner.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPath, inflate } from './planner.js';
+import { planPath, inflate, impassable } from './planner.js';
 
 function room(cols = 60, rows = 60) {
   return { originXZ: [-3, -3], cellSizeM: 0.1, cols, rows, cells: new Uint8Array(cols * rows) };
@@ -65,4 +65,61 @@ test('unknown floor is walkable', () => {
   const g = room();
   g.cells.fill(255);
   assert.equal(planPath(g, [-2, -2], [2, 2]).blocked, false);
+});
+
+// Two walls across the room with an opening of `gapM` between them at x = 0.
+function gapRoom(gapM) {
+  const g = room();
+  wall(g, -3, -0.1, -gapM / 2 - 0.001, 0.1);
+  wall(g, gapM / 2 + 0.001, -0.1, 3, 0.1);
+  return g;
+}
+
+test('a 30 cm gap can be squeezed through', () => {
+  const r = planPath(gapRoom(0.3), [0, -2], [0, 2]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.distanceM < 4.5, `straight through expected, got ${r.distanceM}`);
+});
+
+test('a 30 cm gap whose sides fall inside cells (2 free cells) still passes', () => {
+  const g = room();
+  wall(g, -3, -0.1, -0.11, 0.1);
+  wall(g, 0.11, -0.1, 3, 0.1); // free: the cells at x = -0.05 and 0.05
+  assert.equal(planPath(g, [0, -2], [0, 2]).blocked, false);
+});
+
+test('a 10 cm gap is too narrow', () => {
+  const g = room();
+  wall(g, -3, -0.1, -0.01, 0.1);
+  wall(g, 0.11, -0.1, 3, 0.1); // free: one cell
+  assert.equal(planPath(g, [0, -2], [0, 2]).blocked, true);
+  const blocked = impassable(g);
+  assert.equal(blocked[30 * g.cols + 30], 1, 'the cell in the gap is not walkable');
+});
+
+test('a diagonal pinch between two corners is too narrow', () => {
+  const g = room(20, 20);
+  g.cells[9 * 20 + 9] = 1;
+  g.cells[11 * 20 + 11] = 1; // (10, 10) sits between the two corners
+  assert.equal(impassable(g)[10 * 20 + 10], 1);
+  assert.equal(impassable(g)[10 * 20 + 12], 0);
+});
+
+test('a wide way a little longer is taken instead of the squeeze', () => {
+  const g = room();
+  wall(g, -3, -0.1, -1.6, 0.1); // a 1 m opening at x = -1.6 .. -0.6
+  wall(g, -0.6, -0.1, -0.151, 0.1);
+  wall(g, 0.151, -0.1, 3, 0.1); // and a 30 cm gap at x = 0
+  const r = planPath(g, [0, -1], [0, 1]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.points.some((p) => p[0] < -0.7), `expected the wide opening: ${JSON.stringify(r.points)}`);
+});
+
+test('the squeeze is taken when the wide way is far', () => {
+  const g = room();
+  wall(g, -2.0, -0.1, -0.151, 0.1); // the only other opening is at the far left wall
+  wall(g, 0.151, -0.1, 3, 0.1);
+  const r = planPath(g, [1, -1], [1, 1]);
+  assert.equal(r.blocked, false);
+  assert.ok(r.points.every((p) => p[0] > -1), `expected the gap at x = 0: ${JSON.stringify(r.points)}`);
 });

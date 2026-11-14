@@ -187,16 +187,27 @@ test('an unclear read changes nothing: too few points, or floor with a little of
   assert.equal(readCell(grid, 0, many), PASSABLE);
 });
 
-test('an obstacle that stays out of sight for forgetScans reads is forgotten; one in sight is kept', () => {
+test('an obstacle out of sight stays on the map, until clear floor is seen where it stood', () => {
+  assert.equal(SCAN.forgetScans, 0); // the default: nothing is forgotten
   const grid = newGrid();
   const many = SCAN.minPoints * 3;
   for (let i = 0; i < SCAN.setScans; i++) readCell(grid, many, 0);
-  for (let i = 1; i < SCAN.forgetScans; i++) assert.equal(readCell(grid, 0, 0), OBSTACLE, `still there after ${i} reads out of sight`);
+  for (let i = 0; i < 600; i++) assert.equal(readCell(grid, 0, 0), OBSTACLE, `still there after ${i} reads out of sight`); // 5 minutes
+  for (let i = 1; i < SCAN.clearScans; i++) assert.equal(readCell(grid, 0, many), OBSTACLE);
+  assert.equal(readCell(grid, 0, many), PASSABLE);
+});
+
+test('with forgetScans set, an obstacle that stays out of sight that long is forgotten; one in sight is kept', () => {
+  const cfg = { ...SCAN, forgetScans: 40 };
+  const grid = createGrid(COLS, COLS, SCAN.cellM, ORIGIN, cfg);
+  const many = SCAN.minPoints * 3;
+  for (let i = 0; i < SCAN.setScans; i++) readCell(grid, many, 0);
+  for (let i = 1; i < cfg.forgetScans; i++) assert.equal(readCell(grid, 0, 0), OBSTACLE, `still there after ${i} reads out of sight`);
   assert.equal(readCell(grid, 0, 0), UNKNOWN); // whoever stood there may have walked away
   // It has to be seen setScans times again before it counts.
   for (let i = 1; i < SCAN.setScans; i++) assert.equal(readCell(grid, many, 0), UNKNOWN);
   assert.equal(readCell(grid, many, 0), OBSTACLE);
-  for (let i = 0; i < SCAN.forgetScans * 2; i++) assert.equal(readCell(grid, many, 0), OBSTACLE); // in sight: kept
+  for (let i = 0; i < cfg.forgetScans * 2; i++) assert.equal(readCell(grid, many, 0), OBSTACLE); // in sight: kept
 });
 
 test('live depth adds to the room scan and never removes structure from it', () => {

@@ -150,5 +150,40 @@ class SpeechTest(unittest.TestCase):
                          "Suit temperature sensor is not responding. No alerts.")
 
 
+class MapStoreTest(unittest.TestCase):
+    """The field map on disk (marswalk/maps.py)."""
+
+    def payload(self, run="abc-0", obstacle_cells=3):
+        # a 4 x 4 grid: `obstacle_cells` obstacles, then floor, then unseen
+        return {"run": run, "originXZ": [-8, -8], "cellSizeM": 0.1, "cols": 4, "rows": 4,
+                "runs": [1, obstacle_cells, 0, 5, 255, 16 - 5 - obstacle_cells],
+                "source": "room-scan+depth", "stats": {"obstacles": obstacle_cells}}
+
+    def test_a_run_is_one_file_holding_its_latest_map(self):
+        import json
+        import tempfile
+        from marswalk.maps import MapStore
+        with tempfile.TemporaryDirectory() as d:
+            store = MapStore(d)
+            self.assertIsNone(store.latest)
+            path = store.save(self.payload(obstacle_cells=3))
+            self.assertEqual(store.save(self.payload(obstacle_cells=4)), path)
+            data = json.loads(path.read_text())
+            self.assertEqual((data["runs"][:2], data["updates"]), ([1, 4], 2))
+            other = store.save(self.payload(run="abc-1"))
+            self.assertNotEqual(other, path)                   # new coordinates: the old map is kept as it was
+            self.assertEqual(len(list(path.parent.glob("field-*.json"))), 2)
+            # after a restart of the hub the newest map is still there to hand back
+            again = MapStore(d)
+            self.assertEqual(again.latest["run"], "abc-1")
+
+    def test_what_is_not_a_map_is_refused(self):
+        from marswalk.maps import check
+        for change in ({"run": "../etc"}, {"cols": 100000}, {"runs": [1, 3, 0, 5]}, {"runs": [2, 16]},
+                       {"runs": [0, -1, 0, 17]}, {"runs": "x"}, {"originXZ": [0]}, {"cellSizeM": 0}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                check({**self.payload(), **change})
+
+
 if __name__ == "__main__":
     unittest.main()
