@@ -1,0 +1,19 @@
+# Install:
+#   sudo cp marswalk-hub.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now marswalk-hub
+# Logs:  journalctl -u marswalk-hub -f
+[Unit]
+Description=Marswalk Jetson hub (HTTPS web app + WebSocket)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dh
+SupplementaryGroups=dialout
+WorkingDirectory=/home/dh/Projects/SAMSUNGNASA/jetson
+ExecStart=/home/dh/Projects/SAMSUNGNASA/jetson/.venv/bin/python -m marswalk.hub --http-port 8080
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
