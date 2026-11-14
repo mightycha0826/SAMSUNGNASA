@@ -32,7 +32,6 @@ MARS_R = 3396190.0
 BASE_SOL = 4098          # 기지: Curiosity 가 sol 4098 에 있던 자리 (RESOURCES.md 4장 참고 경로)
 OPTICAL_PX = 4096
 THERMAL_PX = 2048
-RAD_FIXED_UGY_PER_DAY = 200.0   # 발표값 범위 180~225 의 가운데쯤. RAD 파일에서 뽑으면 바꾼다.
 
 TREK = "https://trek.nasa.gov/tiles/Mars/EQ/{layer}/1.0.0/default/default028mm/{z}/{row}/{col}.png"
 HIRISE = "curiosity_hirise_mosaic"
@@ -41,7 +40,6 @@ DEM_URL = "https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m
 DEM_PAGE = "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
 WAYPOINTS_URL = "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json"
 RAD_URL = "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/"
-RAD_PAPER = "https://pmc.ncbi.nlm.nih.gov/articles/PMC8981195"
 
 
 def cell_of(lon, lat):
@@ -170,17 +168,92 @@ def build_traverse():
     print(f"  traverse: {len(pts)}개 지점, sol {pts[0]['sol']} ~ {pts[-1]['sol']}")
 
 
-# ---- 방사선 (지금은 발표값) ----
+# ---- 방사선 (Curiosity RAD) · 대기 (Curiosity REMS): 조사 지점에 있던 sol 4312 하루 ----
+ENV_SOL = 4312
+RAD_FILE = RAD_URL + "DATA/SOL_04258_04354/RAD_RDR_2024_266_03_06_4312_V00.TXT"        # 71MB
+REMS_FILE = ("https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/SOL_04258_04354/SOL04312/"
+             "RME_780241718RMD43120000000_______P1.TAB")                                # 13MB
+# 두 파일 모두 우주선 시계 780241718초 = UTC 2024-266 03:06:01 에서 시작한다 (파일 이름과 START_TIME).
+ENV_SCLK0, ENV_UTC0 = 780241718, (266, 3, 6, 1)
+SOL_SECONDS = 88775.244
+
+
+def read_rad_dose(path):
+    """RAD RDR 파일에서 관측마다 (UTC 시작, 길이 초, E 검출기 선량률 µGy/h) 를 뽑는다.
+
+    RAD_RDR_SIS: [DOSIMETRY_TOTAL_DOSE_E: NN] 아래 숫자가 E 검출기의 선량률(µGy/h)이다.
+    E 는 플라스틱 섬광체로, 인체 조직에 가까운 쪽이다. 기기가 낸 값 그대로이고 보정하지 않았다.
+    """
+    obs, cur, want = {}, None, False
+    with open(path, encoding="latin-1") as f:
+        for line in f:
+            if line.startswith("["):
+                want = False
+                head = line[1:line.find("]")].split(": ")
+                if len(head) == 2 and head[1].isdigit():
+                    cur = obs.setdefault(int(head[1]), {})
+                    want = head[0] == "DOSIMETRY_TOTAL_DOSE_E"
+            elif want and line.strip():
+                cur["dose"], want = float(line), False
+            elif line.startswith("START_OBS_UTC"):
+                cur["utc"] = line.split('"')[1]
+            elif line.startswith("OBS_DURATION"):
+                cur["dur"] = int(line.split("=")[1])
+            elif line.startswith("QC="):
+                cur["qc"] = line.split('"')[1]
+    # QC 가 00000000 이 아닌 관측("quality control issues may exist")은 뺀다. sol 4312 에서는 2개.
+    return [o for o in obs.values() if "dose" in o and "utc" in o and o.get("qc") == "00000000"]
+
+
+def lmst_hour(sclk):
+    """우주선 시계 -> 그 sol 의 지방 평균 태양시(시). REMS 첫 줄(780241769초 = 00:01:02)에 맞춘다."""
+    return (((sclk - 780241769) / SOL_SECONDS) * 24 + 62 / 3600) % 24
+
+
 def build_env():
+    hours = [{"rad": [], "p": [], "t": []} for _ in range(24)]
+
+    d0, h0, m0, s0 = ENV_UTC0
+    for o in read_rad_dose(fetch(RAD_FILE, CACHE / "rad_4312.txt")):
+        day, clock = o["utc"].split()
+        hh, mm, ss = (int(v) for v in clock.split(":"))
+        sec = (int(day.split("-")[1]) - d0) * 86400 + (hh - h0) * 3600 + (mm - m0) * 60 + (ss - s0)
+        mid = ENV_SCLK0 + sec + o["dur"] / 2
+        hours[int(lmst_hour(mid))]["rad"].append((o["dose"], o["dur"]))
+
+    with open(fetch(REMS_FILE, CACHE / "rems_4312.tab"), encoding="latin-1") as f:
+        for line in f:
+            c = line.split(",")
+            h = hours[int(lmst_hour(int(c[0])))]
+            temp, pres = float(c[15]), float(c[37])     # 16열 AMBIENT_TEMP(K), 38열 PRESSURE(Pa)
+            if temp > -900:
+                h["t"].append(temp)
+            if pres > -900:
+                h["p"].append(pres)
+
+    all_rad = [x for h in hours for x in h["rad"]]
+    wmean = lambda xs: sum(v * w for v, w in xs) / sum(w for _, w in xs)
+    mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+    samples = []
+    for i, h in enumerate(hours):
+        rad = wmean(h["rad"]) if h["rad"] else wmean(all_rad)     # 관측이 없는 시간은 하루 평균
+        samples.append({"sol": ENV_SOL, "localTime": f"{i:02d}:00",
+                        "radiationUGyPerDay": round(rad * 24, 1),
+                        "pressurePa": mean(h["p"]), "airTempK": mean(h["t"])})
     env = {
-        "sourceUrls": [RAD_URL, RAD_PAPER],
-        "radiationIsFixedValue": True,
-        "samples": [
-            {"sol": 4312, "localTime": "12:00", "radiationUGyPerDay": RAD_FIXED_UGY_PER_DAY,
-             "pressurePa": None, "airTempK": None},
-        ],
+        "sourceUrls": [RAD_FILE, REMS_FILE],
+        "radiationIsFixedValue": False,
+        "note": ("radiation: MSL RAD RDR, E detector total dose rate (uGy/h) x 24, as reported by the instrument, "
+                 "uncorrected. pressure/airTemp: MSL REMS MODRDR hourly means. localTime is local mean solar time."),
+        "samples": samples,
     }
     (OUT / "env.json").write_text(json.dumps(env, ensure_ascii=False, indent=1), encoding="utf-8")
+    rads = [s["radiationUGyPerDay"] for s in samples]
+    ps = [s["pressurePa"] for s in samples if s["pressurePa"] is not None]
+    ts = [s["airTempK"] for s in samples if s["airTempK"] is not None]
+    print(f"  RAD 관측 {len(all_rad)}개, 하루 평균 {wmean(all_rad) * 24:.1f} µGy/일 (시간별 {min(rads)} ~ {max(rads)}), "
+          f"관측 없는 시간 {sum(not h['rad'] for h in hours)}개")
+    print(f"  기압 {min(ps)} ~ {max(ps)} Pa ({len(ps)}시간), 기온 {min(ts)} ~ {max(ts)} K ({len(ts)}시간)")
 
 
 # ---- 레이어 목록 ----
