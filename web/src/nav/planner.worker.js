@@ -42,7 +42,7 @@ self.onmessage = ({ data: m }) => {
   try {
     if (m.type === 'setup') {
       job = null; version = m.version; setupError = ''; preferred = null;
-      terrain = buildTerrain(m.layerSet, m.grids); field = combineCosts(terrain, hazard);
+      terrain = buildTerrain(m.layerSet, m.grids); hazard = m.hazard ?? null; field = combineCosts(terrain, hazard);
       waypoints = m.layerSet.waypoints ?? []; rebuild(); schedule();
     } else if (m.type === 'hazard') {
       job = null; hazard = m.hazard; version = m.version;

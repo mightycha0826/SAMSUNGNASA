@@ -1,13 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NAV } from './config.js';
-import { createTransform, cellToRoom, roomToCell } from './coordinates.js';
+import { createGridFrame, cellToWorld, worldToCell } from './coordinates.js';
 import { combineCosts, buildTerrain } from './costs.js';
 import { segmentCost, plan } from './planner.js';
 import { GoalTree } from './goal-tree.js';
 import { Navigation } from './controller.js';
 import { terrainArrays, sampleHeight } from '../map/terrain.js';
 import { Worker } from 'node:worker_threads';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { loadCData } from './c-data.js';
+import { analyzeRoute } from './analysis.js';
 
 function field(cols, rows, fn = () => 1) {
   const costs = Float32Array.from({ length: cols * rows }, (_, i) => fn(i % cols, Math.floor(i / cols)));
@@ -16,14 +20,15 @@ function field(cols, rows, fn = () => 1) {
 }
 function close(a, b, eps = 1e-7) { assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`); }
 
-test('grid/room transforms preserve centres, orientation and nonsquare dimensions', () => {
-  const t = createTransform({ grid: { cols: 10, rows: 20, cellSizeM: 4 }, demo: { roomSizeM: [6, 4], regionCells: [2, 3, 5, 7] } });
+test('map coordinates preserve physical metres and ignore all demo dimensions', () => {
+  const t = createGridFrame({ grid: { cols: 10, rows: 20, cellSizeM: 4 }, demo: { roomSizeM: [6, 4], regionCells: [2, 3, 5, 7] } });
+  assert.equal(t.width, 40); assert.equal(t.depth, 80); assert.equal(t.sx, 4); assert.equal(t.sz, 4);
   for (const p of [[0, 0], [9, 19], [4.25, 11.75]]) {
-    const room = cellToRoom(t, p); const again = roomToCell(t, room);
+    const world = cellToWorld(t, p); const again = worldToCell(t, world);
     close(again[0], p[0]); close(again[1], p[1]);
   }
-  assert.ok(cellToRoom(t, [9, 19])[0] > cellToRoom(t, [0, 0])[0]);
-  assert.ok(cellToRoom(t, [9, 19])[2] < cellToRoom(t, [0, 0])[2]);
+  assert.ok(cellToWorld(t, [9, 19])[0] > cellToWorld(t, [0, 0])[0]);
+  assert.ok(cellToWorld(t, [9, 19])[2] < cellToWorld(t, [0, 0])[2]);
 });
 
 test('missing height is preserved through the rendered surface downsampling', () => {
@@ -43,7 +48,7 @@ test('unknown is 3x, invalid terrain is blocked, and partial hazard overlap is c
   const unknown = combineCosts(terrain);
   assert.equal(unknown.costs[0], 3); assert.equal(unknown.costs[15], Infinity);
   const cells = new Uint8Array(25); cells[2 * 5 + 2] = 1;
-  const hazard = { originXZ: [-2, -2], cellSizeM: 0.8, cols: 5, rows: 5, cells, ts: 1 };
+  const hazard = { frameId: terrain.frameId, originXZ: [-8, -8], cellSizeM: 3.2, cols: 5, rows: 5, cells, ts: 1 };
   const withHazard = combineCosts(terrain, hazard);
   assert.equal(withHazard.costs[1 * 4 + 1], Infinity);
 });
@@ -133,9 +138,9 @@ function fixture() {
   const nav = new Navigation({ bus, worker, now: () => clock.now });
   const layerSet = { grid: { cols: 20, rows: 20, cellSizeM: 4 }, demo: { roomSizeM: [4, 4] }, waypoints: [{ id: 'base', cell: [2, 2] }, { id: 'site1', cell: [17, 2] }] };
   bus.emit('layers:ready', { layerSet, grids: { topo: new Float32Array(400), slope: new Float32Array(400) }, traverse: { points: [] } });
-  const hazard = { originXZ: [-2, -2], cellSizeM: .2, cols: 20, rows: 20, cells: new Uint8Array(400), ts: clock.now };
+  const hazard = { frameId: nav.transform.frameId, originXZ: [-40, -40], cellSizeM: 4, cols: 20, rows: 20, cells: new Uint8Array(400), ts: clock.now };
   bus.emit('hazard:update', hazard);
-  nav.setPosition(cellToRoom(nav.transform, [2, 2])); bus.emit('nav:request', { targetId: 'site1' });
+  nav.setPosition(cellToWorld(nav.transform, [2, 2])); bus.emit('nav:request', { targetId: 'site1' });
   const result = () => worker.send({ type: 'result', id: nav.pending, version: nav.version, status: 'ok', points: [[2, 2], [17, 2]] });
   result();
   return { nav, bus, worker, hazard, clock, result };
@@ -147,7 +152,7 @@ test('unchanged and off-route hazards preserve guidance; on-route risk triggers 
   const count = () => worker.messages.filter(m => m.type === 'plan').length;
   clock.now += 600; hazard.ts = clock.now;
   bus.emit('hazard:update', hazard); nav.tick(); assert.equal(count(), 1);
-  // Near the opposite edge of the room, outside both route and clearance.
+  // Opposite edge of the map, outside both route and clearance.
   hazard.cells[2 * 20 + 10] = 1;
   bus.emit('hazard:update', hazard); nav.tick(); assert.equal(count(), 1); assert.equal(nav.route, route);
   clock.now += 600; hazard.ts = clock.now;
@@ -179,7 +184,7 @@ test('blocked starts retry after movement and malformed layer reloads clear read
   bus.emit('nav:request', { targetId: 'site1' });
   worker.send({ type: 'result', id: nav.pending, version: nav.version, status: 'blocked', reason: 'start-blocked', points: [] });
   assert.equal(nav.dirty, false);
-  clock.now += 600; nav.setPosition(cellToRoom(nav.transform, [5, 2])); nav.tick();
+  clock.now += 600; nav.setPosition(cellToWorld(nav.transform, [5, 2])); nav.tick();
   assert.ok(nav.pending !== null);
   bus.emit('layers:ready', { ...nav.data, grids: {} });
   assert.equal(nav.transform, null); assert.equal(nav.route.length, 0);
@@ -209,11 +214,81 @@ test('real Worker protocol plans all destinations and restores routes after obst
   worker.postMessage({ type: 'setup', version: 1, layerSet, grids: { topo: new Float32Array(1024), slope: new Float32Array(1024) } });
   assert.equal((await request(1, 'site1', 1)).status, 'ok');
   assert.equal((await request(2, 'base', 1)).status, 'ok');
-  const hazard = { originXZ: [-2, -2], cols: 16, rows: 16, cellSizeM: .25, cells: new Uint8Array(256), ts: 1 };
+  const hazard = { frameId: createGridFrame(layerSet).frameId, originXZ: [-64, -64], cols: 16, rows: 16, cellSizeM: 8, cells: new Uint8Array(256), ts: 1 };
   for (let r = 0; r < 16; r++) hazard.cells[r * 16 + 8] = 1;
   worker.postMessage({ type: 'hazard', version: 2, hazard });
   assert.equal((await request(3, 'site1', 2)).status, 'blocked');
   hazard.cells.fill(0); hazard.ts = 2;
   worker.postMessage({ type: 'hazard', version: 3, hazard });
   assert.equal((await request(4, 'site1', 3)).status, 'ok');
+});
+
+test('C assets match the pinned source commit, including numeric grids and images', () => {
+  const manifest = JSON.parse(readFileSync(new URL('./fixtures/c-data-source.json', import.meta.url)));
+  for (const file of manifest.files) {
+    let bytes = readFileSync(new URL(`../../public/data/${file.path}`, import.meta.url));
+    if (file.path.endsWith('.json')) bytes = Buffer.from(bytes.toString('utf8').replaceAll('\r\n', '\n'));
+    const hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    assert.equal(hash, file.gitBlobSha, file.path);
+  }
+});
+
+test('C terrain produces a physical Mars route independent of display and demo settings', () => {
+  const data = loadCData(), { layerSet, grids } = data;
+  const frame = createGridFrame(layerSet), field = combineCosts(buildTerrain(layerSet, grids));
+  const base = layerSet.waypoints.find(w => w.id === 'base').cell, site = layerSet.waypoints.find(w => w.id === 'site1').cell;
+  assert.deepEqual(base, [247, 357]); assert.deepEqual(site, [275, 272]);
+  assert.equal(frame.width, 2048); assert.equal(frame.sx, 4); assert.equal(field.sx, 4);
+  const result = plan(field, base, site), tree = drain(new GoalTree(field, site));
+  assert.equal(result.status, 'ok'); close(tree.path(base).cost, result.cost, 1e-5);
+  const metrics = analyzeRoute(data, result.points, result.cost);
+  const reference = JSON.parse(readFileSync(new URL('./fixtures/c-reference-route.json', import.meta.url)));
+  const referenceMetrics = analyzeRoute(data, reference.cells);
+  assert.ok(Math.abs(metrics.distanceM - referenceMetrics.distanceM) < 2);
+  assert.ok(metrics.distanceM > 380 && metrics.distanceM < 405, JSON.stringify(metrics));
+  assert.ok(metrics.ascentM > 40 && metrics.ascentM < 60); assert.ok(metrics.maxSlopeDeg <= 20);
+  assert.ok(metrics.weightedCost > metrics.distanceM * 3);
+  const other = { ...layerSet, demo: { roomSizeM: [500, .001], regionCells: [0, 0, 1, 1] } };
+  const without = { ...layerSet }; delete without.demo;
+  for (const ls of [other, without]) {
+    const otherField = combineCosts(buildTerrain(ls, grids));
+    assert.deepEqual(otherField, field); assert.deepEqual(createGridFrame(ls), frame);
+    const otherRoute = plan(otherField, base, site); close(otherRoute.cost, result.cost);
+    assert.deepEqual(otherRoute.points, result.points);
+  }
+});
+
+test('20-degree boundary is allowed, steeper slopes and missing data are excluded', () => {
+  const layerSet = { grid: { cols: 2, rows: 2, cellSizeM: 4 } };
+  const terrain = buildTerrain(layerSet, { topo: new Float32Array(4), slope: Float32Array.of(15, 20, 20.01, NaN) });
+  assert.equal(terrain.base[0], 2); close(terrain.base[1], 1 + (20 / 15) ** 2, 1e-6);
+  assert.equal(terrain.base[2], Infinity); assert.equal(terrain.base[3], Infinity);
+});
+
+test('unregistered sensor coordinates cannot alter C mission routes', () => {
+  const data = loadCData(), bus = mockBus(), worker = new FakeWorker(), nav = new Navigation({ bus, worker });
+  bus.emit('layers:ready', data);
+  const before = worker.messages.length, version = nav.version;
+  const hazard = { originXZ: [-2, -2], cols: 40, rows: 40, cellSizeM: .1, cells: new Uint8Array(1600).fill(1), ts: Date.now() };
+  bus.emit('hazard:update', hazard);
+  assert.equal(worker.messages.length, before); assert.equal(nav.version, version); assert.equal(nav.hazard, null);
+  assert.throws(() => combineCosts(buildTerrain(data.layerSet, data.grids), hazard), /hazard-frame-mismatch/);
+  nav.dispose();
+});
+
+test('registered metre-scale hazards are updated in the same generic map frame', () => {
+  const data = loadCData(), terrain = buildTerrain(data.layerSet, data.grids);
+  const hazard = { frameId: terrain.frameId, originXZ: [-1024, -1024], cols: 512, rows: 512, cellSizeM: 4, cells: new Uint8Array(512 * 512), ts: 1 };
+  const known = combineCosts(terrain, hazard), unknown = combineCosts(terrain);
+  const id = 357 * 512 + 247;
+  close(unknown.costs[id], known.costs[id] * 3, 1e-6);
+  hazard.cells[(511 - 315) * 512 + 264] = 1;
+  const blocked = combineCosts(terrain, hazard); assert.equal(blocked.costs[315 * 512 + 264], Infinity);
+});
+
+test('route metrics handle positions in the edge half-cell without inventing elevation', () => {
+  const data = { layerSet: { grid: { cols: 2, rows: 2, cellSizeM: 4 } }, grids: { topo: Float32Array.of(1, 2, 1, 2), slope: new Float32Array(4) } };
+  const metrics = analyzeRoute(data, [[-.25, 0], [1, 0]]);
+  close(metrics.distanceM, 5); close(metrics.ascentM, 1);
+  assert.equal(analyzeRoute(data, [[-.51, 0], [1, 0]]), null);
 });

@@ -1,63 +1,46 @@
-// Reproducible synthetic benchmark; no NASA observations are used.
+// Real C terrain; coverage and obstacle updates below are synthetic experiments.
 // node src/nav/benchmark.mjs [repetitions]
 import { performance } from 'node:perf_hooks';
 import { buildTerrain, combineCosts } from './costs.js';
-import { Search } from './planner.js';
+import { plan } from './planner.js';
 import { GoalTree } from './goal-tree.js';
+import { loadCData } from './c-data.js';
+import { analyzeRoute } from './analysis.js';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 
+const data = loadCData(), terrain = buildTerrain(data.layerSet, data.grids);
+const waypoint = id => data.layerSet.waypoints.find(w => w.id === id).cell;
+const base = waypoint('base'), site = waypoint('site1');
 const repetitions = Math.max(1, Number(process.argv[2]) || 3);
-const n = 512, topo = new Float32Array(n * n), slope = new Float32Array(n * n);
-for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
-  const x = c / n, y = r / n;
-  topo[r * n + c] = -3760 + 90 * (0.6 * x + 0.4 * y) + 18 * Math.sin(x * 6.3) * Math.cos(y * 4.9) +
-    9 * Math.sin(x * 15.1 + 1.3) * Math.sin(y * 12.7) + 35 * Math.exp(-((x - 0.7) ** 2 + (y - 0.3) ** 2) / 0.012) -
-    12 * Math.exp(-((x - y) ** 2) / 0.004);
-}
-const at = (c, r) => topo[Math.max(0, Math.min(n - 1, r)) * n + Math.max(0, Math.min(n - 1, c))];
-for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
-  slope[r * n + c] = Math.atan(Math.hypot((at(c + 1, r) - at(c - 1, r)) / 8, (at(c, r + 1) - at(c, r - 1)) / 8)) * 180 / Math.PI;
-const layerSet = { grid: { cols: n, rows: n, cellSizeM: 4 }, demo: { roomSizeM: [4, 4] } };
-const flat = buildTerrain(layerSet, { topo: new Float32Array(n * n), slope: new Float32Array(n * n) });
-const hills = buildTerrain(layerSet, { topo, slope });
-const hcells = new Uint8Array(40 * 40);
-for (let r = 0; r < 40; r++) for (let c = 0; c < 40; c++) {
-  if (r < 2 || c < 2 || r >= 38 || c >= 38) hcells[r * 40 + c] = 255;
-  else if (r >= 26 && r <= 30 && c >= 9 && c <= 13) hcells[r * 40 + c] = 1;
-}
-const hazard = { originXZ: [-2, -2], cellSizeM: 0.1, cols: 40, rows: 40, cells: hcells, ts: 1 };
-
 const drain = tree => { while (!tree.done) tree.step(100000, Infinity); };
-const time = fn => { const t = performance.now(); const value = fn(); return { ms: performance.now() - t, value }; };
-const results = [];
-for (let rep = 0; rep < repetitions; rep++) {
-  const combined = time(() => combineCosts(hills, hazard));
-  const field = combined.value, start = [40, 40], goals = [[256, 256], [40, 40]];
-  const precompute = time(() => goals.map(goal => { const t = new GoalTree(field, goal); drain(t); return t; }));
-  const tree = precompute.value[0];
-  const cached = time(() => tree.path(start)); assert.equal(cached.value.status, 'ok');
-  // Chair centred on an interior point of the planned route, away from endpoints.
-  const points = cached.value.points, midpoint = points[Math.floor(points.length / 2)];
-  const hc = Math.max(3, Math.min(36, Math.floor((midpoint[0] + .5) / n * 40)));
-  const hr = Math.max(3, Math.min(36, Math.floor((1 - (midpoint[1] + .5) / n) * 40)));
-  const changedHazard = { ...hazard, cells: hcells.slice(), ts: 2 }; changedHazard.cells[hr * 40 + hc] = 1;
-  const update = time(() => {
-    const next = combineCosts(hills, changedHazard), changed = [];
-    for (let i = 0; i < next.costs.length; i++) if (next.costs[i] !== field.costs[i]) changed.push(i);
-    tree.applyChanges(next, changed); drain(tree); return { next, changed: changed.length, path: tree.path(start) };
+const timed = fn => { const began = performance.now(); const value = fn(); return { ms: performance.now() - began, value }; };
+const unknown = combineCosts(terrain), baseline = plan(unknown, base, site);
+assert.equal(baseline.status, 'ok');
+const metrics = analyzeRoute(data, baseline.points, baseline.cost), runs = [];
+for (let run = 0; run < repetitions; run++) {
+  const precompute = timed(() => [base, site].map(goal => { const tree = new GoalTree(unknown, goal); drain(tree); return tree; }));
+  const cached = timed(() => precompute.value[1].path(base));
+  assert.ok(Math.abs(cached.value.cost - baseline.cost) < 1e-5);
+  const coverage = { frameId: terrain.frameId, originXZ: [-terrain.width / 2, -terrain.depth / 2], cellSizeM: terrain.cellSizeM,
+    cols: terrain.cols, rows: terrain.rows, cells: new Uint8Array(terrain.cols * terrain.rows), ts: 1 };
+  // Known coverage is simulated; it is not an observation supplied by NASA.
+  const known = combineCosts(terrain, coverage), tree = new GoalTree(known, site); drain(tree);
+  coverage.cells[(terrain.rows - 1 - 315) * terrain.cols + 264] = 1;
+  const update = timed(() => {
+    const next = combineCosts(terrain, coverage), changed = [];
+    for (let i = 0; i < next.costs.length; i++) if (next.costs[i] !== known.costs[i]) changed.push(i);
+    tree.applyChanges(next, changed); drain(tree);
+    return { field: next, route: tree.path(base), changedCells: changed.length };
   });
-  const fresh = time(() => {
-    const s = new Search(update.value.next, start, goals[0], { algorithm: 'astar' });
-    while (!s.done) s.step(100000, Infinity); return s.result;
-  });
-  assert.equal(update.value.path.status, fresh.value.status);
-  assert.equal(fresh.value.status, 'ok');
-  assert.ok(Math.abs(update.value.path.cost - fresh.value.cost) < 1e-7);
-  const secondLookup = time(() => tree.path([41, 42]));
-  results.push({ fieldMs: combined.ms, twoGoalPrecomputeMs: precompute.ms, cachedPathMs: cached.ms,
-    updateWithFieldAndPathMs: update.ms, changedCells: update.value.changed, repairedVertices: tree.stats.expanded,
-    freshAstarMs: fresh.ms, freshAstarVertices: fresh.value.stats.expanded, nextStartLookupMs: secondLookup.ms });
+  const fresh = timed(() => plan(update.value.field, base, site));
+  assert.equal(update.value.route.status, fresh.value.status);
+  if (fresh.value.status === 'ok') assert.ok(Math.abs(update.value.route.cost - fresh.value.cost) < 1e-5);
+  runs.push({ twoDestinationPrecomputeMs: precompute.ms, cachedRouteMs: cached.ms,
+    changedCells: update.value.changedCells, fullRepairWithFieldMs: update.ms,
+    replannedStatus: update.value.route.status, freshAstarMs: fresh.ms, repairedVertices: tree.stats.expanded });
 }
-console.log(JSON.stringify({ node: process.version, cpu: os.cpus()[0].model, grid: [n, n], repetitions,
-  scope: 'Synthetic terrain, 40x40 scan with 0.2m clearance; Node elapsed time, no Worker scheduling or rendering; not Quest measurements', results }, null, 2));
+console.log(JSON.stringify({ node: process.version, cpu: os.cpus()[0].model,
+  sourceCommit: '53a730576dd771a71a5c79a8386768befdabe1e9', grid: [terrain.cols, terrain.rows], cellSizeM: terrain.cellSizeM,
+  scope: 'C terrain, actual map metres; synthetic coverage/obstacle experiment; Node elapsed time excluding Worker scheduling and rendering',
+  metrics, runs }, null, 2));

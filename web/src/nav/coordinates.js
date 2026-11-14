@@ -1,27 +1,22 @@
-// 공유 순수 유틸. 지도 row는 북(+), 방 z는 남(+). 모든 cell은 칸 중심이다.
-import { NAV } from './config.js';
-
-export function createTransform(layerSet, fullMap = NAV.fullMap) {
+// One map-local metric frame: +x east, +z south, origin at the map centre.
+// Geometry display size, demo metadata and device poses never define this frame.
+export function createGridFrame(layerSet) {
   const { cols, rows, cellSizeM } = layerSet.grid ?? {};
-  const [width, depth] = layerSet.demo?.roomSizeM ?? [4, 4];
-  const region = fullMap ? [0, 0, cols, rows] : layerSet.demo?.regionCells;
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2 ||
-      !(cellSizeM > 0) || !(width > 0) || !(depth > 0) ||
-      !region || region.length !== 4 || !region.every(Number.isFinite) ||
-      region[2] <= region[0] || region[3] <= region[1]) throw new Error('invalid-grid-or-room');
-  const [c0, r0, c1, r1] = region;
-  return Object.freeze({ cols, rows, cellSizeM, width, depth, c0, r0, c1, r1,
-    sx: width / (c1 - c0), sz: depth / (r1 - r0) });
+      !Number.isFinite(cellSizeM) || cellSizeM <= 0) throw new Error('invalid-grid');
+  const frameId = layerSet.grid.frameId ?? `map:${layerSet.site?.lon ?? ''}:${layerSet.site?.lat ?? ''}:${cols}:${rows}:${cellSizeM}`;
+  return Object.freeze({ cols, rows, cellSizeM, width: cols * cellSizeM, depth: rows * cellSizeM,
+    sx: cellSizeM, sz: cellSizeM, frameId });
 }
 
-export function cellToRoom(t, cell, y = 0) {
-  return [(cell[0] + 0.5 - t.c0) * t.sx - t.width / 2, y,
-    t.depth / 2 - (cell[1] + 0.5 - t.r0) * t.sz];
+export function cellToWorld(t, cell, y = 0) {
+  return [(cell[0] + 0.5) * t.sx - t.width / 2, y,
+    t.depth / 2 - (cell[1] + 0.5) * t.sz];
 }
 
-export function roomToCell(t, point) {
-  return [(point[0] + t.width / 2) / t.sx + t.c0 - 0.5,
-    (t.depth / 2 - point[2]) / t.sz + t.r0 - 0.5];
+export function worldToCell(t, point) {
+  return [(point[0] + t.width / 2) / t.sx - 0.5,
+    (t.depth / 2 - point[2]) / t.sz - 0.5];
 }
 
 export function containsCell(t, p) {

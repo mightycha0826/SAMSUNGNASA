@@ -1,32 +1,37 @@
-# D 지도·길안내 모듈
+# Planetary map and route analysis (D)
 
-B의 `init(ctx)`, `update(frame)`과 `docs/INTERFACES.md` 이벤트를 사용한다. 변경 범위는 D 담당 `map/`, `nav/`다. 사용자 요청에 따라 2,048m 지도 전체를 `demo.roomSizeM` 방에 대응한다. 외부 `demo.regionCells` 값은 수정하지 않는다. 실제 관측자료의 정렬·좌표·기준 고도는 C의 자료와 통합할 때 확인해야 한다.
+The planner operates on C's terrain grid in physical map metres. It has no room size, room coordinate model, or dependency on `layerSet.demo`. `coordinates.js` provides one generic map-local Cartesian frame: east is +x, north is -z, and the origin is the centre of the map. A cell is exactly `grid.cellSizeM` metres in both horizontal directions. The 3D map can be enlarged or held in a hand without changing any route cost, distance or position.
 
-## 목적지별 사전 계산과 실시간 수정
+## C data used here
 
-1. 지형과 현재 스캔을 받으면 모든 waypoint에 대해 역방향 Dijkstra를 실행해, 모든 출발 칸에서 해당 목적지까지의 최소 비용을 저장한다. 목적지가 요청되면 그 목적지의 계산을 먼저 처리한다. 완료된 목적지는 위치가 바뀌어도 경로를 따라 꺼내는 작업만 필요하다.
-2. `hazard:update`의 이전 값과 새 값을 비교한다. 같으면 계산하지 않는다. 변경이 있으면 장애물 여유 공간과 지형 칸 겹침까지 반영한다.
-3. 목적지별 트리는 LPA* 방식으로 변경 칸의 주변에서 시작해 비용이 달라진 부분을 갱신한다. 대각선의 양옆 칸도 영향 범위에 포함한다. 장애물 추가·제거와 비용 증가·감소를 모두 처리한다. 전체 비용 칸의 20% 초과가 바뀌거나 초기 계산 중이면 다시 사전 계산한다. 작은 변경이라도 갱신 노드가 전체의 25%를 넘으면 역방향 Dijkstra로 전환한다.
-4. 남은 안내 경로와 위험 변경 영역이 겹치면 현재 위치에서 새 경로를 꺼낸다. 경로가 막히면 즉시 화살표를 지운다. 비용만 달라지고 통과 가능한 경우 기존 안내를 유지하면서 갱신한다. 경로 밖 변경은 트리에 반영하되 표시 경로는 유지한다. 따라서 경로 밖 장애물 제거로 생긴 지름길은 다음 목적지 요청·경로 이탈·경로 위 변경 때 적용된다.
-5. 경로에서 20cm 이상 벗어나면 현재 위치로 재탐색하고, critical 경보에는 기지를 우선한다. 취소된 요청과 이전 비용 버전의 결과는 무시한다. 경로 요청은 최대 초당 2회로 제한한다.
+The files in `web/public/data/` are copied unchanged from [C's PR #1](https://github.com/mightycha0826/SAMSUNGNASA/pull/1), commit `53a730576dd771a71a5c79a8386768befdabe1e9`. `fixtures/c-data-source.json` records the original Git blob hashes, including the binary grids and images. The regression test checks each file against them. C's processing and interpretation are documented in [DATA.md](https://github.com/kdhkpm11/SAMSUNGNASA/blob/53a730576dd771a71a5c79a8386768befdabe1e9/docs/DATA.md).
 
-계산은 Web Worker에서 약 6ms 단위로 나눠 수행한다. MessageChannel로 작업 사이에 제어를 돌려줘 연속 스캔을 처리한다. 요청한 목적지의 트리가 계산·갱신 중이면 현재 출발점의 8방향 A*를 먼저 끝내 안내하고, 전체 트리 갱신은 이어서 처리한다. 준비된 트리는 바로 조회한다. 트리 하나의 핵심 TypedArray는 512×512에서 약 8.25MiB이며, 요청 중 A* 작업 배열은 별도다. 메모리는 목적지 수에 비례한다. 갱신 비용은 변경 칸 수뿐 아니라 그 변경으로 영향을 받는 전체 경로 수에도 좌우된다.
+- Grid: 512×512, 4 m/cell, 2,048×2,048 m.
+- Base and survey site are read from `waypoints`, currently `[247,357]` and `[275,272]`.
+- Four map layers: terrain elevation, slope, HiRISE optical, THEMIS night thermal. The thermal view preserves its coarse pixels and labels relative brightness rather than temperature. It does not affect route cost.
+- Curiosity's traverse and the two waypoint photographs, RAD and REMS time series are C's observations. They are not live conditions on Mars. Imagery credits remain in `layerset.json` and are shown on the map.
 
-탐색은 8방향 격자에서 최소 비용을 구한다. 대각선 양옆 중 한 칸이라도 막혔으면 통과하지 않는다. 표시할 때 일직선인 연속 칸만 합치고, 모퉁이를 가로지르는 평활화는 하지 않는다. 실시간 위치와 인접 격자 중심·기존 경로 사이의 짧은 연결은 별도로 충돌 검사한다. 최신 사용자 선택에 따라 연속 영역의 전역 최적 비용 대비 1% 보증은 적용하지 않는다.
+Open `?mock=link` to use the real map with simulated equipment messages; `?mock=1` explicitly selects synthetic terrain. The planner panel lets you select the start/destination or enter a custom start cell. It displays horizontal distance, accumulated ascent/descent and slopes sampled on the supplied grid. The `N`, `H`, `S` mock voice shortcuts also request survey, base and cancellation.
 
-알고리즘 참고: Koenig, Likhachev, Furcy, [Lifelong Planning A* (2004)](https://idm-lab.org/bib/abstracts/Koen04a.html). 이 구현은 목적지를 출발점으로 보는 역방향 탐색이며, 모든 현재 위치를 재사용하려고 휴리스틱 없이 트리의 불일치를 모두 해결한다.
+## Route model
 
-## 비용과 입력
+Each traversable cell has unit cost `(1 + (slope / 15)²) × riskMultiplier`. Unconfirmed local hazard coverage has multiplier **3**, observed free coverage 1, and obstacles are excluded. Missing elevation/slope and slopes **greater than 20°** are excluded. The 15°/20° values adopt C's proposed planning assumption; they are not a validated Mars human-walking standard. Distance is horizontal map distance. Elevation gain and loss are reported separately, without vertical exaggeration.
 
-칸 비용은 `(1 + (slopeDeg / 15)²) × coverage`다. coverage는 확인된 빈 공간 1, 미확인·센서 범위 밖 3이다. 인접 칸 사이 비용은 이동 길이 × 두 칸 비용의 평균이다. 장애물과 결측 높이·경사는 통행 불가다. 장애물은 방 기준 20cm만큼 보수적으로 사각 확장한다. 수치는 시연용이며 실제 화성 보행 기준이 아니다. 출력 거리와 비용의 길이 단위는 방 미터다.
+Edges connect the 8 neighbouring cell centres. An edge costs its length in metres times the average of its two endpoint costs. Diagonals cannot cut between blocked side cells. Collinear steps are compressed only for display. This computes a minimum on this 8-way graph, without a claim of continuous-space optimality or real-world safety.
 
-인터페이스는 스캔 변화 이벤트만 규정하므로, 새 이벤트가 없다는 이유로 기존 스캔을 자동 만료시키지 않는다. 오래된 시각의 역순 스냅샷은 무시한다. 실제 센서의 신선도 감시는 A/B에서 명시적으로 제공해야 한다. 추적 위치를 잃으면 안내를 중단하며, 지형을 다시 읽으면 모든 목적지 트리를 새로 만든다.
+A reverse Dijkstra tree is precomputed for every destination. Registered risk changes repair these trees with a zero-heuristic LPA* update. A* answers an active request first if its destination tree is still busy. Work is divided into approximately 6 ms Worker slices, scheduled with MessageChannel. More than 20% changed cells triggers a rebuild; a repair touching more than 25% of the map also falls back to reverse Dijkstra. A change outside the remaining route updates the reusable trees while keeping the current route. A change affecting the route replans it; a newly blocked segment is removed immediately.
 
-## 지도와 목 모드
+The exact choice of route can change after a new destination request or a registered hazard update. Clearing an obstacle outside the current route does not immediately replace the current guidance with a shortcut. Arrival tolerance is 2 map metres and deviation tolerance is 8 map metres; neither is a display/room distance.
 
-높이 격자로 만든 3D 지형 위에 지형·경사·광학·열 레이어를 표시한다. 렌더링은 최대 129×129 정점으로 줄이되 결측 구역은 구멍으로 보존한다. Curiosity 주행선, 목적지와 안내 경로를 함께 그린다. 열 영상은 상대 밝기로 표시한다.
+## Generic registered hazard input
 
-PC에서 `?mock=1`을 열고 `N` 안내 시작, 방향키 가상 탐사자 이동, `H` 기지, `S` 취소, `L` 열 레이어, `T` 온도 경보를 사용한다. 마우스는 관찰 시점이다. 목 자료는 실제 NASA 관측이 아니다. Quest 손바닥 판정·컨트롤러 대체 동작과 실제 센서 통합은 장비 검증이 필요하다.
+`Navigation.updateHazard` accepts an obstacle grid only when its `frameId` equals `createGridFrame(layerSet).frameId`. Its `originXZ`, `cellSizeM` and positions must already use the same metre frame, with hazard rows extending toward +z. If a data provider assigns `grid.frameId`, that identifier is used; otherwise an identifier is derived from the map definition. There is no automatic mapping of a local room scan or headset pose onto Mars. Unregistered input leaves the unknown multiplier at 3.
+
+A hazard cell is conservatively expanded by the configurable 0.2 m clearance before intersecting the terrain cells. The effective raster exclusion can be larger than that clearance because a whole intersected terrain cell is excluded. The update event is a snapshot/change contract, so silence does not expire it; older timestamps are rejected.
+
+`nav:route` retains its event name and payload fields, with `points` in this map's metric frame and `distanceM` in actual map metres. This supersedes the old demo-scaled meaning in the shared interface examples, following the user's latest direction. Consumers requiring physical registration must supply it explicitly. Head tracking is used for positioning the handheld display only. The old room floor-arrow projection has been removed; planned routes remain drawn over the terrain.
+
+## Checks and measured example
 
 ```text
 cd web
@@ -35,8 +40,10 @@ node src/nav/benchmark.mjs 3
 node node_modules/vite/bin/vite.js build
 ```
 
-`browser.test.cjs`는 로컬 개발 서버와 Playwright·Chrome이 필요하다. `CHROME_PATH`로 실행 파일, `TEST_URL`로 서버 주소를 지정할 수 있다.
+On the pinned C map, the base→survey route is **389.71 m**, with **45.32 m ascent**, **0.50 m descent**, and a maximum sampled slope of **14.92°**. C's comparison route is about 390 m. Our route uses a symmetric edge cost and prohibits corner cutting; C's reference is a comparison, not a forced route. Route metrics derive from the 4 m/8 m slope raster and do not resolve smaller rocks or ledges.
 
-합성 512×512 지형, 40×40 스캔에서 Node v24.22.1 / Intel Core 3 100U, 3회 측정: 두 목적지 사전 계산 271–330ms, 저장된 경로 조회 0.17–1.97ms, 3,523칸이 바뀐 장애물 추가 반영 63–92ms. 갱신 시간은 비용 필드 생성과 한 목적지 트리 갱신·경로 추출을 포함한다. 비교용 새 A*는 같은 한 출발점에 대해 26–49ms였으며, 전체 출발점용 트리 갱신이 매번 더 빠른 것은 아니다. Worker 스케줄링·렌더링은 제외한 PC 측정이며 Quest 성능이 아니다.
+Node v24.22.1, Intel Core 3 100U, three runs: two destination trees took 69–87 ms; a cached lookup took 0.13–0.73 ms. A synthetic registered obstacle changing 9 cells on the real C terrain took 57–106 ms to update the full tree plus field, while fresh A* for the single active route took 11–16 ms. Whole-tree repair is not always faster than one-start A*, which is why live requests take priority. Worker scheduling/rendering and Quest hardware are excluded from these timings.
 
-Chrome headless + SwiftShader 통합 시험에서는 최초 안내 197ms, 경로 위 장애물 추가 후 새 안내 772ms였다(1회, 재요청 간격·Worker·렌더링·Playwright 대기 포함). 경로 밖 위험 변경 시 표시 유지, 이동, 기지 비상 복귀와 취소도 확인했다. 이 수치는 실행 환경에 따라 달라지며 처리 시간 상한이 아니다.
+`browser.test.cjs` checks real C loading, physical route distance, rejection of unregistered scans, registered obstacle replanning, layers, emergency return and cancellation. Run a local Vite server first, provide Playwright through Node resolution, and optionally set `CHROME_PATH` and `TEST_URL`.
+
+All 18 Node checks pass. The real-data Chrome/SwiftShader browser check passed too; the registered obstacle experiment replanned in 421–732 ms in two runs including UI/Worker scheduling and test waits. Those are PC observations, not latency guarantees or Quest measurements.

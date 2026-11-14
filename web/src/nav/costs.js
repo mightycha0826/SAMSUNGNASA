@@ -1,5 +1,5 @@
 import { NAV } from './config.js';
-import { cellToRoom, createTransform } from './coordinates.js';
+import { cellToWorld, createGridFrame } from './coordinates.js';
 
 export function validateHazard(h) {
   return !!h && Number.isInteger(h.cols) && Number.isInteger(h.rows) && h.cols > 0 && h.rows > 0 &&
@@ -16,7 +16,7 @@ export function hazardField(h, clearanceM = NAV.clearanceM) {
   for (let r = 0; r < h.rows; r++) for (let c = 0; c < h.cols; c++) {
     if (h.cells[r * h.cols + c] !== 1) continue;
     for (let dr = -n; dr <= n; dr++) for (let dc = -n; dc <= n; dc++) {
-      // Cell rectangles expanded in room metres; conservative square clearance.
+      // Cell rectangles expanded in metres; conservative square clearance.
       if (r + dr >= 0 && r + dr < h.rows && c + dc >= 0 && c + dc < h.cols)
         costs[(r + dr) * h.cols + c + dc] = Infinity;
     }
@@ -26,26 +26,27 @@ export function hazardField(h, clearanceM = NAV.clearanceM) {
 }
 
 export function buildTerrain(layerSet, grids) {
-  const t = createTransform(layerSet);
+  const t = createGridFrame(layerSet);
   const n = t.cols * t.rows;
   if (grids.topo?.length !== n || grids.slope?.length !== n) throw new Error('missing-topo-or-slope');
   const base = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const s = grids.slope[i];
-    base[i] = Number.isFinite(grids.topo[i]) && Number.isFinite(s) && s >= 0 && s <= 90
+    base[i] = Number.isFinite(grids.topo[i]) && Number.isFinite(s) && s >= 0 && s <= NAV.maxSlopeDeg
       ? 1 + (s / NAV.slopeReferenceDeg) ** 2 : Infinity;
   }
   return { ...t, base };
 }
 
 export function combineCosts(terrain, hazard = null) {
+  if (hazard && hazard.frameId !== terrain.frameId) throw new Error('hazard-frame-mismatch');
   const h = hazard ? hazardField(hazard) : null;
   const costs = new Float32Array(terrain.base.length);
   let min = Infinity, max = 0;
   for (let r = 0; r < terrain.rows; r++) for (let c = 0; c < terrain.cols; c++) {
     let mult = NAV.unknownMultiplier;
     if (h) {
-      const p = cellToRoom(terrain, [c, r]);
+      const p = cellToWorld(terrain, [c, r]);
       // Conservative intersection, not just the centre: no raster cell may
       // hide part of a scanned obstacle or an unknown area.
       const x0 = (p[0] - terrain.sx / 2 - h.originXZ[0]) / h.sx;
@@ -66,7 +67,7 @@ export function combineCosts(terrain, hazard = null) {
 }
 
 export function sameHazard(a, b) {
-  return !!a && a.cols === b.cols && a.rows === b.rows && a.cellSizeM === b.cellSizeM &&
+  return !!a && a.frameId === b.frameId && a.cols === b.cols && a.rows === b.rows && a.cellSizeM === b.cellSizeM &&
     a.originXZ[0] === b.originXZ[0] && a.originXZ[1] === b.originXZ[1] &&
     a.cells.length === b.cells.length && a.cells.every((v, i) => v === b.cells[i]);
 }

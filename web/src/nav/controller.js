@@ -1,7 +1,8 @@
 import { NAV } from './config.js';
-import { createTransform, cellToRoom, roomToCell, containsCell, remainingPath } from './coordinates.js';
+import { createGridFrame, cellToWorld, worldToCell, containsCell, remainingPath } from './coordinates.js';
 import { buildTerrain, hazardField, validateHazard, sameHazard, hazardAffectsRoute } from './costs.js';
 import { segmentCost } from './planner.js';
+import { analyzeRoute } from './analysis.js';
 
 // No DOM/Three dependency: navigation state can be tested with a fake Worker and bus.
 export class Navigation {
@@ -12,7 +13,7 @@ export class Navigation {
     this.hazard = null; this.hfield = null;
     this.lastPlanAt = -Infinity; this.lastPublishAt = -Infinity; this.dirty = false;
     this.lastStatus = null; this.blockReason = ''; this.warned = false; this.stats = null;
-    this.searchStart = null;
+    this.searchStart = null; this.analysis = null;
     const on = (name, fn) => this.off.push(bus.on(name, fn));
     on('layers:ready', data => this.load(data));
     on('nav:request', ({ targetId }) => this.request(targetId));
@@ -34,11 +35,13 @@ export class Navigation {
     this.invalidate(); this.data = data; this.transform = null; this.terrainField = null;
     this.route = []; this.onRoute({ status: 'cancelled', points: [] });
     try {
-      this.transform = createTransform(data.layerSet);
+      this.transform = createGridFrame(data.layerSet);
       const terrain = buildTerrain(data.layerSet, data.grids);
       this.terrainField = { ...terrain, costs: terrain.base };
-    } catch (err) { this.transform = null; this.terrainField = null; this.fail(err.message || 'invalid-grid-or-room'); return; }
-    this.worker.postMessage({ type: 'setup', version: ++this.version, ...data });
+    } catch (err) { this.transform = null; this.terrainField = null; this.fail(err.message || 'invalid-grid'); return; }
+    if (this.hazard?.frameId !== this.transform.frameId) { this.hazard = null; this.hfield = null; }
+    this.analysis = null;
+    this.worker.postMessage({ type: 'setup', version: ++this.version, ...data, hazard: this.hazard });
     if (this.targetId) this.dirty = true;
   }
   invalidate() {
@@ -54,11 +57,11 @@ export class Navigation {
     if (this.warned) { this.warned = false; this.bus.emit('alert:clear', { id: 'route-blocked' }); }
   }
   fail(reason) {
-    this.route = [];
+    this.route = []; this.analysis = null;
     if (this.lastStatus !== 'blocked' || this.blockReason !== reason) this.publish('blocked', [], 0, reason);
     if (!this.warned && this.targetId) {
       this.warned = true;
-      this.bus.emit('alert:raise', { id: 'route-blocked', level: 'warn', message: `안내할 수 없습니다: ${reason}`, ts: this.now() });
+      this.bus.emit('alert:raise', { id: 'route-blocked', level: 'warn', message: `Route unavailable: ${reason}`, ts: this.now() });
     }
   }
   request(targetId) {
@@ -82,7 +85,10 @@ export class Navigation {
         Math.hypot(this.position[0] - this.searchStart[0], this.position[2] - this.searchStart[2]) >= NAV.offRouteM) this.dirty = true;
   }
   updateHazard(h) {
-    if (!validateHazard(h) || (this.hazard && h.ts < this.hazard.ts)) return;
+    // Unregistered local scans cannot modify a planetary map. An input provider
+    // must first supply this map's frameId and positions in its metre frame.
+    if (!validateHazard(h) || !this.transform || h.frameId !== this.transform.frameId ||
+        (this.hazard && h.ts < this.hazard.ts)) return;
     const changed = !sameHazard(this.hazard, h);
     const wasPending = this.pending !== null;
     const rest = this.position && this.route.length ? remainingPath(this.route, this.position).points : [];
@@ -103,7 +109,7 @@ export class Navigation {
   }
   routeClear(points) {
     if (this.terrainField && this.transform) {
-      const cells = points.map(p => roomToCell(this.transform, p));
+      const cells = points.map(p => worldToCell(this.transform, p));
       if (cells.length === 1 && !Number.isFinite(segmentCost(this.terrainField, cells[0], cells[0]))) return false;
       for (let i = 1; i < cells.length; i++) if (!Number.isFinite(segmentCost(this.terrainField, cells[i - 1], cells[i]))) return false;
     }
@@ -136,11 +142,11 @@ export class Navigation {
     this.pending = null;
     this.stats = m.stats;
     if (m.status !== 'ok') { this.fail(m.reason || 'no-path'); return; }
-    const route = m.points.map(p => cellToRoom(this.transform, p));
+    const route = m.points.map(p => cellToWorld(this.transform, p));
     if (!this.position || !route.length) { this.dirty = true; return; }
     const rest = remainingPath(route, this.position);
     if (rest.deviationM > NAV.offRouteM || !this.routeClear(rest.points)) { this.dirty = true; return; }
-    this.route = route; this.clearWarning();
+    this.route = route; this.analysis = analyzeRoute(this.data, m.points, m.cost); this.clearWarning();
     this.progress(true);
   }
   progress(force = false) {
@@ -163,7 +169,7 @@ export class Navigation {
     if (!this.targetId) return;
     if (!this.transform) { this.fail('data-not-ready'); return; }
     if (!this.position) { this.fail('tracking-lost'); return; }
-    const start = roomToCell(this.transform, this.position);
+    const start = worldToCell(this.transform, this.position);
     if (!containsCell(this.transform, start)) { this.fail('outside-map'); this.dirty = true; return; }
     if (this.pending !== null && this.searchStart &&
         Math.hypot(this.position[0] - this.searchStart[0], this.position[2] - this.searchStart[2]) >= NAV.offRouteM) {

@@ -6,7 +6,7 @@
 //
 // ctx (init에서 받는 것):
 //   ctx.bus        이벤트 버스 (core/bus.js). 다른 모듈과는 이것으로만 대화한다
-//   ctx.scene      THREE.Scene. 방 좌표(local-floor, 미터, y가 위)가 곧 장면 좌표다
+//   ctx.scene      THREE.Scene for presentation; its display scale is not a map distance.
 //   ctx.camera     THREE.PerspectiveCamera. AR에서는 헤드셋 위치를 따라간다
 //   ctx.renderer   THREE.WebGLRenderer (renderer.xr 로 손·컨트롤러에 접근)
 //   ctx.xr         XR 상태: session, presenting, refSpace, enabledFeatures,
@@ -28,7 +28,7 @@
 import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
 import { mapPoint, range, terrainArrays } from './terrain.js';
-import { createTransform, roomToCell, cellToRoom } from '../nav/coordinates.js';
+import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
 let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
@@ -40,25 +40,27 @@ function disposeObject(object) {
   object?.removeFromParent();
 }
 function makeLabel() {
-  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 192;
+  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-  sprite.name = 'map-caption'; sprite.scale.set(0.3, 0.05625, 1); sprite.position.set(0, 0.06, 0.17);
+  sprite.name = 'map-caption'; sprite.scale.set(0.28, 0.07, 1); sprite.position.set(0, 0.06, ctx.xr.presenting ? 0.17 : -0.19);
   sprite.userData = { canvas, texture }; root.add(sprite); return sprite;
 }
 function caption(note = '') {
   if (!label || !data) return;
-  const g = label.userData.canvas.getContext('2d'); g.clearRect(0, 0, 1024, 192);
-  g.fillStyle = 'rgba(20,24,32,.93)'; g.fillRect(0, 0, 1024, 192);
-  g.fillStyle = '#f2f2f2'; g.font = '600 35px system-ui';
-  g.fillText(`${data.layerSet.mock ? 'MOCK · ' : ''}GEDIZ VALLIS · N ↑`, 24, 46);
+  const g = label.userData.canvas.getContext('2d'); g.clearRect(0, 0, 1024, 256);
+  g.fillStyle = 'rgba(20,24,32,.93)'; g.fillRect(0, 0, 1024, 256);
+  g.fillStyle = '#f2f2f2'; g.font = '600 32px system-ui';
+  g.fillText(`${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`, 24, 40, 976);
   const layer = data.layerSet.layers.find(l => l.id === activeLayer);
-  g.font = '28px system-ui'; g.fillStyle = '#c3c9da';
-  g.fillText(`${layer?.label ?? '지형'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`, 24, 89, 976);
-  const scale = data.layerSet.grid.cols * data.layerSet.grid.cellSizeM / transform.width;
-  g.fillText(`전체 지도 ↔ ${transform.width}×${transform.depth}m 방 · 방 1m = 화성 ${scale.toFixed(0)}m`, 24, 130, 976);
+  g.font = '26px system-ui'; g.fillStyle = '#c3c9da';
+  g.fillText(`${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`, 24, 78, 976);
+  g.fillText(`Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`, 24, 116, 976);
   g.fillStyle = '#f4b575';
-  g.fillText(note || (activeLayer === 'thermal' ? '상대 밝기 · 실제 온도 아님' : '청록: 현재 위치 · 주황: Curiosity · 보라: 안내 경로'), 24, 173, 976);
+  g.fillText(note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: start · orange: Curiosity · violet: planned route'), 24, 154, 976);
+  g.font = '22px system-ui'; g.fillStyle = '#c3c9da';
+  g.fillText('Route distances use map metres. Display size does not affect planning.', 24, 192, 976);
+  g.font = '20px system-ui'; g.fillText(layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'), 24, 230, 976);
   label.userData.texture.needsUpdate = true;
 }
 function lineForCells(cells, color, name) {
@@ -77,15 +79,15 @@ function drawRoute() {
   if (!data || !arrays) return;
   const cells = [];
   for (let i = 1; i < routePoints.length; i++) {
-    const a = roomToCell(transform, routePoints[i - 1]), b = roomToCell(transform, routePoints[i]);
+    const a = worldToCell(transform, routePoints[i - 1]), b = worldToCell(transform, routePoints[i]);
     const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
     for (let k = 0; k <= steps; k++) cells.push([a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps]);
   }
   routeLine = lineForCells(cells, 0x8e9dff, 'map-planned-route');
 }
-function setCurrent(room) {
+function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
-  const p = mapPoint(data.grids.topo, data.layerSet.grid, roomToCell(transform, room), arrays.min, MAP.widthM, 0.003);
+  const p = mapPoint(data.grids.topo, data.layerSet.grid, worldToCell(transform, point), arrays.min, MAP.widthM, 0.003);
   currentMarker.visible = !!p; if (p) currentMarker.position.fromArray(p);
 }
 function numericTexture(id) {
@@ -104,7 +106,8 @@ async function imageTexture(layer) {
   const max = Math.min(MAP.textureMaxSize, ctx.renderer.capabilities.maxTextureSize);
   const factor = Math.min(1, max / Math.max(img.width, img.height));
   const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(img.width * factor)); canvas.height = Math.max(1, Math.round(img.height * factor));
-  const g = canvas.getContext('2d', { willReadFrequently: layer.id === 'thermal' }); g.drawImage(img, 0, 0, canvas.width, canvas.height); source.dispose();
+  const g = canvas.getContext('2d', { willReadFrequently: layer.id === 'thermal' });
+  g.imageSmoothingEnabled = layer.id !== 'thermal'; g.drawImage(img, 0, 0, canvas.width, canvas.height); source.dispose();
   if (layer.id === 'thermal') {
     const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
     const palette = Array.from({ length: 256 }, (_, i) => rampColor('thermal', i / 255));
@@ -112,7 +115,10 @@ async function imageTexture(layer) {
     g.putImageData(pixels, 0, 0);
   }
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(4, ctx.renderer.capabilities.getMaxAnisotropy()); return texture;
+  if (layer.id === 'thermal') {
+    texture.generateMipmaps = false; texture.minFilter = texture.magFilter = THREE.NearestFilter;
+  } else texture.anisotropy = Math.min(4, ctx.renderer.capabilities.getMaxAnisotropy());
+  return texture;
 }
 async function selectLayer(id, visible) {
   if (!visible) {
@@ -121,7 +127,7 @@ async function selectLayer(id, visible) {
   }
   const layer = data?.layerSet.layers.find(l => l.id === id);
   if (!layer || !surface) return;
-  activeLayer = id; const serial = ++request, epoch = generation; caption('레이어를 불러오는 중');
+  activeLayer = id; const serial = ++request, epoch = generation; caption('Loading layer…');
   try {
     let texture = textures.get(id);
     if (!texture) {
@@ -133,7 +139,7 @@ async function selectLayer(id, visible) {
     if (serial !== request || epoch !== generation) return;
     surface.material.map = texture; surface.material.needsUpdate = true; caption();
   } catch (err) {
-    if (serial === request && epoch === generation) { surface.material.map = null; surface.material.needsUpdate = true; caption(`레이어 없음: ${layer.label}`); }
+    if (serial === request && epoch === generation) { surface.material.map = null; surface.material.needsUpdate = true; caption(`Layer unavailable: ${layer.labelEn ?? layer.label}`); }
     console.warn('[map] 레이어 로드 실패:', id, err.message);
   }
 }
@@ -148,7 +154,7 @@ function clearData() {
 function load(payload) {
   clearData(); data = payload;
   try {
-    transform = createTransform(data.layerSet); arrays = terrainArrays(data.grids.topo, data.layerSet.grid);
+    transform = createGridFrame(data.layerSet); arrays = terrainArrays(data.grids.topo, data.layerSet.grid);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(arrays.uv, 2));
     geometry.setIndex(arrays.indices); geometry.computeVertexNormals();
@@ -164,26 +170,28 @@ function load(payload) {
     currentMarker = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba, depthTest: false }));
     currentMarker.name = 'map-explorer'; root.add(currentMarker);
     const base = data.layerSet.waypoints?.find(w => w.id === 'base');
-    if (base) setCurrent(cellToRoom(transform, base.cell)); else currentMarker.visible = false;
+    if (base) setCurrent(cellToWorld(transform, base.cell)); else currentMarker.visible = false;
     label = makeLabel(); caption();
   } catch (err) { console.warn('[map] 지형을 표시할 수 없습니다:', err.message); }
 }
 export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
-  root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale);
+  root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
   off.push(ctx.bus.on('layers:ready', load), ctx.bus.on('layer:toggle', ({ id, visible }) => { void selectLayer(id, visible); }),
     ctx.bus.on('nav:route', event => {
       if (event.points?.length) setCurrent(event.points[0]);
       routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
     }));
   off.push(ctx.xr.onSessionStart(session => {
-    shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1);
+    shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
+    if (label) label.position.z = 0.17;
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
     session.addEventListener('select', select);
     const cleanup = () => session.removeEventListener('select', select);
     session.addEventListener('end', cleanup, { once: true }); off.push(cleanup);
   }), ctx.xr.onSessionEnd(() => {
-    root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.scale.setScalar(MAP.desktopScale); shownSince = null;
+    root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.rotation.x = MAP.desktopTiltRad;
+    root.scale.setScalar(MAP.desktopScale); shownSince = null; if (label) label.position.z = -0.19;
   }));
 }
 export function update(frame) {
@@ -192,7 +200,7 @@ export function update(frame) {
   if (!xrFrame || !refSpace) { root.visible = false; return; }
   const viewer = xrFrame.getViewerPose(refSpace);
   if (!viewer) { root.visible = false; return; }
-  const vp = viewer.transform.position; setCurrent([vp.x, 0, vp.z]);
+  // A headset pose moves the displayed map, not the selected position on Mars.
   const left = [...session.inputSources].find(s => s.handedness === 'left' && s.hand);
   const joint = left?.hand.get('wrist');
   const wrist = joint ? xrFrame.getJointPose(joint, refSpace) : null;

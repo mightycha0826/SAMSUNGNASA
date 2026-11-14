@@ -1,0 +1,116 @@
+{
+  "site": {
+    "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
+    "scienceGoal": "Survey the field of pure-sulfur stones",
+    "lat": -4.78681191,
+    "lon": 137.4075342,
+    "bounds": {
+      "west": 137.39026,
+      "east": 137.42481,
+      "south": -4.80409,
+      "north": -4.76954
+    },
+    "geologicUnit": {
+      "code": "Htu",
+      "name": "Hesperian transition undivided unit",
+      "source": "USGS SIM 3292"
+    }
+  },
+  "grid": {
+    "cols": 512,
+    "rows": 512,
+    "cellSizeM": 4.0
+  },
+  "layers": [
+    {
+      "id": "topo",
+      "kind": "topographic",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m",
+      "file": "topo.bin",
+      "format": "float32",
+      "unit": "m",
+      "min": -3846.56,
+      "max": -3412.1,
+      "label": "지형 높이",
+      "labelEn": "Terrain elevation",
+      "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"
+    },
+    {
+      "id": "slope",
+      "kind": "derived",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m",
+      "file": "slope.bin",
+      "format": "float32",
+      "unit": "deg",
+      "min": 0.03,
+      "max": 71.07,
+      "label": "경사도",
+      "labelEn": "Slope",
+      "credit": "Computed from the USGS Gale merged DEM"
+    },
+    {
+      "id": "optical",
+      "kind": "optical",
+      "mission": "MRO",
+      "instrument": "HiRISE",
+      "file": "optical.png",
+      "format": "image",
+      "label": "광학 영상",
+      "labelEn": "Optical image",
+      "credit": "NASA/JPL-Caltech/University of Arizona",
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
+    },
+    {
+      "id": "thermal",
+      "kind": "thermal",
+      "mission": "Mars Odyssey",
+      "instrument": "THEMIS",
+      "file": "thermal.png",
+      "format": "image",
+      "label": "열 영상 (야간)",
+      "labelEn": "Thermal image (night)",
+      "credit": "NASA/JPL-Caltech/Arizona State University",
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
+    }
+  ],
+  "waypoints": [
+    {
+      "id": "base",
+      "label": "기지",
+      "labelEn": "Base",
+      "cell": [
+        247,
+        357
+      ],
+      "rmc": "106_438",
+      "sol": 4098
+    },
+    {
+      "id": "site1",
+      "label": "황 암석 지대",
+      "labelEn": "Sulfur stone field",
+      "cell": [
+        275,
+        272
+      ],
+      "rmc": "107_2484",
+      "sol": 4200
+    }
+  ],
+  "demo": {
+    "regionCells": [
+      265,
+      262,
+      285,
+      282
+    ],
+    "roomSizeM": [
+      4,
+      4
+    ]
+  }
+}
