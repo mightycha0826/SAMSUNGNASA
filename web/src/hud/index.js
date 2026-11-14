@@ -264,7 +264,9 @@ function wire(bus) {
     state.nav = { status, targetId: targetId ?? prev.targetId, distanceM: distanceM ?? 0 };
     dirty.status = true;
   });
-  bus.on('voice:command', ({ intent, slots }) => {
+  bus.on('voice:command', ({ intent, slots, text }) => {
+    // Show what the voice assistant heard, so the wearer knows the command was taken.
+    if (text) showToast(`\u201C${String(text).trim().replace(/[.!?]+$/, '')}\u201D`);
     if (intent === 'alert.ack' && state.alerts.size) {
       state.acked = true; // 점멸을 멈춘다. 테두리와 경보 카드는 alert:clear까지 남는다.
       dirty.banner = true;

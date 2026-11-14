@@ -1,371 +1,388 @@
-# 역할 분담
+# Roles
 
-6명이 A~F 슬롯을 하나씩 맡습니다. 담당자는 아래 표에 적혀 있습니다.
+Six people each take one slot, A–F. Owners are listed in the table below.
 
-| 슬롯 | 역할 | 필요한 역량 | 토큰 소모 예상 | 담당자 |
+| Slot | Role | Skills needed | Expected token use | Owner |
 |---|---|---|---|---|
-| [A](#a--실시간-환경-분석) | 실시간 환경 분석 | 3D 수학, WebGL | 최상 | 이효제 |
-| [B](#b--xr-코어--통합-리드) | XR 코어 · 통합 리드 | 웹 프론트 전반, Git | 상 | 차유근 |
-| [C](#c--nasa-데이터-레이어--미션-시나리오) | NASA 데이터 레이어 · 미션 시나리오 | Python, 데이터 처리 | 최상 | 김건민 |
-| [D](#d--지도--길안내) | 지도 · 길안내 | 3D 수학, 알고리즘 | 중상 | 안현상 |
-| [E](#e--젯슨-허브--음성--센서) | 젯슨 허브 · 음성 · 센서 | Python, 리눅스, 임베디드 | 상 | 김도훈 |
-| [F](#f--hud-ui--데모) | HUD UI · 데모 | UI, 영상 편집 | 중 | 길윤석 |
+| [A](#a--real-time-environment-analysis) | Real-time environment analysis | 3D math, WebGL | Highest | 이효제 |
+| [B](#b--xr-core--integration-lead) | XR core · integration lead | Web front end in general, Git | High | 차유근 |
+| [C](#c--nasa-data-layers--mission-scenario) | NASA data layers · mission scenario | Python, data processing | Highest | 김건민 |
+| [D](#d--map--route-guidance) | Map · route guidance | 3D math, algorithms | Medium-high | 안현상 |
+| [E](#e--jetson-hub--voice--sensor) | Jetson hub · voice · sensor | Python, Linux, embedded | High | 김도훈 |
+| [F](#f--hud-ui--demo) | HUD UI · demo | UI, video editing | Medium | 길윤석 |
 
-**공통 원칙**: 이 프로젝트의 바탕은 NASA 데이터입니다. 자기 기능이 어느 NASA 데이터에서 출발하는지는 [README 1장](../README.md#원칙-모든-기능은-nasa-데이터에서-출발한다)에 있습니다.
+**Common principle**: this project is built on NASA data. Which NASA data each feature starts from is in [README section 1](../README.md#principle-every-feature-starts-from-nasa-data).
 
-**읽는 법**
+**How to read this**
 
-- 등급 P0 / P1 / P2의 뜻은 [README 3장](../README.md#3-기능과-우선순위)에 있습니다. P0부터 끝냅니다.
-- 데이터 형식은 모두 [INTERFACES.md](INTERFACES.md)에 있습니다. 여기서는 이름만 씁니다.
-- "토큰 소모 예상"은 AI에게 맡길 작업의 성격을 보고 추정한 것입니다. 측정한 값이 아닙니다.
+- Grades P0 / P1 / P2 are defined in [README section 3](../README.md#3-features-and-priorities). Finish P0 first.
+- All data formats are in [INTERFACES.md](INTERFACES.md). Only names are used here.
+- "Expected token use" is an estimate from the nature of the work handed to an AI. It is not measured.
 
-**일정 관리 참고**
+**Schedule notes**
 
-- 가장 중요한 두 자리는 **B**와 **C**입니다. B가 늦으면 아무도 합칠 수 없고, C가 늦으면 지도가 빕니다. 이 두 사람이 막히면 바로 팀에 알립니다.
-- 헤드셋은 한 대입니다. 기기가 꼭 필요한 A, B, D가 시간을 나눠 써야 합니다. 나머지 시간은 목 모드로 개발합니다.
+- The two most important seats are **B** and **C**. If B is late nobody can merge; if C is late the map is empty. If either is stuck, tell the team at once.
+- There is one headset. A, B and D, who really need the device, share it by time. The rest of the time everyone develops in mock mode.
 
 ---
 
-## A — 실시간 환경 분석
+## A — Real-time environment analysis
 
-> 헤드셋 깊이 센서로 눈앞 장애물 지도를 만든다. NASA 데이터로 만든 경로가 실제 공간에 반응하는 것을 보여 주는, 시연의 킥이다.
+> Builds a map of nearby obstacles from the headset depth sensor. It shows the route built from NASA data reacting to real space: the kick of the demo.
 
-- 폴더: `web/src/scan/`
-- 근거: 원문 Q5, Q7 ([README 2장](../README.md#2-챌린지가-요구하는-것))
+- Folder: `web/src/scan/`
+- Basis: challenge text Q5, Q7 ([README section 2](../README.md#2-what-the-challenge-asks-for))
 
-### 맡는 일
+### Tasks
 
-| 등급 | 일 |
+| Grade | Task |
 |---|---|
-| P1 | WebXR 깊이·메쉬 데이터를 받아 바닥 격자로 바꾼다 |
-| P1 | 칸마다 "지나갈 수 있음 / 장애물 / 모름"을 판정해 `hazard:update`로 보낸다 |
-| P1 | 장애물을 화면에 표시한다 (예: 붉은 윤곽) |
-| P2 | 야간투시: 깊이·메쉬를 녹색 윤곽으로 그린다 (F와 함께) |
+| P1 | Receive WebXR depth and mesh data and turn it into a floor grid |
+| P1 | Classify each cell as "passable / obstacle / unknown" and send `hazard:update` |
+| P1 | Show obstacles on screen (for example a red outline) |
+| P2 | Night vision: draw depth and mesh as green outlines (with F) |
 
-### 완료 기준
+### Done when
 
-- 방에 의자를 놓으면 그 자리가 장애물 칸으로 잡힌다.
-- 의자를 치우면 몇 초 안에 풀린다.
-- 헤드셋 없이도 목 모드에서 가짜 장애물이 나온다.
+- Putting a chair in the room marks that spot as obstacle cells.
+- Removing the chair clears it within a few seconds.
+- Fake obstacles appear in mock mode without the headset.
 
-### 주고받는 것
+### Exchanges
 
-| 방향 | 상대 | 내용 |
+| Direction | With | What |
 |---|---|---|
-| 받는다 | B | XR 세션, 매 프레임 호출 |
-| 준다 | D | `hazard:update` (경로 재계산에 쓰임) |
-| 준다 | F | `hazard:update` (야간투시 표시에 쓰임, P2) |
+| Receives | B | XR session, per-frame call |
+| Gives | D | `hazard:update` (used for route recalculation) |
+| Gives | F | `hazard:update` (used for the night vision display, P2) |
 
-### 첫 3시간
+### First 3 hours
 
-1. B의 뼈대가 뜨면 헤드셋에서 깊이·메쉬 데이터가 실제로 들어오는지 확인한다.
-2. 안 들어오면 바로 팀에 알리고 평면 감지(`plane-detection`)로 낮춘다.
-3. 목 데이터(가짜 장애물 격자)를 먼저 만들어 D에게 넘긴다. D가 기다리지 않게 한다.
+1. When B's skeleton is up, check on the headset that depth and mesh data actually arrive.
+2. If they do not, tell the team at once and fall back to plane detection (`plane-detection`).
+3. Make the mock data (a fake obstacle grid) first and hand it to D, so D is not kept waiting.
 
-Quest 브라우저가 Quest 3에서 깊이·메쉬 데이터를 제공한다는 것은 Meta 도움말로 확인했습니다 ([Meta 도움말](https://www.meta.com/help/quest/1406582186767703/), 검색 요약). 다만 방 메쉬가 그려지지 않았다는 개발자 보고도 있습니다 ([Babylon.js 포럼](https://forum.babylonjs.com/t/webxr-room-mesh-access/45744), 검색 요약). 기기에서 직접 확인해야 합니다.
+Meta's help pages confirm that the Quest browser provides depth and mesh data on Quest 3 ([Meta help](https://www.meta.com/help/quest/1406582186767703/), search summary). There are also developer reports that the room mesh was not drawn ([Babylon.js forum](https://forum.babylonjs.com/t/webxr-room-mesh-access/45744), search summary). It must be checked on the device.
 
-### 토큰이 많이 드는 작업
+### Work that uses many tokens
 
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
+| Rank | Work | Why it costs | How to reduce it |
 |---|---|---|---|
-| 1 | 기기에서만 나는 오류 디버깅 | AI가 헤드셋 화면을 볼 수 없어, 로그를 붙여 넣고 묻는 일이 반복된다 | 화면에 디버그 글자를 띄우는 도구를 먼저 만든다. 로그는 관련 줄만 붙인다 |
-| 2 | 깊이 데이터 → 바닥 격자 변환 | 좌표 변환과 행렬 계산이 얽혀 긴 코드가 여러 번 다시 나온다 | 함수 하나씩 나눠 묻는다. 입력·출력 형식을 먼저 정해 준다 |
-| 3 | WebXR API 사용법 확인 | API가 자주 바뀌어 AI가 틀린 코드를 낼 수 있다 | 공식 문서 해당 부분을 붙여 주고 묻는다 |
+| 1 | Debugging errors that only happen on the device | The AI cannot see the headset screen, so pasting logs and asking repeats | First build a tool that prints debug text on screen. Paste only the relevant log lines |
+| 2 | Depth data → floor grid conversion | Coordinate transforms and matrix math are tangled, and long code gets rewritten several times | Ask one function at a time. Fix the input and output formats first |
+| 3 | Checking WebXR API usage | The API changes often and the AI may produce wrong code | Paste the relevant part of the official docs with the question |
 
 ---
 
-## B — XR 코어 · 통합 리드
+## B — XR core · integration lead
 
-> 뼈대를 만들고 모두의 코드를 하나로 합친다. 기술 결정의 최종 책임자다.
+> Builds the skeleton and merges everyone's code into one. Has the final say on technical decisions.
 
-- 폴더: `web/src/core/`, `web/src/mock/`, 빌드 설정
+- Folders: `web/src/core/`, `web/src/mock/`, build configuration
 
-### 맡는 일
+### Tasks
 
-| 등급 | 일 |
+| Grade | Task |
 |---|---|
-| P0 | 프로젝트 뼈대 (Vite + Three.js), AR 세션 시작 버튼 |
-| P0 | 이벤트 버스 (`bus.js`) |
-| P0 | 헤드셋에서 접속할 수 있게 HTTPS로 서빙 (E와 함께) |
-| P0 | 데이터 로더: `layerset.json` 등을 읽어 `layers:ready`, `env:update`를 보낸다 |
-| P0 | 젯슨 연결 (`link.js`): WebSocket 메시지 ↔ 이벤트 변환 |
-| P0 | 목 모드: 주소 뒤에 `?mock=1`을 붙이면 가짜 데이터로 돈다 |
-| P0 | `main` 병합, 통합 테스트 |
-| P1 | 마이크 입력을 젯슨으로 보내고, 받은 음성을 재생한다 |
-| P1 | 음성 명령을 `nav:request`, `layer:toggle`로 바꿔 내보낸다 |
-| P1 | 방사선 경보(`env.json` 기준)와 젯슨 연결 끊김 경보를 낸다 |
+| P0 | Project skeleton (Vite + Three.js), AR session start button |
+| P0 | Event bus (`bus.js`) |
+| P0 | Serve over HTTPS so the headset can connect (with E) |
+| P0 | Data loader: reads `layerset.json` and the rest, sends `layers:ready` and `env:update` |
+| P0 | Jetson link (`link.js`): WebSocket messages ↔ events |
+| P0 | Mock mode: appending `?mock=1` to the address runs on fake data |
+| P0 | Merging into `main`, integration tests |
+| P1 | Send microphone input to the Jetson and play the audio received |
+| P1 | Turn voice commands into `nav:request` and `layer:toggle` |
+| P1 | Raise the radiation alert (from `env.json`) and the Jetson disconnect alert |
 
-### 완료 기준
+### Done when
 
-- 헤드셋 브라우저에서 주소를 열고 버튼을 누르면 AR 화면이 뜬다.
-- PC 브라우저에서 `?mock=1`로 열면 헤드셋·젯슨 없이 모든 이벤트가 흐른다.
-- 데모 흐름 1~4가 끊기지 않고 이어진다.
+- Opening the address in the headset browser and pressing the button shows the AR screen.
+- Opening it with `?mock=1` in a PC browser makes every event flow without the headset or the Jetson.
+- Demo flow steps 1–4 run without a break.
 
-### 주고받는 것
+### Exchanges
 
-| 방향 | 상대 | 내용 |
+| Direction | With | What |
 |---|---|---|
-| 준다 | 전원 | 뼈대, 이벤트 버스, 목 모드 |
-| 받는다 | C | `web/public/data/`의 파일 |
-| 받는다/준다 | E | WebSocket 메시지 |
-| 받는다 | 전원 | 병합 요청 |
+| Gives | Everyone | Skeleton, event bus, mock mode |
+| Receives | C | Files in `web/public/data/` |
+| Receives/gives | E | WebSocket messages |
+| Receives | Everyone | Merge requests |
 
-### 첫 3시간
+### First 3 hours
 
-1. **1시간 안에** 뼈대와 이벤트 버스를 올린다. 다른 사람이 여기서 시작한다.
-2. 헤드셋에서 HTTPS 접속과 AR 세션 시작을 확인한다.
-3. 손 추적과 마이크 권한이 뜨는지 확인해 D, E에게 알린다.
-4. INTERFACES.md의 시작값을 팀과 확정한다.
+1. Put up the skeleton and the event bus **within 1 hour**. Everyone else starts from it.
+2. Confirm HTTPS access and AR session start on the headset.
+3. Check that hand tracking and the microphone permission appear, and tell D and E.
+4. Fix the starting values in INTERFACES.md with the team.
 
-WebXR은 HTTPS나 localhost에서만 켜집니다 ([MDN: Navigator.xr](https://developer.mozilla.org/docs/Web/API/Navigator/xr), 검색 요약). 젯슨에서 서빙하면 인증서가 필요합니다.
+WebXR only works on HTTPS or localhost ([MDN: Navigator.xr](https://developer.mozilla.org/docs/Web/API/Navigator/xr), search summary). Serving from the Jetson needs a certificate.
 
-### 토큰이 많이 드는 작업
+### Work that uses many tokens
 
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
+| Rank | Work | Why it costs | How to reduce it |
 |---|---|---|---|
-| 1 | 통합 디버깅 | 여러 사람의 모듈을 한꺼번에 읽혀야 원인을 찾는다 | 문제 이벤트 하나만 골라 보내는 쪽·받는 쪽 파일 둘만 준다 |
-| 2 | HTTPS·인증서·네트워크 문제 | 환경마다 달라 시행착오가 길다 | 오류 메시지 원문과 네트워크 구성을 한 번에 정리해 준다 |
-| 3 | 뼈대 생성 | 한 번에 많은 파일이 나온다 | 한 번만 하면 된다. 처음에 요구사항을 다 적어 한 번에 받는다 |
+| 1 | Integration debugging | Several people's modules must be read at once to find the cause | Pick one failing event and give only the sending and receiving files |
+| 2 | HTTPS, certificate and network problems | Every environment differs, so trial and error runs long | Give the exact error message and the network layout in one go |
+| 3 | Generating the skeleton | Many files come out at once | It is done once. Write all the requirements up front and get it in one pass |
 
 ---
 
-## C — NASA 데이터 레이어 · 미션 시나리오
+## C — NASA data layers · mission scenario
 
-> NASA 데이터를 구해 지도 레이어로 가공한다. 챌린지의 핵심 과제를 직접 맡는 자리다.
+> Gets NASA data and processes it into map layers. This seat owns the core task of the challenge.
 
-- 폴더: `data-pipeline/`, `web/public/data/`, `docs/`
-- 근거: 원문 Q1, Q2, Q3, Q4
+- Folders: `data-pipeline/`, `web/public/data/`, `docs/`
+- Basis: challenge text Q1, Q2, Q3, Q4
 
-### 맡는 일
+### Status (2026-11-14)
 
-| 등급 | 일 |
+Every task below is done and the files are in `web/public/data/`. What each file is and how it was checked is in [DATA.md](DATA.md).
+
+| Task | Result |
 |---|---|
-| P0 | 제출물 요건(영상 길이, 설명문 항목, 마감 시각)을 확인해 공유한다 |
-| P0 | **광학 레이어** (`optical.png`): Mars Trek의 HiRISE 타일 182장을 받아 이어 붙인다 — 가장 먼저 |
-| P0 | **지형 레이어** (`topo.bin`)와 경사도 (`slope.bin`): USGS 파일에서 지도 범위를 잘라 낸다 — 12시간 안에 |
-| P0 | 열 레이어 (`thermal.png`): Mars Trek의 THEMIS 타일 1장. 밝기는 온도가 아니라 상대 밝기 |
-| P0 | 지형 파일을 받은 직후 높이 기준 확인: 정차 지점 좌표에서 지형 높이를 뽑아 주행 기록의 `elev_geoid`와 비교하고, 광학 영상과 겹침도 확인한다 |
-| P0 | Curiosity 주행 경로 (`traverse.json`): 지도 범위 안의 정차 지점을 추린다 |
-| P0 | 방사선 값 (`env.json`): RAD 파일에서 뽑는다. 6시간 안에 안 되면 발표된 값을 쓴다 |
-| P0 | 기지 좌표(`waypoints`)를 정한다 |
-| P0 | 제출 설명문: 어떤 임무의 어떤 데이터를 왜 썼는지 쓴다 |
-| P1 | 조사 지점의 Curiosity 사진 (`pov.json`)을 고른다 |
-| P2 | 대기(REMS) 자료를 확인해 `env.json`에 더한다 |
+| Submission requirements | Read from the official guide; summary at the top of [SUBMISSION.md](SUBMISSION.md) |
+| Optical, terrain, slope, thermal layers | Built. `validate.py` passes 54 checks |
+| Elevation reference and overlap | Terrain and rover record agree (−0.17 m on average); terrain and optical overlap within 4 m |
+| Traverse | 178 stops inside the map extent |
+| Radiation and atmosphere (`env.json`) | Real RAD and REMS values for sol 4200, 24 hourly samples. No published fixed value is used |
+| Base and survey site (`waypoints`) | Base `[247, 357]`, survey site `[275, 272]` (the sol 4200 sulfur discovery position, not the map center) |
+| Rover photos (`pov.json`) | One photo each at base and at the survey site |
+| Submission text | Draft in [SUBMISSION.md](SUBMISSION.md), split by the form's fields. `[TODO]` marks wait on the other slots |
 
-탐사 지점과 지도 범위는 정해졌습니다 (게디즈 발리스 수로, 2,048m 정사각형). 데이터 주소, 타일 계산식, 확인된 것과 모르는 것은 모두 [RESOURCES.md](RESOURCES.md)에 있습니다. **작업 전에 반드시 읽으세요.**
+Still open, and not C's alone: fix the `demo` region and the slope limits with D; agree a radiation alert threshold with B; check on the headset; clear the `[TODO]` marks in the submission text once the features are final.
 
-### 완료 기준
+### Tasks
 
-- `layerset.json`에 레이어가 3종 이상 있고, 모두 같은 격자에 맞는다.
-- 지형 위에 Curiosity 주행 경로를 얹었을 때 길이 어긋나지 않는다 (정렬이 맞는지 보는 가장 쉬운 방법).
-- 레이어마다 `mission`, `instrument`, `sourceUrl`이 채워져 있다.
-- 서로 다른 NASA 임무의 데이터가 2개 이상 들어 있다 (원문: "data from multiple NASA science missions").
-- D의 지도에서 레이어를 바꿔도 지형과 어긋나지 않는다.
-
-### 주고받는 것
-
-| 방향 | 상대 | 내용 |
-|---|---|---|
-| 준다 | B, D | `layerset.json`, `*.bin`, `*.png` |
-| 준다 | D | `traverse.json` |
-| 준다 | F | `env.json`, 레이어 범례, `pov.json` |
-| 준다 | 전원 | 지점·과학 목표, 제출물 요건 |
-| 받는다 | F | 데모 영상 |
-
-### 첫 3시간
-
-1. **지형 파일(3.6GB) 다운로드를 가장 먼저 건다.** 일부만 잘라 받을 수 있는지도 확인한다.
-2. 제출 요건을 읽고 요약을 팀 채널에 올린다.
-3. 다운로드를 기다리는 동안 HiRISE 광학 타일을 받아 `optical.png`를 만든다. 이것만으로도 D의 지도에 실제 화성이 보인다.
-4. 가짜 지형(완만한 언덕)으로 `layerset.json`과 `topo.bin`을 **먼저** 넘긴다. D가 기다리지 않게 한다.
-5. 주행 기록에서 `traverse.json`을 만든다. 파일이 작아 금방 끝난다.
-
-지형 파일의 주소는 `planetarymaps.usgs.gov`에 있습니다. 주소와 크기는 확인했지만 파일은 내려받아 보지 않았습니다.
-
-### 토큰이 많이 드는 작업
-
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
-|---|---|---|---|
-| 1 | 방사선(RAD) 자료 해석 | 원시 자료에 가까워 긴 설명 문서(SIS)를 읽어야 한다 | 문서 전체가 아니라 필요한 표·필드 설명만 잘라 준다. 6시간 안에 안 되면 멈춘다 |
-| 2 | 좌표계·해상도가 다른 레이어 정렬 | 투영법 변환에서 어긋남이 나면 원인을 찾느라 여러 번 오간다 | RESOURCES.md의 규격 표와 타일 계산식을 그대로 준다 |
-| 3 | 가공 스크립트 반복 수정 | 대용량 파일이라 실행이 느리고 오류가 늦게 나온다 | 작은 구역만 잘라 먼저 돌려 본다. 데이터 내용을 붙이지 말고 요약 통계만 준다 |
-| 4 | 제출 설명문 | 영문 작성과 다듬기 | 근거 표(임무, 장비, 주소)를 주고 초안을 한 번에 받는다 |
-
-**데이터 파일 자체를 AI에게 붙여 넣지 마세요.** 토큰이 가장 빨리 사라지는 길입니다.
-
----
-
-## D — 지도 · 길안내
-
-> 손바닥 지도를 띄우고, 경로를 계산해 바닥에 화살표를 깐다.
-
-- 폴더: `web/src/map/`, `web/src/nav/`
-- 근거: 원문 Q1, Q7, Q8
-
-### 맡는 일
-
-| 등급 | 일 |
+| Grade | Task |
 |---|---|
-| P0 | 높이 격자(`topo`)로 3D 지형을 만들고 레이어 이미지를 입힌다 |
-| P0 | 왼손 손바닥을 위로 들면 지도가 손 위에 뜬다 |
-| P0 | `layer:toggle`에 따라 입힌 레이어를 바꾼다 |
-| P0 | 경사도를 비용으로 삼아 경로를 계산한다 (A* 등) |
-| P0 | Curiosity가 실제로 간 길(`traverse.json`)을 지도에 다른 색으로 그린다 |
-| P0 | 경로를 방 좌표로 바꿔 바닥에 화살표를 깐다. `nav:route`를 보낸다 |
-| P0 | `critical` 경보가 오면 기지로 가는 경로로 바꾼다 |
-| P1 | `hazard:update`의 장애물을 피해 경로를 다시 계산한다 |
-| P1 | 지도 위에 현재 위치, 경로, 조사 지점을 표시한다 |
+| P0 | Find out the submission requirements (video length, description items, deadline) and share them |
+| P0 | **Optical layer** (`optical.png`): fetch 182 HiRISE tiles from Mars Trek and stitch them — first of all |
+| P0 | **Terrain layer** (`topo.bin`) and slope (`slope.bin`): crop the map extent from the USGS file — within 12 hours |
+| P0 | Thermal layer (`thermal.png`): one THEMIS tile from Mars Trek. Brightness is relative, not temperature |
+| P0 | Right after getting the terrain file, check the elevation reference: sample terrain elevation at the rover stops, compare with `elev_geoid` in the traverse record, and check the overlap with the optical image |
+| P0 | Curiosity traverse (`traverse.json`): keep the rover stops inside the map extent |
+| P0 | Radiation values (`env.json`): extract from the RAD files. If not done in 6 hours, use a published value |
+| P0 | Decide the base coordinates (`waypoints`) |
+| P0 | Submission text: which data from which mission was used and why |
+| P1 | Pick Curiosity photos of the survey site (`pov.json`) |
+| P2 | Check the atmospheric (REMS) data and add it to `env.json` |
 
-### 완료 기준
+The site and the map extent are decided (Gediz Vallis channel, a 2,048 m square). Data addresses, the tile formulas, and what is and is not verified are all in [RESOURCES.md](RESOURCES.md). **Read it before starting.**
 
-- 손바닥을 들면 1초 안에 지도가 뜨고, 내리면 사라진다.
-- 목적지를 요청하면 가파른 곳을 돌아가는 경로가 나온다.
-- 바닥 화살표를 따라 걸으면 `arrived`가 된다.
-- 의자를 경로 위에 놓으면 화살표가 돌아간다 (P1).
+### Done when
 
-### 주고받는 것
+- `layerset.json` has three or more layer kinds, all on the same grid.
+- Curiosity's traverse laid on the terrain does not stray off the path (the easiest alignment check).
+- Every layer has `mission`, `instrument` and `sourceUrl` filled in.
+- Data from two or more different NASA missions is included (challenge text: "data from multiple NASA science missions").
+- Switching layers on D's map never misaligns with the terrain.
 
-| 방향 | 상대 | 내용 |
+### Exchanges
+
+| Direction | With | What |
 |---|---|---|
-| 받는다 | B | `layers:ready`, `nav:request`, `layer:toggle`, `alert:raise` |
-| 받는다 | A | `hazard:update` |
-| 준다 | F | `nav:route` |
-| 준다 | 전원 | 지도 격자 ↔ 방 좌표 변환 함수 (D만 만든다) |
+| Gives | B, D | `layerset.json`, `*.bin`, `*.png` |
+| Gives | D | `traverse.json` |
+| Gives | F | `env.json`, layer legend, `pov.json` |
+| Gives | Everyone | Site and science goal, submission requirements |
+| Receives | F | Demo video |
 
-### 첫 3시간
+### First 3 hours
 
-1. PC 브라우저에서 가짜 높이 격자로 3D 지형을 띄운다.
-2. 헤드셋에서 손 추적이 들어오는지 B와 확인한다. 안 되면 컨트롤러 버튼으로 대신한다.
-3. 좌표 변환 함수의 규칙(방의 어느 쪽이 북쪽인지)을 정해 A, F에게 알린다.
+1. **Start the terrain file (3.6 GB) download first.** Also check whether a part of it can be fetched.
+2. Read the submission requirements and post a summary in the team channel.
+3. While the download runs, fetch the HiRISE optical tiles and make `optical.png`. That alone puts real Mars on D's map.
+4. Hand over `layerset.json` and `topo.bin` with fake terrain (a gentle hill) **first**, so D is not kept waiting.
+5. Make `traverse.json` from the traverse record. The file is small, so it is quick.
 
-### 토큰이 많이 드는 작업
+The terrain file is at `planetarymaps.usgs.gov`. The address and size are confirmed, but the file has not been downloaded.
 
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
+### Work that uses many tokens
+
+| Rank | Work | Why it costs | How to reduce it |
 |---|---|---|---|
-| 1 | 손바닥 제스처 판정 | 손 관절의 방향 계산은 기기에서 봐야 맞는지 안다. 수정이 반복된다 | 판정 조건을 숫자(각도 몇 도 이상)로 정해 주고, 관절 값을 화면에 띄워 직접 조정한다 |
-| 2 | 지도 격자 ↔ 방 좌표 변환 | 축 방향이 뒤집히는 실수가 잦다 | 변환 규칙과 예시 좌표 3개를 주고, 테스트 코드도 같이 받는다 |
-| 3 | 경로 탐색 | 알고리즘 자체는 잘 알려져 있어 한 번에 나온다 | 입력·출력 형식만 정확히 준다 |
+| 1 | Interpreting radiation (RAD) data | It is close to raw, so the long format document (SIS) has to be read | Give only the tables and field descriptions needed, not the whole document. Stop after 6 hours |
+| 2 | Aligning layers with different coordinate systems and resolutions | When a projection conversion is off, finding the cause takes several rounds | Give the spec table and the tile formulas from RESOURCES.md as is |
+| 3 | Repeated edits to processing scripts | Large files run slowly and errors show up late | Run a small crop first. Give summary statistics, not the data itself |
+| 4 | Submission text | Writing and polishing | Give the evidence table (mission, instrument, address) and get the draft in one pass |
+
+**Do not paste data files into the AI.** It is the fastest way to burn tokens.
 
 ---
 
-## E — 젯슨 허브 · 음성 · 센서
+## D — Map · route guidance
 
-> 젯슨에서 음성 비서와 온도 센서를 돌린다. 헤드셋 바깥의 모든 것을 맡는다.
+> Shows the palm map, computes the route and lays arrows on the floor.
 
-- 폴더: `jetson/`, `arduino/`
-- 근거: 원문 Q6, Q10
+- Folders: `web/src/map/`, `web/src/nav/`
+- Basis: challenge text Q1, Q7, Q8
 
-### 맡는 일
+### Tasks
 
-| 등급 | 일 |
+| Grade | Task |
 |---|---|
-| P0 | 아두이노 펌웨어: 온도를 읽어 1초마다 시리얼로 보낸다 |
-| P0 | 젯슨 허브 서버: 시리얼을 읽어 WebSocket으로 `telemetry`를 보낸다 |
-| P0 | 온도 기준을 넘으면 `alert.raise`, 내려오면 `alert.clear`를 보낸다 |
-| P0 | 웹앱을 HTTPS로 서빙한다 (B와 함께) |
-| P1 | 음성 인식(STT): 헤드셋에서 온 음성을 글자로 바꾼다 |
-| P1 | 명령 해석: 글자를 [정해진 명령](INTERFACES.md#6-음성-명령-목록) 중 하나로 바꾼다 |
-| P1 | 음성 합성(TTS): 안내 문장을 음성으로 바꿔 헤드셋으로 보낸다 |
-| P1 | "상태 알려 줘"에 현재 온도·경로 상태를 말로 답한다 |
+| P0 | Build 3D terrain from the height grid (`topo`) and drape the layer image over it |
+| P0 | Raising the left palm shows the map above the hand |
+| P0 | Switch the draped layer on `layer:toggle` |
+| P0 | Compute the route with slope as the cost (A* or similar) |
+| P0 | Draw the path Curiosity actually took (`traverse.json`) on the map in a different color |
+| P0 | Convert the route to room coordinates and lay floor arrows. Send `nav:route` |
+| P0 | On a `critical` alert, switch to the route to base |
+| P1 | Recompute the route around obstacles from `hazard:update` |
+| P1 | Show the current position, the route and the survey site on the map |
 
-음성 비서의 범위는 **장비 관리와 정해진 명령**입니다. 자유로운 대화는 하지 않습니다. 명령 해석은 먼저 키워드 규칙으로 만들고, 시간이 남으면 작은 언어 모델을 붙입니다.
+### Done when
 
-### 완료 기준
+- Raising the palm shows the map within 1 second; lowering it hides the map.
+- Requesting a destination gives a route that goes around steep ground.
+- Following the floor arrows ends in `arrived`.
+- Putting a chair on the route makes the arrows go around it (P1).
 
-- 센서를 손으로 쥐면 헤드셋 상태창의 온도가 올라간다.
-- 기준을 넘으면 화면이 붉게 점멸하고, 식으면 풀린다.
-- "조사 지점으로 안내해 줘"라고 말하면 2~3초 안에 화살표가 깔린다 (P1).
-- 젯슨 없이도 PC에서 서버가 목 모드로 돈다.
+### Exchanges
 
-### 주고받는 것
-
-| 방향 | 상대 | 내용 |
+| Direction | With | What |
 |---|---|---|
-| 받는다/준다 | B | WebSocket 메시지 전부 |
-| 준다 | F | (B를 거쳐) 온도, 경보 |
-| 준다 | D | (B를 거쳐) 음성 명령 |
+| Receives | B | `layers:ready`, `nav:request`, `layer:toggle`, `alert:raise` |
+| Receives | A | `hazard:update` |
+| Gives | F | `nav:route` |
+| Gives | Everyone | Map grid ↔ room coordinate conversion functions (only D writes them) |
 
-### 첫 3시간
+### First 3 hours
 
-1. 아두이노에서 온도 값이 시리얼로 나오는지 확인한다.
-2. 가짜 온도를 보내는 WebSocket 서버를 먼저 띄워 B에게 주소를 준다.
-3. 젯슨에 STT·TTS를 설치해 보고, 한국어로 되는지 확인한다. 안 되면 바로 영어 명령으로 바꾼다.
-4. 실제 센서로 손에 쥐었을 때 온도를 재서 경보 기준을 조정한다.
+1. Show 3D terrain from a fake height grid in a PC browser.
+2. Check with B that hand tracking arrives on the headset. If not, use a controller button instead.
+3. Decide the conversion convention (which side of the room is north) and tell A and F.
 
-어떤 STT·TTS 모델이 젯슨에서 한국어로 충분히 빠르게 도는지는 확인하지 못했습니다. 직접 재 봐야 합니다.
+### Work that uses many tokens
 
-### 토큰이 많이 드는 작업
-
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
+| Rank | Work | Why it costs | How to reduce it |
 |---|---|---|---|
-| 1 | 젯슨 설치 오류 해결 | 설치 로그가 길고, 젯슨 전용 패키지 문제가 많다 | 로그 전체가 아니라 첫 오류 주변 30줄만 준다. 젯슨 OS 버전을 먼저 알려 준다 |
-| 2 | 음성 스트리밍 | 마이크 → 서버 → 인식 → 합성 → 재생이 이어져, 어디서 끊겼는지 찾기 어렵다 | 단계마다 따로 시험한다 (녹음 파일로 STT만, 글자로 TTS만) |
-| 3 | 허브 서버 작성 | 한 번에 나온다 | INTERFACES.md 4장을 그대로 준다 |
-| 4 | 아두이노 펌웨어 | 짧다 | 센서 모델명과 핀 번호만 준다 |
+| 1 | Palm gesture detection | Whether the joint orientation math is right only shows on the device, so edits repeat | Fix the conditions as numbers (angle above so many degrees) and tune them yourself with the joint values on screen |
+| 2 | Map grid ↔ room coordinate conversion | Flipped axes are a common mistake | Give the convention and three example coordinates, and get test code with it |
+| 3 | Path finding | The algorithm is well known and comes out in one pass | Just give exact input and output formats |
 
 ---
 
-## F — HUD UI · 데모
+## E — Jetson hub · voice · sensor
 
-> 상태창과 비상 화면을 만들고, 심사위원이 볼 데모 영상을 찍는다.
+> Runs the voice assistant and the temperature sensor on the Jetson. Owns everything outside the headset.
 
-- 폴더: `web/src/hud/`
-- 근거: 원문 Q6, Q8, Q9
+- Folders: `jetson/`, `arduino/`
+- Basis: challenge text Q6, Q10
 
-### 맡는 일
+### Tasks
 
-| 등급 | 일 |
+| Grade | Task |
 |---|---|
-| P0 | 상태창: 슈트 온도, 방사선 값, 현재 높이, 지질 단위, 남은 거리, 현재 레이어 이름 |
-| P0 | 비상 모드: `critical` 경보에 화면 가장자리가 붉게 점멸한다. `mode:change`를 보낸다 |
-| P0 | 레이어 전환 UI와 범례 (손바닥 지도 옆) |
-| P0 | 데모 대본 작성, 리허설 진행, 데모 영상 촬영·편집 |
-| P1 | `warn` 경보 표시, 경로 상태 안내 문구 |
-| P1 | 조사 지점에 가까워지면 Curiosity가 그 자리에서 찍은 사진을 띄운다 |
-| P2 | 야간투시 화면 (A와 함께), 촬영 모드 표시 |
+| P0 | Arduino firmware: read the temperature and send it over serial every second |
+| P0 | Jetson hub server: read serial and send `telemetry` over WebSocket |
+| P0 | Send `alert.raise` above the temperature threshold and `alert.clear` when it drops |
+| P0 | Serve the web app over HTTPS (with B) |
+| P1 | Speech recognition (STT): turn audio from the headset into text |
+| P1 | Intent parsing: turn text into one of the [defined commands](INTERFACES.md#6-voice-commands) |
+| P1 | Speech synthesis (TTS): turn guidance sentences into audio and send it to the headset |
+| P1 | Answer "Status report" by voice with the current temperature and route state |
 
-### 완료 기준
+The voice assistant covers **equipment management and the defined commands**, in English. No free conversation. Intent parsing starts with keyword rules; a small language model is added only if time remains.
 
-- 걸어 다녀도 상태창이 시야 구석에 읽기 좋게 따라온다.
-- 온도 경보가 오면 1초 안에 점멸이 시작되고, 풀리면 멈춘다.
-- 점멸이 지도와 화살표를 가리지 않는다.
-- 데모 영상이 제출 요건(C가 확인)에 맞는다.
+### Done when
 
-화면 전체가 빠르게 깜박이면 보는 사람이 불편할 수 있습니다. 가장자리만, 느리게 점멸하도록 만듭니다.
+- Holding the sensor in a hand raises the temperature in the headset status panel.
+- Above the threshold the screen flashes red; it stops when the sensor cools.
+- Saying "Take me to the survey site" lays the arrows within 2–3 seconds (P1).
+- The server runs in mock mode on a PC without the Jetson.
 
-### 주고받는 것
+### Exchanges
 
-| 방향 | 상대 | 내용 |
+| Direction | With | What |
 |---|---|---|
-| 받는다 | B | `telemetry:update`, `env:update`, `alert:raise`, `alert:clear`, `layers:ready` |
-| 받는다 | D | `nav:route` |
-| 받는다 | C | 레이어 범례, `pov.json` |
-| 준다 | D | `layer:toggle`, `nav:request` |
-| 준다 | 전원 | `mode:change` |
-| 준다 | C | 데모 영상 |
+| Receives/gives | B | All WebSocket messages |
+| Gives | F | (via B) temperature, alerts |
+| Gives | D | (via B) voice commands |
 
-### 첫 3시간
+### First 3 hours
 
-1. PC 브라우저에서 목 데이터로 상태창을 띄운다.
-2. 헤드셋에서 글자 크기와 거리를 확인한다. PC에서 보기 좋은 크기가 헤드셋에서는 안 읽힐 수 있다.
-3. 헤드셋 화면을 녹화하는 방법을 확인한다. 36시간 시점에 처음 해 보면 늦다.
-4. 데모 대본 초안을 쓴다.
+1. Check that temperature values come out of the Arduino over serial.
+2. Put up a WebSocket server that sends fake temperatures first and give B the address.
+3. Install STT and TTS on the Jetson and measure whether they are fast enough.
+4. Measure the temperature of the real sensor held in a hand and tune the alert thresholds.
 
-### 토큰이 많이 드는 작업
+STT and TTS speed was measured on the Jetson (see [jetson/README.md](../jetson/README.md)); accuracy with real voices through the headset microphone still has to be checked.
 
-| 순위 | 작업 | 왜 많이 드나 | 줄이는 법 |
+### Work that uses many tokens
+
+| Rank | Work | Why it costs | How to reduce it |
 |---|---|---|---|
-| 1 | 패널 배치·가독성 수정 | "조금 더 크게, 조금 더 왼쪽" 같은 요청이 수십 번 반복된다 | 크기·위치를 설정값으로 빼 달라고 한 뒤 숫자는 직접 고친다 |
-| 2 | 점멸·윤곽 효과 | 셰이더 코드는 기기에서 봐야 맞는지 안다 | 원하는 모습을 숫자(주기, 색, 두께)로 정해 준다 |
-| 3 | 데모 대본·자막 | 영문 다듬기 | 한국어 대본을 완성한 뒤 한 번에 번역한다 |
+| 1 | Fixing Jetson install errors | Install logs are long and Jetson-specific package problems are common | Give the 30 lines around the first error, not the whole log. State the Jetson OS version first |
+| 2 | Voice streaming | Microphone → server → recognition → synthesis → playback is one chain, and it is hard to find where it broke | Test each stage alone (STT from a recorded file, TTS from text) |
+| 3 | Writing the hub server | Comes out in one pass | Give INTERFACES.md section 4 as is |
+| 4 | Arduino firmware | Short | Give only the sensor model and the pin number |
 
 ---
 
-## 모두에게: AI 토큰 아끼는 법
+## F — HUD UI · demo
 
-1. **줄 것만 줍니다.** INTERFACES.md와 자기 폴더만 줍니다. 저장소 전체를 읽히지 않습니다.
-2. **형식을 먼저 정해 줍니다.** "입력은 이것, 출력은 이것"을 먼저 말하면 다시 쓰는 일이 줄어듭니다.
-3. **로그는 잘라서 줍니다.** 첫 오류 주변만 붙입니다.
-4. **숫자 조정은 직접 합니다.** 크기, 색, 기준값은 설정으로 빼 두고 손으로 고칩니다.
-5. **큰 파일은 붙이지 않습니다.** 데이터 파일, 빌드 결과물은 요약만 줍니다.
-6. **막히면 30분 안에 사람에게 묻습니다.** 옆 사람이 이미 겪은 문제일 수 있습니다.
+> Builds the status panel and the emergency screen, and shoots the demo video the judges will see.
+
+- Folder: `web/src/hud/`
+- Basis: challenge text Q6, Q8, Q9
+
+### Tasks
+
+| Grade | Task |
+|---|---|
+| P0 | Status panel: suit temperature, radiation, current elevation, geologic unit, remaining distance, current layer name |
+| P0 | Emergency mode: on a `critical` alert the screen edges flash red. Send `mode:change` |
+| P0 | Layer switching UI and legend (next to the palm map) |
+| P0 | Write the demo script, run the rehearsal, shoot and edit the demo video |
+| P1 | Show `warn` alerts, route status messages |
+| P1 | Near the survey site, show the photo Curiosity took there |
+| P2 | Night vision screen (with A), recording mode indicator |
+
+### Done when
+
+- The status panel follows in a corner of the view and stays readable while walking.
+- On a temperature alert the flashing starts within 1 second and stops when the alert clears.
+- The flashing does not cover the map or the arrows.
+- The demo video meets the submission requirements (checked by C).
+
+A whole screen flashing fast can be uncomfortable to look at. Flash only the edges, slowly.
+
+### Exchanges
+
+| Direction | With | What |
+|---|---|---|
+| Receives | B | `telemetry:update`, `env:update`, `alert:raise`, `alert:clear`, `layers:ready` |
+| Receives | D | `nav:route` |
+| Receives | C | Layer legend, `pov.json` |
+| Gives | D | `layer:toggle`, `nav:request` |
+| Gives | Everyone | `mode:change` |
+| Gives | C | Demo video |
+
+### First 3 hours
+
+1. Show the status panel with mock data in a PC browser.
+2. Check text size and distance on the headset. A size that looks good on a PC may be unreadable there.
+3. Find out how to record the headset screen. Trying it for the first time at hour 36 is too late.
+4. Write a first draft of the demo script.
+
+### Work that uses many tokens
+
+| Rank | Work | Why it costs | How to reduce it |
+|---|---|---|---|
+| 1 | Panel layout and legibility tweaks | Requests like "a bit bigger, a bit to the left" repeat dozens of times | Ask for size and position as settings, then change the numbers yourself |
+| 2 | Flash and outline effects | Shader code only proves right on the device | Specify the look as numbers (period, color, thickness) |
+| 3 | Demo script and captions | Polishing the wording | Finish the script first, then polish it in one pass |
+
+---
+
+## For everyone: how to save AI tokens
+
+1. **Give only what is needed.** INTERFACES.md and your own folder. Do not make it read the whole repository.
+2. **Fix the format first.** Saying "the input is this, the output is this" up front reduces rewrites.
+3. **Trim logs.** Paste only the lines around the first error.
+4. **Tune numbers yourself.** Put sizes, colors and thresholds in settings and edit them by hand.
+5. **Do not paste large files.** Summarize data files and build output.
+6. **If stuck, ask a person within 30 minutes.** Someone next to you may already have hit the same problem.

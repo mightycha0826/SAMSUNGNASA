@@ -7,17 +7,19 @@
 //   voice.command  → voice:command, 그리고 6장 규칙에 따라
 //                      nav.start / nav.home     → nav:request
 //                      layer.show / layer.hide  → layer:toggle
-//   tts.begin / 바이너리 / tts.end → (P1: 음성 재생, 아직 없음)
+//   tts.begin / binary / tts.end → played by voice.js
 //
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
-//   mode:change·nav:route가 바뀌면 state
+//   mode:change·nav:route가 바뀌면 state,
+//   microphone audio as mic.begin / binary / mic.end (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
 // 목 모드(mock.link)에서는 WebSocket 대신 mock/jetson.js가 같은 메시지를 넣는다.
 
 import { bus } from './bus.js';
 import { config, mock } from './config.js';
+import { handleVoiceMessage, initVoice, resetVoice } from './voice.js';
 
 let ws = null;
 let linkLost = false;
@@ -43,7 +45,8 @@ export function handleMessage(msg) {
       break;
     case 'tts.begin':
     case 'tts.end':
-      break; // P1: 음성 재생
+      handleVoiceMessage(msg);
+      break;
     default:
       console.warn('[link] 모르는 메시지 type:', type);
   }
@@ -71,6 +74,13 @@ function handleVoiceCommand({ intent, slots = {}, text = '' }) {
 function send(type, payload) {
   if (ws?.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify({ type, ts: Date.now(), payload }));
+  return true;
+}
+
+/** Headset -> Jetson binary frame (microphone PCM). */
+function sendBinary(data) {
+  if (ws?.readyState !== WebSocket.OPEN) return false;
+  ws.send(data);
   return true;
 }
 
@@ -111,7 +121,10 @@ function connect() {
     send('state', state);
   };
   ws.onmessage = (ev) => {
-    if (typeof ev.data !== 'string') return; // P1: TTS 음성(16비트 PCM)
+    if (typeof ev.data !== 'string') {
+      handleVoiceMessage(ev.data); // TTS audio (16-bit PCM)
+      return;
+    }
     let msg;
     try {
       msg = JSON.parse(ev.data);
@@ -123,6 +136,7 @@ function connect() {
   };
   ws.onclose = () => {
     ws = null;
+    resetVoice();
     if (!lostTimer && !linkLost) lostTimer = setTimeout(raiseLost, config.linkLostAfterMs);
     setTimeout(connect, config.linkRetryMs);
   };
@@ -146,5 +160,6 @@ export async function initLink() {
     startMockJetson(handleMessage, { speed: mock.speed });
     return;
   }
+  initVoice({ sendJson: send, sendBinary });
   connect();
 }
