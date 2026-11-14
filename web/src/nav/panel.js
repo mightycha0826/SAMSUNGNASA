@@ -1,3 +1,5 @@
+import { NAV } from './config.js';
+
 export function createPlanningPanel({ plan, stop }) {
   const root = document.createElement('section'); root.id = 'route-planner'; root.setAttribute('aria-label', 'Planetary route planner');
   root.innerHTML = `<style>
@@ -16,7 +18,7 @@ export function createPlanningPanel({ plan, stop }) {
   <label for="route-target">Destination</label><select id="route-target"></select>
   <button id="route-plan" type="button">Plan route</button><button id="route-stop" class="secondary" type="button">Cancel</button>
   <output id="route-analysis" aria-live="polite">Select a start and destination.</output>
-  <small>Distance: map metres · unknown terrain risk ×3<br>Cells steeper than 20° excluded.</small>`;
+  <small>Distance: map metres · unknown terrain risk ×${NAV.unknownMultiplier}<br>Cells steeper than ${NAV.maxSlopeDeg}° excluded.</small>`;
   document.body.appendChild(root);
   const get = id => root.querySelector(`#${id}`), start = get('route-start'), target = get('route-target');
   const col = get('route-col'), row = get('route-row'), output = get('route-analysis');
