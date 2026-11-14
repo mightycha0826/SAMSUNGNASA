@@ -403,7 +403,7 @@ export function drawLayers(g, d, vm) {
     const y = pad + Math.floor(i / 2) * (tabH + pad);
     hits.push({ id: tab.id, x, y, w: tabW, h: tabH });
     const size = 1.2 * d;
-    // Feedback for a fingertip: an outline while it hovers, a filled flash when it presses.
+    // Feedback for the pointer: an outline while it hovers, a filled flash when it presses.
     if (tab.pressed) {
       box(g, x, y, tabW, tabH, 0.8 * d, T.primary);
     } else if (tab.hover && !tab.active) {
@@ -458,64 +458,51 @@ export function drawLayers(g, d, vm) {
     let kx = lp;
     for (const k of lg.keys) kx += text(g, k, kx, y, { size, color: T.muted }) + 0.55 * d;
   }
-  drawCursor(g, d, vm.cursor);
   return hits;
 }
 
-/** Fingertip cursor on a menu: a ring that tightens as the finger nears, solid once it is locked
- *  for a pinch. */
-function drawCursor(g, d, cursor) {
-  if (!cursor) return;
-  const { x, y, near, locked } = cursor;
-  g.beginPath();
-  g.arc(x, y, (locked ? 0.75 : 1.6 - 0.9 * near) * d, 0, Math.PI * 2);
-  g.strokeStyle = locked ? T.ink : T.primary;
-  g.globalAlpha = locked ? 1 : 0.4 + 0.6 * near;
-  g.lineWidth = (locked ? 0.3 : 0.22) * d;
-  g.stroke();
-  g.beginPath();
-  g.arc(x, y, 0.22 * d, 0, Math.PI * 2);
-  g.fillStyle = T.ink;
-  g.fill();
-  g.globalAlpha = 1;
-}
-
-// ---- voice command menu (back of the left hand) ----
-// vm: { title, hint, items: [{ id, label, hover, pressed }], cursor }
+// ---- command menu (above the back of the left hand) ----
+// vm: { title, hint, cols, items: [{ id, label, hover, pressed }] }
 // Returns the pressable cells in canvas pixels: [{ id, x, y, w, h }]
+// The buttons are made as large as the panel allows: they are aimed at with a pointer from a
+// distance, so size matters more than density. A last row with fewer buttons stretches to fill
+// the width. The whole card is centred on the panel, so the panel's centre is the card's centre.
 export function drawCommands(g, d, vm) {
   const W = g.canvas.width;
-  g.clearRect(0, 0, W, g.canvas.height);
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
   const hits = [];
   if (!vm.items.length) return hits;
-  const pad = 0.5 * d;
-  const headH = 3.4 * d;
-  const cellH = 3.3 * d;
-  const gap = 0.35 * d;
-  const cols = vm.cols ?? 2;
+  const pad = 0.6 * d;
+  const headH = 3.2 * d;
+  const gap = 0.5 * d;
+  const cols = vm.cols ?? 3;
   const rows = Math.ceil(vm.items.length / cols);
-  const total = pad + headH + rows * cellH + Math.max(0, rows - 1) * gap + pad;
-  box(g, 0, 0, W, total, 1.4 * d, T.surface);
-  ring(g, 0, 0, W, total, 1.4 * d);
-  icon(g, 'navigation', pad + 1.2 * d, pad + headH / 2 - 0.2 * d, 1.5 * d, T.primaryIcon, T.row);
-  text(g, vm.title, pad + 2.5 * d, pad + headH / 2 - 0.55 * d, { weight: 700, size: 1.25 * d });
-  text(g, vm.hint, pad + 2.5 * d, pad + headH / 2 + 0.75 * d, { size: 0.9 * d, color: T.muted });
-  const cellW = (W - pad * 2 - gap * (cols - 1)) / cols;
+  const cellH = Math.min(4.6 * d, (H - pad * 2 - headH - gap * (rows - 1)) / rows);
+  const total = pad + headH + rows * cellH + (rows - 1) * gap + pad;
+  const top = (H - total) / 2;
+  box(g, 0, top, W, total, 1.6 * d, T.surface);
+  ring(g, 0, top, W, total, 1.6 * d);
+  icon(g, 'navigation', pad + 1.3 * d, top + pad + headH / 2 - 0.25 * d, 1.6 * d, T.primaryIcon, T.row);
+  text(g, vm.title, pad + 2.7 * d, top + pad + headH / 2 - 0.25 * d, { weight: 700, size: 1.45 * d });
+  text(g, vm.hint, W - pad - 0.4 * d, top + pad + headH / 2 - 0.25 * d, { size: 1.0 * d, color: T.muted, align: 'right' });
   vm.items.forEach((item, i) => {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, vm.items.length - row * cols);
+    const cellW = (W - pad * 2 - gap * (inRow - 1)) / inRow;
     const x = pad + (i % cols) * (cellW + gap);
-    const y = pad + headH + Math.floor(i / cols) * (cellH + gap);
+    const y = top + pad + headH + row * (cellH + gap);
     hits.push({ id: item.id, x, y, w: cellW, h: cellH });
-    box(g, x, y, cellW, cellH, 0.8 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
+    box(g, x, y, cellW, cellH, 1.0 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
     if (item.hover || item.pressed) {
       g.beginPath();
-      g.roundRect(x + 0.1 * d, y + 0.1 * d, cellW - 0.2 * d, cellH - 0.2 * d, 0.7 * d);
-      g.strokeStyle = item.pressed ? T.ink : 'rgba(255, 255, 255, 0.85)';
-      g.lineWidth = 0.2 * d;
+      g.roundRect(x + 0.14 * d, y + 0.14 * d, cellW - 0.28 * d, cellH - 0.28 * d, 0.88 * d);
+      g.strokeStyle = item.pressed ? T.ink : 'rgba(255, 255, 255, 0.9)';
+      g.lineWidth = 0.28 * d;
       g.stroke();
     }
-    const size = 1.15 * d;
-    text(g, fit(g, item.label, cellW - 1.2 * d, 600, size), x + cellW / 2, y + cellH / 2, { weight: 600, size, align: 'center' });
+    const size = 1.6 * d;
+    text(g, fit(g, item.label, cellW - 1.4 * d, 700, size), x + cellW / 2, y + cellH / 2, { weight: 700, size, align: 'center' });
   });
-  drawCursor(g, d, vm.cursor);
   return hits;
 }

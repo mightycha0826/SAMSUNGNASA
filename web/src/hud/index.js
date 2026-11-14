@@ -12,12 +12,13 @@
 //   strings.js  화면 글자 (en / ko)
 //   tokens.js   색·글꼴 (포인트 디자인 시스템 다크 테마)
 //   draw.js     캔버스에 그리는 함수
+//   pointer.js  point and pinch: the ray from the hand, its cursor, the press
 //   index.js    이벤트를 받아 상태를 바꾸고, 패널을 장면에 놓는다
 //
 // AR 세션 안에서는 HTML이 보이지 않아서, 캔버스에 그린 그림을 눈앞 1m 평면에 붙인다.
 // 레이어는 한 번에 하나만 켠다 (목업의 결정). 탭을 누르면 앞 레이어를 끄고 새 레이어를 켠다.
 //
-// 헤드셋에서 미확인: 글자 크기와 가독성, 반투명 카드, 손바닥 방향 판정, 검지로 탭 누르기.
+// 헤드셋에서 미확인: 글자 크기와 가독성, 반투명 카드, 손바닥 방향 판정, 포인터로 탭 누르기 (pointer.js).
 
 import * as THREE from 'three';
 import { HUD } from './config.js';
@@ -26,6 +27,7 @@ import { T, loadFont } from './tokens.js';
 import { drawStatus, drawBanner, drawAlert, drawAlertGlow, drawLayers, drawCommands } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
+import { createPointer } from './pointer.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -55,11 +57,10 @@ let layersOnPalm = false;
 const palmState = makePalmState();
 /** True while the terrain map is in view: palm up in the headset, always on a PC screen. */
 let mapInView = false;
-// Fingertip feedback on the layer menu: which tab is under the finger, how close it is, and
-// which tab was just pressed.
-const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, trail: [] };
-// The same for the voice command menu over the back of the hand.
-const cmdTouch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, trail: [] };
+// Pointer feedback on the layer menu: which tab the cursor is on and which was just pressed.
+const touch = { hoverId: null, pressedId: null, pressedUntil: 0 };
+// The same for the command menu over the back of the hand.
+const cmdTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
 let commandHits = [];
 // What the hub can be told. The hub sends its own list (jetson/commands.json) when it connects;
 // until then, and in mock mode, this list is shown. `mode` limits a command to the Mars map or
@@ -74,8 +75,13 @@ let commands = [
 ];
 /** The commands that apply to the mode the wearer is in. */
 const menuCommands = () => commands.filter((c) => !c.mode || c.mode === mode.current);
-// Right-hand pinch, shared by both menus: true while thumb and index are closed.
-const pinch = { closed: false, armed: true };
+// Point and pinch (pointer.js): the ray from the pointing hand, its cursor and the press.
+let pointer;
+let pointerTargets = [];
+// Which menus a pointer was on in the last frame: a menu that is being pointed at holds still.
+const engaged = { layers: false, commands: false };
+// Test hook: keep the command menu up without a hand (PC).
+let commandsPinned = false;
 let audio = null;
 
 function audioCtx() {
@@ -160,10 +166,9 @@ function commandsVM() {
   const pressedId = performance.now() < cmdTouch.pressedUntil ? cmdTouch.pressedId : null;
   return {
     cols: HUD.commands.cols,
-    title: S.voiceTitle ?? 'Voice commands',
-    hint: S.voiceHint ?? 'Say it, or pinch to select',
+    title: S.voiceTitle ?? 'Commands',
+    hint: S.voiceHint ?? 'Say it, or point and pinch',
     items: menuCommands().map((c) => ({ id: c.say, label: c.say, hover: c.say === cmdTouch.hoverId, pressed: c.say === pressedId })),
-    cursor: cmdTouch.cursor,
   };
 }
 
@@ -312,7 +317,7 @@ function layersVM() {
       keys: S.keys,
     };
   }
-  return { tabs, legend, cursor: touch.cursor };
+  return { tabs, legend };
 }
 
 // ---- 상태 변경 ----
@@ -417,46 +422,36 @@ function wire(bus) {
   });
 }
 
-// ---- 누르기 ----
+// ---- pressing ----
 const raycaster = new THREE.Raycaster();
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
+const v3 = new THREE.Vector3();
 const q1 = new THREE.Quaternion();
-let pokeArmed = true;
 
-function pressLayerAt(x, y) {
-  const hit = tabAt(x, y);
-  if (hit) {
-    touch.pressedId = hit.id;
-    touch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
-    dirty.layers = true;
-    clickSound();
-    selectLayer(hit.id);
-  }
-  return !!hit;
+function pressLayer(id) {
+  touch.pressedId = id;
+  touch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
+  dirty.layers = true;
+  clickSound();
+  selectLayer(id);
 }
 
-function pressCommandAt(x, y) {
-  const hit = hitAt(commandHits, x, y);
-  if (hit) {
-    cmdTouch.pressedId = hit.id;
-    cmdTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
-    dirty.commands = true;
-    clickSound();
-    runCommand(hit.id);
-  }
-  return !!hit;
-}
-
-function pressAlongRay() {
-  for (const [panel, press] of [[pLayers, pressLayerAt], [pCommands, pressCommandAt]]) {
-    if (!panel.mesh.visible) continue;
-    const hit = raycaster.intersectObject(panel.mesh, false)[0];
-    if (hit?.uv && press(hit.uv.x * panel.canvas.width, (1 - hit.uv.y) * panel.canvas.height)) return;
-  }
+function pressCommand(id) {
+  cmdTouch.pressedId = id;
+  cmdTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
+  dirty.commands = true;
+  clickSound();
+  runCommand(id);
 }
 
 function initInput() {
+  // In the headset every press comes from the pointer (pointer.js): hands and controllers alike.
+  pointer = createPointer(ctx, HUD.pointer);
+  pointerTargets = [
+    { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer },
+    { id: 'commands', panel: pCommands, hits: () => commandHits, press: pressCommand },
+  ];
   // PC: mouse click
   const el = ctx.renderer.domElement;
   el.addEventListener('click', (ev) => {
@@ -464,124 +459,69 @@ function initInput() {
     const r = el.getBoundingClientRect();
     v1.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1, 0);
     raycaster.setFromCamera(v1, ctx.camera);
-    pressAlongRay();
+    for (const t of pointerTargets) {
+      if (!t.panel.mesh.visible) continue;
+      const hit = raycaster.intersectObject(t.panel.mesh, false)[0];
+      const id = hit?.uv && hitAt(t.hits(), hit.uv.x * t.panel.canvas.width, (1 - hit.uv.y) * t.panel.canvas.height)?.id;
+      if (id != null) {
+        t.press(id);
+        return;
+      }
+    }
   });
-  // AR with controllers: the trigger presses where the controller points.
-  // Hands are handled in updateHands: a hand's own "select" ray points somewhere else than the
-  // cursor shown on the menu, so a pinch used to click the wrong item.
-  for (const i of [0, 1]) {
-    const c = ctx.renderer.xr.getController(i);
-    c.addEventListener('select', (ev) => {
-      if (ev.data?.hand) return;
-      c.updateWorldMatrix(true, false);
-      raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
-      raycaster.ray.direction.set(0, 0, -1).transformDirection(c.matrixWorld);
-      pressAlongRay();
-    });
-  }
 }
 
-const wearX = new THREE.Vector3();
-const wearY = new THREE.Vector3();
-const wearZ = new THREE.Vector3();
-const wearBasis = new THREE.Matrix4();
-// Where a hand-attached menu should be this frame (filled before holdMenu is called).
+// Where a hand-attached menu should be this frame (filled before followMenu is called).
 const aim = new THREE.Object3D();
-// What keeps the menus usable while the right hand reaches for them: when the right hand comes
-// close, the headset often loses or mis-tracks the left hand, and a menu glued to it would
-// jump or vanish under the finger.
+// A menu that came up with a hand gesture is not glued to that hand. It appears beside the hand
+// and then holds its place in the room; it only moves again when the hand has moved clearly away
+// from it. So a left hand that jitters, or that the headset mis-tracks, does not move the buttons.
 const steady = {
-  layers: { shown: false, lastSeen: 0 },
-  commands: { shown: false, lastSeen: 0 },
+  layers: { shown: false, lastSeen: 0, moving: false },
+  commands: { shown: false, lastSeen: 0, moving: false },
 };
 
 /**
- * Place a hand-attached menu.
- *  - It follows the hand smoothly instead of copying every tracking jitter.
- *  - While the right fingertip is close to it (or a pinch is closing), it stays exactly where
- *    it is: the hand under it may wobble or disappear without moving the buttons.
- *  - When the gesture or the hand is lost it stays put for a moment before it hides.
+ * Place a menu that a hand gesture brought up.
+ *  - `held` (a pointer is on it, or the two hands are so close that the left one cannot be
+ *    trusted): it does not move at all, and it does not close.
+ *  - Otherwise it stays where it is until the hand is more than a dead zone away, then glides
+ *    after it and stops again.
+ *  - When the gesture ends it stays for a moment before it hides.
  */
-function holdMenu(panel, st, wanted, touchState, scale, now, dt) {
-  const K = HUD.touch;
-  const engaged = !!touchState.cursor && (touchState.cursor.locked || touchState.cursor.near > K.engageNear);
-  if (wanted) {
+function followMenu(panel, st, wanted, held, scale, now, dt) {
+  const F = HUD.follow;
+  if (held && st.shown) st.lastSeen = now;
+  else if (wanted) {
     if (!st.shown) {
       panel.mesh.position.copy(aim.position);
       panel.mesh.quaternion.copy(aim.quaternion);
-    } else if (!engaged) {
-      const k = 1 - Math.exp(-K.followRate * dt);
-      panel.mesh.position.lerp(aim.position, k);
-      panel.mesh.quaternion.slerp(aim.quaternion, k);
+      st.moving = false;
+    } else {
+      const d = panel.mesh.position.distanceTo(aim.position);
+      const turn = panel.mesh.quaternion.angleTo(aim.quaternion);
+      if (d > F.deadZoneM || turn > THREE.MathUtils.degToRad(F.deadZoneDeg)) st.moving = true;
+      if (st.moving) {
+        const k = 1 - Math.exp(-F.rate * dt);
+        panel.mesh.position.lerp(aim.position, k);
+        panel.mesh.quaternion.slerp(aim.quaternion, k);
+        if (d < F.settleM && turn < 0.05) st.moving = false;
+      }
     }
     st.shown = true;
     st.lastSeen = now;
-  } else if (st.shown && !engaged && now - st.lastSeen > K.lingerMs) {
+  } else if (st.shown && now - st.lastSeen > F.lingerMs) {
     st.shown = false;
   }
   panel.mesh.visible = st.shown;
   panel.mesh.scale.setScalar(scale);
 }
 
-const tipPos = new THREE.Vector3();
-const thumbPos = new THREE.Vector3();
-const v3 = new THREE.Vector3();
-
-/**
- * Cursor, hover, pinch-click and poke for one floating menu.
- * finger: { tip: Vector3, pinchM: number } or null. Returns true when this menu has the cursor.
- */
-function touchMenu(panel, scale, hits, st, finger, press, now) {
-  const K = HUD.touch;
-  let cursor = null;
-  let hoverId = null;
-  if (finger && panel.mesh.visible) {
-    panel.mesh.updateWorldMatrix(true, false);
-    v3.copy(finger.tip);
-    panel.mesh.worldToLocal(v3);
-    const dist = Math.abs(v3.z) * scale;
-    const inside = Math.abs(v3.x) <= panel.wM / 2 && Math.abs(v3.y) <= panel.hM / 2;
-    if (inside && dist < K.hoverDistM) {
-      const x = (v3.x / panel.wM + 0.5) * panel.canvas.width;
-      const y = (0.5 - v3.y / panel.hM) * panel.canvas.height;
-      const closing = finger.pinchM < K.lockDistM;
-      if (!closing) {
-        // open hand: the cursor follows the fingertip; remember where it has been
-        st.trail.push({ t: now, x, y });
-        while (st.trail.length > 1 && now - st.trail[0].t > 400) st.trail.shift();
-        st.locked = null;
-        cursor = { x, y, near: 1 - Math.min(1, dist / K.hoverDistM), locked: false };
-        if (dist < K.pokeDistM) {
-          if (st.pokeArmed !== false) press(x, y);
-          st.pokeArmed = false;
-        } else if (dist > K.pokeDistM * 2.5) st.pokeArmed = true;
-      } else {
-        // fingers closing: freeze the cursor where it was before the hand started to move
-        if (!st.locked) {
-          const settled = [...st.trail].reverse().find((p) => now - p.t >= K.settleMs) ?? st.trail[0] ?? { x, y };
-          st.locked = { x: settled.x, y: settled.y };
-        }
-        cursor = { x: st.locked.x, y: st.locked.y, near: 1, locked: true };
-        if (pinch.closed && pinch.armed) {
-          pinch.armed = false;
-          press(cursor.x, cursor.y);
-        }
-      }
-      hoverId = hitAt(hits, cursor.x, cursor.y)?.id ?? null;
-    }
-  }
-  if (!cursor) {
-    st.trail.length = 0;
-    st.locked = null;
-  }
-  const changed = !!cursor || !!st.cursor || hoverId !== st.hoverId;
-  st.hoverId = hoverId;
-  st.cursor = cursor;
-  return changed;
-}
+const wristPos = new THREE.Vector3();
 
 // Hand tracking. Left palm up: the layer menu floats beside the map. Left back-of-hand up: the
-// voice command menu floats over the hand. The right hand points and pinches.
+// command menu floats above the hand, facing the wearer. The left hand only brings the menus up;
+// the right hand points at them from where it is and pinches (pointer.js).
 function updateHands(frame) {
   const { xrFrame, refSpace, session } = frame;
   const now = performance.now();
@@ -599,7 +539,7 @@ function updateHands(frame) {
     if (layersOnPalm) placeLayersFixed();
     pLayers.mesh.visible = mode.current !== 'field';
     pLayers.mesh.scale.setScalar(1);
-    pCommands.mesh.visible = false;
+    if (!commandsPinned) pCommands.mesh.visible = false;
     steady.layers.shown = steady.commands.shown = false;
     mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
@@ -607,23 +547,35 @@ function updateHands(frame) {
 
   const L = HUD.layers;
   const C = HUD.commands;
-  const K = HUD.touch;
+  const F = HUD.follow;
   const wrist = left && xrFrame.getJointPose?.(left.get('wrist'), refSpace);
+  const rightWrist = right && xrFrame.getJointPose?.(right.get('wrist'), refSpace);
+  // With the two hands close together the cameras see one in front of the other and the left
+  // hand's pose cannot be trusted: nothing is read from it then, and the menus hold still.
+  let crowded = false;
+  if (wrist && rightWrist) {
+    const a = wrist.transform.position;
+    const b = rightWrist.transform.position;
+    crowded = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < F.crowdM;
+  }
   // Gestures with hysteresis: once a menu is up, the hand may tip a good way before it goes.
   let palmUp = false;
   let backUp = false;
-  if (wrist) {
+  if (crowded) {
+    palmUp = steady.layers.shown;
+    backUp = steady.commands.shown;
+  } else if (wrist) {
     const o = wrist.transform.orientation;
     v1.set(0, 1, 0).applyQuaternion(q1.set(o.x, o.y, o.z, o.w)); // back-of-hand direction
-    palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + K.gestureSlack : L.palmUpDot);
-    backUp = v1.y > (steady.commands.shown ? C.backUpDot - K.gestureSlack : C.backUpDot);
+    palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
+    backUp = v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
   }
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
   palmUp = palmUp && mode.current !== 'field';
   mapInView = palmUp;
 
   ctx.camera.getWorldPosition(v2);
-  if (palmUp) {
+  if (palmUp && !crowded) {
     if (!layersOnPalm) {
       ctx.scene.add(pLayers.mesh);
       layersOnPalm = true;
@@ -638,50 +590,36 @@ function updateHands(frame) {
     }
     aim.lookAt(v2);
   }
-  holdMenu(pLayers, steady.layers, palmUp, touch, L.palmScale, now, frame.dt);
+  followMenu(pLayers, steady.layers, palmUp, engaged.layers || (crowded && steady.layers.shown), L.palmScale, now, frame.dt);
 
-  if (backUp) {
-    // Worn on the back of the hand: the panel lies in the plane of the hand, a little above
-    // the skin. Its reading direction (+x) runs from the wrist toward the fingers and its
-    // normal (+z) is the back-of-hand direction, so its top edge (+y = z cross x) points away
-    // from a wearer who holds the left forearm level across the body.
+  if (backUp && !crowded) {
+    // Above the back of the hand, facing the eyes: a card standing over the hand, clear of it, so
+    // the pointing hand never has to come near.
     const p = wrist.transform.position;
-    const o = wrist.transform.orientation;
-    q1.set(o.x, o.y, o.z, o.w);
-    wearZ.set(0, 1, 0).applyQuaternion(q1); // back of the hand
+    wristPos.set(p.x, p.y, p.z);
     const knuckle = xrFrame.getJointPose?.(left.get('middle-finger-phalanx-proximal'), refSpace);
     if (knuckle) {
       const k = knuckle.transform.position;
-      wearX.set(k.x - p.x, k.y - p.y, k.z - p.z);
-    } else wearX.set(0, 0, -1).applyQuaternion(q1); // the wrist joint's -z points to the fingers
-    const reach = wearX.length() || 0.09;
-    wearX.addScaledVector(wearZ, -wearX.dot(wearZ)).normalize(); // keep it in the hand's plane
-    wearY.crossVectors(wearZ, wearX).normalize();
-    wearBasis.makeBasis(wearX, wearY, wearZ);
-    aim.quaternion.setFromRotationMatrix(wearBasis);
-    aim.position.set(p.x, p.y, p.z).addScaledVector(wearX, reach * C.along).addScaledVector(wearZ, C.liftM);
-  }
-  holdMenu(pCommands, steady.commands, backUp, cmdTouch, C.scale, now, frame.dt);
-
-  // Right hand: index fingertip and how far it is from the thumb tip.
-  let finger = null;
-  const tip = right && xrFrame.getJointPose?.(right.get('index-finger-tip'), refSpace);
-  const thumb = right && xrFrame.getJointPose?.(right.get('thumb-tip'), refSpace);
-  if (tip) {
-    tipPos.set(tip.transform.position.x, tip.transform.position.y, tip.transform.position.z);
-    let pinchM = Infinity;
-    if (thumb) pinchM = thumbPos.set(thumb.transform.position.x, thumb.transform.position.y, thumb.transform.position.z).distanceTo(tipPos);
-    finger = { tip: tipPos, pinchM };
-    if (pinchM < K.pinchOnM) pinch.closed = true;
-    else if (pinchM > K.pinchOffM) {
-      pinch.closed = false;
-      pinch.armed = true; // fingers opened again: the next pinch may click
+      wristPos.lerp(v3.set(k.x, k.y, k.z), 0.5); // the middle of the back of the hand
     }
-  } else {
-    pinch.closed = false;
+    aim.position.copy(wristPos);
+    aim.position.y += C.liftM;
+    aim.lookAt(v2);
   }
-  if (touchMenu(pLayers, L.palmScale, layerHits, touch, pLayers.mesh.visible ? finger : null, pressLayerAt, now)) dirty.layers = true;
-  if (touchMenu(pCommands, C.scale, commandHits, cmdTouch, pCommands.mesh.visible ? finger : null, pressCommandAt, now)) dirty.commands = true;
+  followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt);
+}
+
+/** Pointing and pinching, after the menus have been placed for this frame. */
+function updatePointer(frame, now) {
+  const res = pointer.update(frame, pointerTargets, now, frame.dt);
+  for (const [id, st, flag] of [['layers', touch, 'layers'], ['commands', cmdTouch, 'commands']]) {
+    const r = res.get(id);
+    engaged[id] = r.engaged;
+    if (r.hoverId !== st.hoverId) {
+      st.hoverId = r.hoverId;
+      dirty[flag] = true;
+    }
+  }
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -738,7 +676,28 @@ export function init(context) {
   });
 
   // 테스트와 콘솔에서 상태를 볼 수 있게 열어 둔다.
-  window.__hud = { commandsVM, runCommand, showCommands: (on) => { pCommands.mesh.visible = on; dirty.commands = true; }, state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel, statusOpacity: () => pStatus.mat.opacity };
+  window.__hud = {
+    commandsVM,
+    runCommand,
+    /** PC: put the command menu in the scene without a hand, to look at it and click it. */
+    showCommands: (on, at = [0.95, 1.45, 0.4]) => {
+      commandsPinned = on;
+      pCommands.mesh.visible = on;
+      pCommands.mesh.position.fromArray(at);
+      pCommands.mesh.lookAt(ctx.camera.getWorldPosition(v1));
+      pCommands.mesh.scale.setScalar(HUD.commands.scale * 3);
+      dirty.commands = true;
+    },
+    pointer,
+    panels: () => ({ layers: pLayers, commands: pCommands, layerHits, commandHits }),
+    state,
+    statusVM,
+    bannerVM,
+    layersVM,
+    tabScreenXY,
+    frameLevel,
+    statusOpacity: () => pStatus.mat.opacity,
+  };
 }
 
 export function update(frame) {
@@ -761,6 +720,7 @@ export function update(frame) {
   }
 
   updateHands(frame);
+  updatePointer(frame, now);
   if (touch.pressedId && now > touch.pressedUntil) {
     touch.pressedId = null;
     dirty.layers = true;

@@ -50,63 +50,86 @@ export const HUD = {
     fixedLeftDeg: 11.5,
     fixedBottomDeg: 6.5,
     /** Beside the palm map: distance of the menu centre to the right of the map centre and
-     *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.17 m,
-     *  so 0.27 leaves a gap of about 6 cm between them. */
-    palmOffsetRightM: 0.27,
+     *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.19 m
+     *  (0.75 of its HUD size, so its tabs are easy targets for the pointer), so 0.29 leaves a
+     *  gap of about 7 cm between them. */
+    palmOffsetRightM: 0.29,
     palmOffsetUpM: 0.02,
-    palmScale: 0.6,
+    palmScale: 0.75,
     /** Opacity of the menu and legend backgrounds (0 to 1). 0.92 is the mockup's `--h-surface`.
      *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
     faceOpacity: 0.92,
-    /** (see `touch` below for how the menus are pressed) */
+    /** (see `pointer` below for how the menus are pressed) */
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
-    /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다. 헤드셋에서 미확인 */
+    /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다 */
     palmUpDot: -0.35,
-    /** 검지 끝이 이 거리 안으로 들어오면 누른 것으로 본다 (m) */
-    pokeDistM: 0.02, // kept for reference; the live value is touch.pokeDistM
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },
-  /** Pressing the floating menus with the right hand.
-   *  The cursor is where the index fingertip points at the menu, shown from hoverDistM away.
-   *  A pinch (thumb tip to index tip) clicks at the cursor. Pinching moves the fingertip, so
-   *  the cursor freezes once the fingers come within lockDistM of each other and the click
-   *  lands where the cursor was, not where the fingertip ends up. Touching the menu with an
-   *  open hand also presses it (pokeDistM); a pinching hand never pokes. */
-  touch: {
-    hoverDistM: 0.3,
-    lockDistM: 0.05,
-    pinchOnM: 0.02,
-    pinchOffM: 0.04,
-    pokeDistM: 0.015,
-    /** The frozen cursor is the one from this long before the fingers started closing (ms) */
-    settleMs: 140,
-    /** Hand-attached menus follow the left hand at this rate (1/s): lower is steadier */
-    followRate: 12,
-    /** A menu stops following and holds still once the right fingertip is this close
-     *  (0 = at hoverDistM, 1 = touching; 0.5 is about 15 cm) */
-    engageNear: 0.5,
+  /** Point and pinch (pointer.js). A ray leaves the pointing hand, a cursor shows where it
+   *  meets a menu, and closing thumb and index finger presses the button under the cursor, as
+   *  with the Quest 3's own hand pointer. The hand stays away from the menu: nothing is touched. */
+  pointer: {
+    /** Which tracked hands may point. The left hand brings the menus up, so it does not. */
+    hands: ['right'],
+    /** ?ray=own builds the hand's ray here (shoulder through the index knuckle) instead of
+     *  using the pointer pose the headset supplies. Try it if the supplied ray feels off. */
+    ownRay: q.get('ray') === 'own',
+    shoulderDownM: 0.2,
+    shoulderSideM: 0.16,
+    /** A menu farther along the ray than this is not hit (m) */
+    maxM: 3,
+    /** The cursor may leave the panel by this fraction of its size before it disappears */
+    margin: 0.06,
+    /** Thumb tip to index tip: pinched below pinchOnM, open again above pinchOffM; the cursor
+     *  ring starts closing at pinchFarM (m) */
+    pinchOnM: 0.018,
+    pinchOffM: 0.035,
+    pinchFarM: 0.075,
+    /** Shortest time between two presses by one hand (ms) */
+    repeatMs: 300,
+    /** Cursor smoothing (1/s): smoothMin while it rests, smoothMax once it travels smoothTravel
+     *  (a fraction of the panel width) in one frame */
+    smoothMin: 9,
+    smoothMax: 60,
+    smoothTravel: 0.04,
+    /** A hovered button keeps the hover until the cursor is this far outside it, and a cursor
+     *  between buttons takes the nearest one within `snap` (fractions of the button height) */
+    stick: 0.3,
+    snap: 0.7,
+    /** Cursor radius (m), and how far from the hand the beam starts (m) */
+    cursorM: 0.0075,
+    beamStartM: 0.06,
+  },
+  /** How a menu that a hand gesture brought up behaves afterwards (index.js followMenu). */
+  follow: {
+    /** It holds its place until the hand is this far from where the menu wants to be */
+    deadZoneM: 0.05,
+    deadZoneDeg: 16,
+    /** then glides after it at this rate (1/s) until it is within settleM */
+    rate: 9,
+    settleM: 0.006,
     /** After the gesture or the left hand is lost, the menu stays this long (ms) */
     lingerMs: 900,
     /** How far the hand may tip away from the gesture before an open menu closes */
     gestureSlack: 0.35,
+    /** Wrists closer than this: the left hand's pose is not trusted and the menus hold still (m) */
+    crowdM: 0.16,
   },
-  /** Voice command menu: worn on the back of the left hand like a wrist computer. It lies flat
-   *  on the hand, and reads upright when the left forearm is held level across the body:
-   *  the text runs from the wrist toward the fingers, its top edge away from the wearer. */
+  /** Command menu: a card that stands above the back of the left hand, facing the wearer. Turn
+   *  the back of the left hand up, as when looking at a watch, and it appears. */
   commands: {
-    wDeg: 30,
-    hDeg: 23, // room for 15 commands in 3 columns; 12 use about 19 deg
+    wDeg: 26,
+    hDeg: 14.4, // two rows of buttons; a third row makes them lower, not smaller in width
     cols: 3,
     /** Back of the hand counts as up when its direction (wrist +Y) points this far up */
     backUpDot: 0.5,
-    /** Size factor: at 0.3 the panel is about 16 cm wide, and 10 cm tall with 12 commands */
-    scale: 0.3,
-    /** Height above the skin (m), and how far the centre sits from the wrist toward the
-     *  knuckles (0 = wrist, 1 = base of the middle finger) */
-    liftM: 0.018,
-    along: 0.35,
+    /** Size factor: at 0.5 the card is about 23 cm wide and 12.5 cm tall */
+    scale: 0.5,
+    /** Height of the card's centre above the back of the hand (m): its lower edge is then
+     *  about 8 cm above the hand */
+    liftM: 0.145,
   },
   toastMs: 4000,
 };
