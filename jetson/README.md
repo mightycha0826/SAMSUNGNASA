@@ -10,6 +10,7 @@ cd jetson
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 tools/get_models.sh                     # speech models into models/ (1.2 GB, not in git)
 tools/make_cert.sh                      # certs/ (not in git)
+tools/build_web.sh                      # web/dist, served by the hub (installs Node into .tools/ if needed)
 sudo tools/setup_hotspot.sh '<password>'   # Jetson hotspot MARSWALK, 10.42.0.1
 ```
 
@@ -99,10 +100,16 @@ journalctl -u marswalk-hub -f
 | `tools/fake_quest.py` | Fake Quest client |
 | `tools/voice_selftest.py` | Voice round trip without a microphone |
 | `tools/arduino.sh` | Build / flash the firmware from the Jetson |
+| `tools/build_web.sh` | Build the web app into `web/dist` |
+
+## Checked with the real web app
+
+With `web/dist` built, the hub serves B's app and `link.js` connects to it (`http://localhost:8080/?jetson=ws://localhost:8080/ws&mock=data,hazard` on the Jetson itself): telemetry reaches the status panel, a critical temperature puts the HUD in emergency mode, and spoken "Take me to the survey site" / "Show the thermal map" arrive as `nav:request` / `layer:toggle`.
+
+Microphone capture and TTS playback are not in the web app yet. `marswalk/static/index.html` has a working example of both (hold-to-talk to 16 kHz PCM, and `tts.begin` → PCM → `tts.end` playback) that can be lifted into `link.js`.
 
 ## Not verified yet
 
 - **Real voices and a real microphone.** STT accuracy was measured only with synthetic speech (11–12 of 12 commands). Record the team's voices through the headset or the test page and add the misrecognitions to `intents.py`.
 - **Real sensor.** The firmware compiles for every supported sensor but has not run on a board. Alert thresholds are still the starting values.
-- **Headset playback.** B's `link.js` does not play `tts.*` audio yet (P1).
 - `dev.*` messages are development-only and not in INTERFACES.md. The browser never sends them; the hub accepts them only with `--dev`.
