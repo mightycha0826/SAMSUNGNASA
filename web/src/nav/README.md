@@ -11,7 +11,7 @@ The files in `web/public/data/` are copied unchanged from [C's PR #1](https://gi
 - Four map layers: terrain elevation, slope, HiRISE optical, THEMIS night thermal. The thermal view preserves its coarse pixels and labels relative brightness rather than temperature. It does not affect route cost.
 - Curiosity's traverse and the two waypoint photographs, RAD and REMS time series are C's observations. They are not live conditions on Mars. Imagery credits remain in `layerset.json` and are shown on the map.
 
-Open `?mock=link` to use the real map with simulated equipment messages; `?mock=1` explicitly selects synthetic terrain. The planner panel lets you select the start/destination or enter a custom start cell. It displays horizontal distance, accumulated ascent/descent and slopes sampled on the supplied grid. The `N`, `H`, `S` mock voice shortcuts also request survey, base and cancellation.
+Open `?mock=link` to use the real map with simulated equipment messages; `?mock=1` explicitly selects synthetic terrain. The planner panel lets you select the start/destination or enter a custom start cell. It displays horizontal distance, accumulated ascent/descent and slopes sampled on the supplied grid. The `N`, `H`, `S` mock voice shortcuts also request the nearby point (the survey site when the map has none), base and cancellation; `N` and `H` act only in Mars map mode.
 
 ## Route model
 
@@ -25,11 +25,11 @@ The exact choice of route can change after a new destination request or a regist
 
 ## Generic registered hazard input
 
-`Navigation.updateHazard` accepts an obstacle grid only when its `frameId` equals `createGridFrame(layerSet).frameId`. Its `originXZ`, `cellSizeM` and positions must already use the same metre frame, with hazard rows extending toward +z. If a data provider assigns `grid.frameId`, that identifier is used; otherwise an identifier is derived from the map definition. There is no automatic mapping of a local room scan or headset pose onto Mars. Unregistered input leaves the unknown multiplier at 3.
+`Navigation.updateHazard` accepts an obstacle grid only when its `frameId` equals `createGridFrame(layerSet).frameId`. Its `originXZ`, `cellSizeM` and positions must already use the same metre frame, with hazard rows extending toward +z. If a data provider assigns `grid.frameId`, that identifier is used; otherwise an identifier is derived from the map definition. There is no automatic mapping of a local room scan onto Mars. Unregistered input leaves the unknown multiplier at 3.
 
 A hazard cell is conservatively expanded by the configurable 0.2 m clearance before intersecting the terrain cells. The effective raster exclusion can be larger than that clearance because a whole intersected terrain cell is excluded. The update event is a snapshot/change contract, so silence does not expire it; older timestamps are rejected.
 
-`nav:route` retains its event name and payload fields, with `points` in this map's metric frame and `distanceM` in actual map metres. This supersedes the old demo-scaled meaning in the shared interface examples, following the user's latest direction. Consumers requiring physical registration must supply it explicitly. Head tracking is used for positioning the handheld display only. The old room floor-arrow projection has been removed; planned routes remain drawn over the terrain.
+`nav:route` retains its event name and payload fields, with `points` in this map's metric frame and `distanceM` in actual map metres. This supersedes the old demo-scaled meaning in the shared interface examples, following the user's latest direction. Consumers requiring physical registration must supply it explicitly. Head tracking positions the handheld display; `field/` also turns the headset's displacement into the wearer's map position (`nav:position`; a step is magnified by `WALK.marsScale` in Mars mode), which the planner follows. The old room floor-arrow projection has been removed; planned routes remain drawn over the terrain.
 
 ## Checks and measured example
 
@@ -46,4 +46,4 @@ Node v24.22.1, Intel Core 3 100U, three runs: two destination trees took 69–87
 
 `browser.test.cjs` checks real C loading, physical route distance, rejection of unregistered scans, registered obstacle replanning, layers, emergency return and cancellation. Run a local Vite server first, provide Playwright through Node resolution, and optionally set `CHROME_PATH` and `TEST_URL`.
 
-All 18 Node checks pass. The real-data Chrome/SwiftShader browser check passed too; the registered obstacle experiment replanned in 421–732 ms in two runs including UI/Worker scheduling and test waits. Those are PC observations, not latency guarantees or Quest measurements.
+All 18 Node checks pass. The real-data Chrome/SwiftShader browser check passed when these numbers were taken; the registered obstacle experiment replanned in 421–732 ms in two runs including UI/Worker scheduling and test waits. That check predates the nearby point: its first Plan click now plans to that point, so its test for the 389.7 m base-to-survey route has to be updated before it can pass again. Those are PC observations, not latency guarantees or Quest measurements.
