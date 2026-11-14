@@ -1,7 +1,7 @@
 // hud — 상태창, 비상 모드, 레이어 전환 UI (F, 길윤석)
 //
 // 받는 이벤트: layers:ready, layer:toggle, env:update, telemetry:update, alert:raise, alert:clear,
-//              nav:route, voice:command (intent가 alert.ack, mode.set일 때)
+//              nav:route, voice:command (intent가 alert.ack일 때), voice:commands, app:mode
 // 테두리: critical 경보는 빨강, warn 경보는 같은 테두리를 주황으로 점멸한다.
 // 보내는 이벤트: layer:toggle (탭을 누를 때, 그리고 layers:ready 직후 기본 레이어 한 번),
 //                mode:change (critical 경보가 생기면 emergency, 모두 풀리면 원래 모드)
@@ -29,7 +29,6 @@ import { mode } from '../core/mode.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
-const MODES = ['normal', 'night', 'record'];
 
 let ctx;
 const state = {
@@ -63,18 +62,18 @@ const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, t
 const cmdTouch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0, trail: [] };
 let commandHits = [];
 // What the hub can be told. The hub sends its own list (jetson/commands.json) when it connects;
-// until then, and in mock mode, this short list is shown.
+// until then, and in mock mode, this list is shown. `mode` limits a command to the Mars map or
+// the field map; the layer names are voice only, because the tabs beside the map do the same.
 let commands = [
   { say: 'Status', intent: 'status.report', slots: {} },
   { say: 'Navigate', intent: 'nav.start', slots: { targetId: 'site1' } },
-  { say: 'Base', intent: 'nav.home', slots: {} },
+  { say: 'Base', intent: 'nav.home', slots: {}, mode: 'mars' },
+  { say: 'Mark target', intent: 'nav.mark', slots: {}, mode: 'field' },
   { say: 'Stop', intent: 'nav.stop', slots: {} },
-  { say: 'Thermal', intent: 'layer.show', slots: { id: 'thermal' } },
-  { say: 'Optical', intent: 'layer.show', slots: { id: 'optical' } },
-  { say: 'Slope', intent: 'layer.show', slots: { id: 'slope' } },
-  { say: 'Elevation', intent: 'layer.show', slots: { id: 'topo' } },
   { say: 'Confirm', intent: 'alert.ack', slots: {} },
 ];
+/** The commands that apply to the mode the wearer is in. */
+const menuCommands = () => commands.filter((c) => !c.mode || c.mode === mode.current);
 // Right-hand pinch, shared by both menus: true while thumb and index are closed.
 const pinch = { closed: false, armed: true };
 let audio = null;
@@ -163,14 +162,14 @@ function commandsVM() {
     cols: HUD.commands.cols,
     title: S.voiceTitle ?? 'Voice commands',
     hint: S.voiceHint ?? 'Say it, or pinch to select',
-    items: commands.map((c, i) => ({ id: String(i), label: c.say, hover: String(i) === cmdTouch.hoverId, pressed: String(i) === pressedId })),
+    items: menuCommands().map((c) => ({ id: c.say, label: c.say, hover: c.say === cmdTouch.hoverId, pressed: c.say === pressedId })),
     cursor: cmdTouch.cursor,
   };
 }
 
-/** Run a command from the menu exactly as if it had been spoken. */
+/** Run a command from the menu exactly as if it had been spoken. `id` is what the button says. */
 function runCommand(id) {
-  const c = commands[Number(id)];
+  const c = menuCommands().find((m) => m.say === id);
   if (c) ctx.bus.emit('voice:text', { text: c.say, intent: c.intent, slots: c.slots ?? {} });
 }
 
@@ -400,7 +399,7 @@ function wire(bus) {
   // The hub's own command list (jetson/commands.json), for the menu over the back of the hand.
   bus.on('voice:commands', ({ commands: list }) => {
     if (Array.isArray(list) && list.length) {
-      commands = list.filter((c) => c?.say && c?.intent).slice(0, 15);
+      commands = list.filter((c) => c?.say && c?.intent).slice(0, 12);
       dirty.commands = true;
     }
   });
@@ -410,10 +409,11 @@ function wire(bus) {
     if (intent === 'alert.ack' && state.alerts.size) {
       state.acked = true; // 점멸을 멈춘다. 테두리와 경보 카드는 alert:clear까지 남는다.
       dirty.banner = true;
-    } else if (intent === 'mode.set' && MODES.includes(slots?.mode)) {
-      state.baseMode = slots.mode;
-      updateMode();
     }
+  });
+  // "Base" is a Mars-map command and "Mark target" a field-map one: the menu follows the mode.
+  bus.on('app:mode', () => {
+    dirty.commands = true;
   });
 }
 

@@ -53,12 +53,12 @@ class IntentTest(unittest.TestCase):
     CASES = {
         # short forms
         "Status.": ("status.report", {}),
+        "Navigate": ("nav.start", {"targetId": "site1"}),
         "base": ("nav.home", {}),
         "Stop.": ("nav.stop", {}),
+        "Mark target": ("nav.mark", {}),
         "thermal": ("layer.show", {"id": "thermal"}),
         "Elevation.": ("layer.show", {"id": "topo"}),
-        "thermal off": ("layer.hide", {"id": "thermal"}),
-        "night": ("mode.set", {"mode": "night"}),
         "confirm": ("alert.ack", {}),
         # full sentences still work
         "Take me to the survey site": ("nav.start", {"targetId": "site1"}),
@@ -66,13 +66,11 @@ class IntentTest(unittest.TestCase):
         "Go back to base": ("nav.home", {}),
         "Return to base.": ("nav.home", {}),
         "Stop navigation": ("nav.stop", {}),
+        "Mark here.": ("nav.mark", {}),
         "Show the thermal map": ("layer.show", {"id": "thermal"}),
-        "Hide the thermal map": ("layer.hide", {"id": "thermal"}),
-        "Turn off the thermal layer.": ("layer.hide", {"id": "thermal"}),
-        "show the slope layer": ("layer.show", {"id": "slope"}),
+        "show the slope": ("layer.show", {"id": "slope"}),
         "Status report": ("status.report", {}),
         "Acknowledge alert": ("alert.ack", {}),
-        "Night mode": ("mode.set", {"mode": "night"}),
         # as the STT sometimes writes them
         "Show the thermo mat.": ("layer.show", {"id": "thermal"}),
         "takeme to the survey site": ("nav.start", {"targetId": "site1"}),
@@ -94,7 +92,9 @@ class IntentTest(unittest.TestCase):
         self.assertEqual(parse("Helmets status", wake="helmet")["intent"], "status.report")
 
     def test_unknown_dropped(self):
-        for text in ["what is for lunch today", "", "shop", "the", "bass"]:
+        # The last ones were commands until the list was pruned: ordinary words must do nothing.
+        for text in ["what is for lunch today", "", "shop", "the", "bass", "Night mode", "copy that",
+                     "let's go home", "take a photo", "Clear target", "what's the situation"]:
             with self.subTest(text=text):
                 self.assertIsNone(parse(text))
 
@@ -118,6 +118,16 @@ class IntentTest(unittest.TestCase):
                 f.write("{ not json")
             os.utime(path, (time.time() + 9, time.time() + 9))
             self.assertEqual(cs.parse("photograph")["intent"], "camera.shot")  # old set kept
+
+
+class MenuTest(unittest.TestCase):
+    def test_menu_is_short_and_carries_the_mode(self):
+        from marswalk.intents import menu
+        entries = menu()[1]
+        self.assertEqual([e["say"] for e in entries],
+                         ["Status", "Navigate", "Base", "Mark target", "Stop", "Confirm"])
+        modes = {e["say"]: e.get("mode") for e in entries}
+        self.assertEqual((modes["Base"], modes["Mark target"], modes["Stop"]), ("mars", "field", None))
 
 
 class SpeechTest(unittest.TestCase):

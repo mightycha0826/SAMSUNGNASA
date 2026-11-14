@@ -2,26 +2,26 @@
 // 실제 젯슨이 보내는 것과 같은 봉투 메시지({ type, ts, payload }, INTERFACES 4장)를
 // 시간표대로 만들어 link.js에 넘긴다. link.js는 진짜와 가짜를 같은 코드로 처리한다.
 //
-// 60초 시간표 (끝나면 처음부터 반복):
-//    4초  "열 지도 보여 줘"            layer.show
-//    8초  "조사 지점으로 안내해 줘"     nav.start
-//   20초  "열 지도 꺼 줘"              layer.hide
-//   30~42초 슈트 온도가 24.5 → 36.5°C로 오른다 (30°C warn, 35°C critical)
-//   42~55초 식는다 (34°C 아래에서 warn으로 내려가고, 29°C 아래에서 alert.clear)
-//   57초  "안내 그만"                  nav.stop
+// 60 s timetable (then it starts over):
+//    4 s  "Thermal"     layer.show
+//    8 s  "Navigate"    nav.start
+//   20 s  "Optical"     layer.show
+//   30-42 s the suit temperature climbs from 24.5 to 36.5 C (warn at 30, critical at 35)
+//   42-55 s it cools (back to warn below 34 C, alert.clear below 29 C)
+//   57 s  "Stop"        nav.stop
 //
-// PC 키보드: N 안내 시작, H 기지 복귀, S 안내 그만, L 열 지도 켜고 끄기, T 온도 급상승
+// PC keyboard: N navigate, H base, S stop, L thermal / optical, T temperature spike
 
 const CYCLE_S = 60;
 
 const SCRIPT = [
-  { at: 4, intent: 'layer.show', slots: { id: 'thermal' }, text: '열 지도 보여 줘' },
-  { at: 8, intent: 'nav.start', slots: { targetId: 'site1' }, text: '조사 지점으로 안내해 줘' },
-  { at: 20, intent: 'layer.hide', slots: { id: 'thermal' }, text: '열 지도 꺼 줘' },
-  { at: 57, intent: 'nav.stop', slots: {}, text: '안내 그만' },
+  { at: 4, intent: 'layer.show', slots: { id: 'thermal' }, text: 'Thermal' },
+  { at: 8, intent: 'nav.start', slots: { targetId: 'site1' }, text: 'Navigate' },
+  { at: 20, intent: 'layer.show', slots: { id: 'optical' }, text: 'Optical' },
+  { at: 57, intent: 'nav.stop', slots: {}, text: 'Stop' },
 ];
 
-export const MOCK_KEYS_HELP = '키: N 안내 · H 기지 · S 그만 · L 열 지도 · T 온도 급상승';
+export const MOCK_KEYS_HELP = 'Keys: N navigate · H base · S stop · L thermal/optical · T temperature spike';
 
 function scriptedTemp(t) {
   if (t < 30) return 24.5;
@@ -84,12 +84,12 @@ export function startMockJetson(deliver, { speed = 1 } = {}) {
   function onKey(e) {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     switch (e.key.toLowerCase()) {
-      case 'n': say('nav.start', { targetId: 'site1' }, '조사 지점으로 안내해 줘'); break;
-      case 'h': say('nav.home', {}, '기지로 돌아가자'); break;
-      case 's': say('nav.stop', {}, '안내 그만'); break;
+      case 'n': say('nav.start', { targetId: 'site1' }, 'Navigate'); break;
+      case 'h': say('nav.home', {}, 'Base'); break;
+      case 's': say('nav.stop', {}, 'Stop'); break;
       case 'l':
         thermalOn = !thermalOn;
-        say(thermalOn ? 'layer.show' : 'layer.hide', { id: 'thermal' }, thermalOn ? '열 지도 보여 줘' : '열 지도 꺼 줘');
+        say('layer.show', { id: thermalOn ? 'thermal' : 'optical' }, thermalOn ? 'Thermal' : 'Optical');
         break;
       case 't': spikeUntil = ((performance.now() - t0) / 1000) * speed + 8; break;
     }

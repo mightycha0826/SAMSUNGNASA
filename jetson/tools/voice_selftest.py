@@ -23,13 +23,12 @@ from marswalk.voice import make_stt, make_tts  # noqa: E402
 
 SENTENCES = [  # short forms first: these are what we say in the demo
     ("status.report", "Status"), ("nav.start", "Navigate"), ("nav.home", "Base"),
-    ("nav.stop", "Stop"), ("layer.show", "Thermal"), ("layer.show", "Slope"),
-    ("layer.show", "Elevation"), ("layer.show", "Optical"), ("layer.hide", "Thermal off"),
-    ("alert.ack", "Confirm"), ("mode.set", "Night mode"),
+    ("nav.stop", "Stop"), ("nav.mark", "Mark target"), ("alert.ack", "Confirm"),
+    ("layer.show", "Thermal"), ("layer.show", "Slope"),
+    ("layer.show", "Elevation"), ("layer.show", "Optical"),
     ("nav.start", "Take me to the survey site"), ("nav.home", "Go back to base"),
     ("nav.stop", "Stop navigation"), ("layer.show", "Show the thermal map"),
-    ("layer.hide", "Hide the thermal map"), ("status.report", "Status report"),
-    ("alert.ack", "Acknowledge alert"),
+    ("status.report", "Status report"), ("alert.ack", "Acknowledge alert"),
 ]
 
 

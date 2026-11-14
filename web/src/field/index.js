@@ -17,7 +17,7 @@
 //   - "Mark target" (voice or the command menu) sets the target where the wearer stands. Away
 //     from it, the way back is planned around the scanned structure and shown twice: as arrows
 //     on the real floor and as a line on the map. "Navigate" / "Stop" turn the guidance on and
-//     off, "Clear target" removes the target.
+//     off; saying "Mark target" again moves the target.
 //
 // Receives: layers:ready, hazard:update, voice:command, app:mode
 // Sends:    nav:position { point: [x, 0, z] in map metres, source: 'headset' }
@@ -363,10 +363,7 @@ function clearTarget() {
 function onVoice({ intent }) {
   if (mode.current !== 'field') return;
   if (intent === 'nav.mark') markTarget();
-  else if (intent === 'nav.clear') {
-    clearTarget();
-    say('Target cleared.');
-  } else if (intent === 'nav.start') {
+  else if (intent === 'nav.start') {
     if (!target) say('No target yet. Say mark target where you want to return.');
     else {
       guiding = true;

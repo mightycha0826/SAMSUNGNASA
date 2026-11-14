@@ -1,44 +1,39 @@
 {
   "_help": [
     "Voice commands of the Marswalk hub. Edit this file and save: the hub reloads it by itself.",
+    "Kept short on purpose: only what the demo needs. Every extra phrase is one more thing ordinary talk can trigger by accident.",
     "Each command has an intent (sent to the headset as voice.command), optional slots, and the phrases that trigger it.",
     "A phrase matches when its words appear in what was heard; close misspellings by the speech recognizer also match.",
-    "When several phrases match, the longest one wins, so 'hide thermal' beats 'thermal'.",
+    "When several phrases match, the longest one wins, so 'stop navigation' beats 'stop'.",
     "{name} in a phrase or slot stands for every entry of vars.name: the key is the slot value, the list is how it may be said.",
     "Optional 'reply': a sentence the hub says back. Optional 'wake_word': only obey speech that contains it.",
-    "The headset's command menu (back of the left hand) lists every command once per variable value, labelled with 'say' or else its first phrase. '\"menu\": false' keeps a command out of the menu.",
+    "The headset's command menu (back of the left hand) lists every command once per variable value, labelled with 'say' or else its first phrase. '\"menu\": false' keeps a command out of the menu; '\"mode\": \"mars\"' or '\"field\"' shows it only in that mode of the app.",
     "Check a change without a headset:  .venv/bin/python tools/voice_selftest.py --text 'what you would say'"
   ],
   "wake_word": null,
   "min_score": 0.8,
   "vars": {
     "layer": {
-      "thermal": ["thermal", "thermo", "heat", "infrared"],
-      "optical": ["optical", "optic", "photo", "satellite", "camera"],
-      "slope": ["slope", "slopes", "steepness"],
-      "topo": ["elevation", "terrain", "topo", "height"]
+      "thermal": ["thermal", "thermo"],
+      "optical": ["optical", "optic"],
+      "slope": ["slope"],
+      "topo": ["elevation", "terrain"]
     }
   },
   "commands": [
-    { "intent": "status.report", "phrases": ["status", "report", "how am i doing", "situation"] },
+    { "intent": "status.report", "say": "Status", "phrases": ["status", "status report"] },
 
-    { "intent": "nav.start", "slots": { "targetId": "site1" },
-      "phrases": ["navigate", "guide me", "take me", "survey site", "to the site", "sulfur", "start route", "let's go"] },
-    { "intent": "nav.home", "phrases": ["base", "home", "go back", "return", "habitat"] },
-    { "intent": "nav.stop", "phrases": ["stop", "cancel", "stop navigation", "end route", "stop route"] },
+    { "intent": "nav.start", "slots": { "targetId": "site1" }, "say": "Navigate",
+      "phrases": ["navigate", "take me", "guide me", "survey site"] },
+    { "intent": "nav.home", "say": "Base", "mode": "mars",
+      "phrases": ["base", "go back", "return to base"] },
+    { "intent": "nav.mark", "say": "Mark target", "mode": "field",
+      "phrases": ["mark target", "set target", "mark here"] },
+    { "intent": "nav.stop", "say": "Stop", "phrases": ["stop", "stop navigation", "cancel"] },
 
-    { "intent": "nav.mark", "say": "Mark target",
-      "phrases": ["mark target", "set target", "target here", "mark here", "mark this spot", "mark"] },
-    { "intent": "nav.clear", "say": "Clear target",
-      "phrases": ["clear target", "remove target", "delete target", "forget target"] },
+    { "intent": "alert.ack", "say": "Confirm", "phrases": ["confirm", "acknowledge"] },
 
-    { "intent": "layer.show", "slots": { "id": "{layer}" },
-      "phrases": ["{layer}", "show {layer}", "{layer} map", "{layer} layer", "{layer} on"] },
-    { "intent": "layer.hide", "slots": { "id": "{layer}" }, "menu": false,
-      "phrases": ["hide {layer}", "{layer} off", "turn off {layer}", "no {layer}", "remove {layer}"] },
-
-    { "intent": "alert.ack", "say": "Confirm", "phrases": ["acknowledge", "confirm", "copy", "roger", "understood"] },
-    { "intent": "mode.set", "slots": { "mode": "night" }, "say": "Night mode", "phrases": ["night", "night mode", "night vision"] },
-    { "intent": "mode.set", "slots": { "mode": "normal" }, "menu": false, "phrases": ["day mode", "normal mode"] }
+    { "intent": "layer.show", "slots": { "id": "{layer}" }, "menu": false,
+      "phrases": ["{layer}", "show {layer}", "{layer} map"] }
   ]
 }

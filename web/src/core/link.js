@@ -5,8 +5,8 @@
 //   alert.raise    → alert:raise        (payload + ts)
 //   alert.clear    → alert:clear
 //   voice.command  → voice:command, 그리고 6장 규칙에 따라
-//                      nav.start / nav.home     → nav:request
-//                      layer.show / layer.hide  → layer:toggle
+//                      nav.start / nav.home     → nav:request (Mars map mode only)
+//                      layer.show               → layer:toggle
 //   tts.begin / binary / tts.end → played by voice.js
 //
 // 헤드셋 → 젯슨:
@@ -21,6 +21,7 @@ import { bus } from './bus.js';
 import { config, mock } from './config.js';
 import { handleVoiceMessage, initVoice, resetVoice, voiceLinkOpened } from './voice.js';
 import { initDiag, flushDiag } from './diag.js';
+import { mode } from './mode.js';
 
 let ws = null;
 let linkLost = false;
@@ -59,18 +60,20 @@ export function handleMessage(msg) {
 function handleVoiceCommand({ intent, slots = {}, text = '' }) {
   bus.emit('voice:command', { intent, slots, text });
   switch (intent) {
+    // Routes on the Mars map are D's. In field mode "Navigate" means the marked target and the
+    // field module answers the voice:command itself, so no Mars route is requested there.
     case 'nav.start':
-      bus.emit('nav:request', { targetId: slots.targetId ?? 'site1' });
+      if (mode.current === 'mars') bus.emit('nav:request', { targetId: slots.targetId ?? 'site1' });
       break;
     case 'nav.home':
-      bus.emit('nav:request', { targetId: 'base' });
+      if (mode.current === 'mars') bus.emit('nav:request', { targetId: 'base' });
       break;
     case 'layer.show':
-    case 'layer.hide':
-      if (slots.id) bus.emit('layer:toggle', { id: slots.id, visible: intent === 'layer.show' });
-      else console.warn('[link] layer 명령에 slots.id가 없습니다:', text);
+      if (slots.id) bus.emit('layer:toggle', { id: slots.id, visible: true });
+      else console.warn('[link] layer.show without slots.id:', text);
       break;
-    // nav.stop, alert.ack, mode.set, status.report는 voice:command를 받는 모듈이 직접 처리한다.
+    // nav.stop, nav.mark, alert.ack and status.report are handled by the modules that listen
+    // to voice:command.
   }
 }
 
