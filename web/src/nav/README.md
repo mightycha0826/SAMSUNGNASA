@@ -11,7 +11,7 @@ The files in `web/public/data/` are copied unchanged from [C's PR #1](https://gi
 - Four map layers: terrain elevation, slope, HiRISE optical, THEMIS night thermal. The thermal view preserves its coarse pixels and labels relative brightness rather than temperature. It does not affect route cost.
 - Curiosity's traverse and the two waypoint photographs, RAD and REMS time series are C's observations. They are not live conditions on Mars. Imagery credits remain in `layerset.json` and are shown on the map.
 
-Open `?mock=link` to use the real map with simulated equipment messages; `?mock=1` explicitly selects synthetic terrain. The planner panel lets you select the start/destination or enter a custom start cell. It displays horizontal distance, accumulated ascent/descent and slopes sampled on the supplied grid. The `N`, `H`, `S` mock voice shortcuts also request the nearby point (the survey site when the map has none), base and cancellation; `N` and `H` act only in Mars map mode.
+Open `?mock=link` to use the real map with simulated equipment messages; `?mock=1` explicitly selects synthetic terrain. The planner panel lets you select the start/destination or enter a custom start cell. It displays horizontal distance, accumulated ascent/descent and slopes sampled on the supplied grid. The `N`, `H`, `S` mock voice shortcuts also request the nearby point (the survey site when the map has none), base and cancellation; `N` and `H` request a Mars route only in Mars map mode (in field mode `N` starts guidance to the marked target, or asks for one when none is marked, and `H` requests nothing).
 
 ## Route model
 
