@@ -48,9 +48,10 @@ export const SCAN = {
   depthSamples: 192, // samples per side taken from it (the image is about 320 x 320); fewer and far floor cells get too few
   depthRangeM: 2.5, // cells farther than this from the headset, along the floor, are left alone (floor there is 3 m from the eye)
   bodyM: 0.8, // cells this close to the headset, along the floor, are the wearer's own hands and body
-  floorNoiseM: 0.1, // a depth point within this height of y = 0 counts as floor (the real floor can sit a few cm off)
+  floorNoiseM: 0.15, // a depth point within this height of y = 0 counts as floor (the real floor can sit a few cm off)
+  thingMinM: 0.25, // a depth point counts as a thing from this height: a 4 % depth error lifts a floor point 7 cm
   minPoints: 3, // samples needed in a cell before a read says anything about it
-  setScans: 2, // reads that must see an obstacle before it counts (2 = 1 s): not someone walking past
+  setScans: 2, // reads in a row that must see an obstacle before it counts (2 = 1 s): not someone walking past
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
   forgetScans: 40, // reads out of sight before a live obstacle is forgotten (40 = 20 s): it may have walked away
 
