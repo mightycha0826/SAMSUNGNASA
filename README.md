@@ -1,310 +1,312 @@
-# Marswalk Visor (가칭)
+# Marswalk Visor (working title)
 
-**화성 탐사자의 헬멧에 뜨는 3겹 지도.**
-2026 NASA Space Apps Challenge — *Interplanetary Survival Guide: Martian Map* 출품작입니다.
+**A three-layer map on a Mars explorer's helmet.**
+An entry for the 2026 NASA Space Apps Challenge — *Interplanetary Survival Guide: Martian Map*.
 
-> NASA 데이터로 지도와 길을 만들고, 헬멧 센서로 눈앞 장애물을 메우고, 슈트 상태가 위험해지면 경로를 바꿔주는 헬멧 HUD.
+> A helmet HUD that builds the map and the route from NASA data, fills in nearby obstacles with the helmet's sensors, and changes the route when the suit's condition becomes dangerous.
 
-**이 프로젝트의 바탕은 NASA 데이터입니다.** 지도, 경로, 상태창, 경보 모두 NASA 임무 데이터에서 출발합니다. 헤드셋·젯슨·아두이노는 그 데이터를 탐사자에게 전달하는 수단입니다.
+**This project is built on NASA data.** The map, the route, the status panel and the alerts all start from NASA mission data. The headset, the Jetson and the Arduino are the means of delivering that data to the explorer.
 
-| 문서 | 누가 읽나 | 내용 |
+| Document | Who reads it | Contents |
 |---|---|---|
-| 이 README | 팀 전원 | 무엇을 왜 만드는지, 일정, 규칙 |
-| [docs/ROLES.md](docs/ROLES.md) | 각 담당자 | 6명의 역할, 완료 기준, AI 토큰 소모 예상 |
-| [docs/INTERFACES.md](docs/INTERFACES.md) | 담당자와 각자의 AI | 모듈끼리 주고받는 데이터 형식 |
-| [docs/RESOURCES.md](docs/RESOURCES.md) | 팀 전원, 특히 C | 공개된 리소스 분석, 쓸 데이터와 주소 |
-| [docs/CHALLENGE.md](docs/CHALLENGE.md) | 팀 전원 | 챌린지 원문 전체 |
+| This README | Whole team | What we build and why, schedule, rules |
+| [docs/ROLES.md](docs/ROLES.md) | Each owner | The six roles, done criteria, expected AI token use |
+| [docs/INTERFACES.md](docs/INTERFACES.md) | Owners and their AIs | Data formats exchanged between modules |
+| [docs/RESOURCES.md](docs/RESOURCES.md) | Whole team, especially C | Analysis of the published resources, data to use and addresses |
+| [docs/CHALLENGE.md](docs/CHALLENGE.md) | Whole team | Full challenge text |
 
 ---
 
-## 1. 무엇을 만드나
+## 1. What we build
 
-Meta Quest 3를 "우주복 헬멧"으로 삼아, 화성 탐사자가 걸으면서 보는 지도를 만듭니다. 지도는 세 겹입니다.
+A Meta Quest 3 stands in for the spacesuit helmet, and we build the map a Mars explorer sees while walking. The map has three layers.
 
-| 겹 | 무엇을 보여주나 | 데이터 | 장비 |
+| Layer | What it shows | Data | Hardware |
 |---|---|---|---|
-| 1. 궤도 지도 | 지형·광학·열 데이터를 겹친 탐사 지점 3D 지도 | **NASA 궤도선 데이터** (MRO, Mars Odyssey, MGS) | Quest 3 (손바닥 지도) |
-| 2. 현장 지도 | 궤도 데이터에 안 보이는 눈앞 장애물 | NASA 지도 위에 헬멧 깊이 센서를 얹음 | Quest 3 (실시간 환경 분석) |
-| 3. 생존 정보 | 방사선 상태, 슈트 온도, 비상 경보 | **NASA Curiosity 관측 데이터** + 온도 센서 | Jetson + Arduino |
+| 1. Orbital map | 3D map of the exploration site with terrain, optical and thermal data overlaid | **NASA orbiter data** (MRO, Mars Odyssey, MGS) | Quest 3 (palm map) |
+| 2. Field map | Nearby obstacles that orbital data cannot see | Helmet depth sensor laid over the NASA map | Quest 3 (real-time environment analysis) |
+| 3. Survival info | Radiation, suit temperature, emergency alerts | **NASA Curiosity observations** + temperature sensor | Jetson + Arduino |
 
-조작은 손바닥 제스처와 음성으로만 합니다. 우주복 장갑을 낀 손으로는 화면을 누르기 어렵다는 설정입니다.
+Control is by palm gesture and voice only. The premise is that pressing a screen is hard with spacesuit gloves.
 
-### 원칙: 모든 기능은 NASA 데이터에서 출발한다
+### Principle: every feature starts from NASA data
 
-기능을 만들 때 "이 화면의 값은 어느 NASA 데이터에서 오는가"에 답할 수 있어야 합니다. 답할 수 없는 기능은 뒤로 미룹니다.
+For every feature we must be able to answer "which NASA data does this value on screen come from?" A feature that cannot answer is postponed.
 
-| 기능 | 바탕이 되는 NASA 데이터 |
+| Feature | NASA data behind it |
 |---|---|
-| 손바닥 3D 지도 | 지형(MRO HiRISE 등), 광학(MRO HiRISE), 열(Mars Odyssey THEMIS) |
-| 길안내 | 지형에서 계산한 경사도. Curiosity가 실제로 지나간 길과 나란히 보여 검증 |
-| 상태창 | Curiosity RAD의 방사선 관측값, 현재 위치의 높이와 지질 단위 |
-| 비상 모드 | 방사선 관측값 기준 경보 (슈트 온도 경보와 함께) |
-| 음성 안내 | 위 값들을 말로 읽어 줌 |
-| 로버 시점 사진 | Curiosity가 그 자리에서 찍은 실제 사진 |
-| 실시간 환경 분석 | NASA 데이터로 만든 경로를, 눈앞 장애물에 맞춰 고침 |
+| Palm 3D map | Terrain (MRO HiRISE and others), optical (MRO HiRISE), thermal (Mars Odyssey THEMIS) |
+| Route guidance | Slope computed from terrain. Shown next to the path Curiosity actually drove, as validation |
+| Status panel | Radiation observed by Curiosity RAD, elevation and geologic unit of the current position |
+| Emergency mode | Alert based on observed radiation (together with the suit temperature alert) |
+| Voice guidance | Reads the values above aloud |
+| Rover point-of-view photo | Real photos Curiosity took at that spot |
+| Real-time environment analysis | Corrects the route built from NASA data to fit nearby obstacles |
 
-어떤 데이터를 어디서 받는지는 [docs/RESOURCES.md](docs/RESOURCES.md)에 있습니다.
+Where each dataset comes from is in [docs/RESOURCES.md](docs/RESOURCES.md).
 
-NASA 데이터가 아닌 입력은 둘뿐입니다. 헬멧 깊이 센서와 슈트 온도 센서입니다. 둘 다 NASA 데이터로 만든 지도와 경로 위에서만 동작합니다.
+Only two inputs are not NASA data: the helmet depth sensor and the suit temperature sensor. Both operate only on top of the map and route built from NASA data.
 
-### 실시간 환경 분석은 시연의 킥이다
+### Real-time environment analysis is the kick of the demo
 
-NASA 데이터 지도만으로는 화면 속 그림에 그칩니다. 실시간 환경 분석은 그 지도가 **실제 공간에서 살아 움직이는 것**을 보여 주는 장치입니다. 시연에서 장애물을 놓는 순간 NASA 데이터로 계산한 경로가 눈앞에서 다시 그려집니다.
+A map of NASA data alone is just a picture on a screen. Real-time environment analysis shows that map **alive in real space**. The moment an obstacle is placed in the demo, the route computed from NASA data is redrawn before your eyes.
 
-- 주인공은 NASA 데이터이고, 실시간 환경 분석은 그것을 돋보이게 하는 역할입니다.
-- 원문과도 맞닿습니다. 기존 도구는 "built for regional and global views rather than the hyperlocalized areas astronauts will target"이라고 했습니다. 궤도 데이터가 약한 초근거리를 헬멧 센서가 메웁니다.
-- 실제 데이터가 이를 뒷받침합니다. 우리 지도 범위(2km)에서 열 영상은 가로 25픽셀뿐이고, 가장 선명한 광학 영상도 픽셀 하나가 약 0.64m입니다 ([docs/RESOURCES.md](docs/RESOURCES.md) 4장). 발 앞의 돌은 궤도에서 보이지 않습니다.
+- NASA data is the protagonist; real-time environment analysis makes it stand out.
+- It ties to the challenge text, which says existing tools are "built for regional and global views rather than the hyperlocalized areas astronauts will target". The helmet sensor fills the very short range where orbital data is weak.
+- The real data backs this up. Across our map extent (2 km) the thermal image is only 25 pixels wide, and even the sharpest optical image is about 0.64 m per pixel ([docs/RESOURCES.md](docs/RESOURCES.md) section 4). A rock at your feet is invisible from orbit.
 
-### 미션 시나리오
+### Mission scenario
 
-게일 크레이터 샤프산(Mount Sharp)의 **게디즈 발리스(Gediz Vallis) 수로**에서 황이 든 돌을 조사하고 기지로 돌아옵니다.
+Survey sulfur-bearing rocks in the **Gediz Vallis channel** on Mount Sharp, Gale Crater, and return to base.
 
-- **조사 지점 (황 암석 지대)**: 동경 137.4089°, 남위 4.7857°. Curiosity가 2024년 5월 30일(sol 4200)에 돌을 밟아 깨뜨려 순수한 황을 발견한 주행이 끝난 자리입니다. 지도 한가운데(sol 4312 위치, 동경 137.4075°, 남위 4.7868°)에서 약 102m 떨어져 있습니다. 근거는 [docs/DATA.md](docs/DATA.md) 2장.
-- **기지**: Curiosity가 sol 4098에 있던 자리. 조사 지점에서 직선으로 358m, 45m 아래입니다.
-- **과학 목표**: Curiosity가 이곳에서 순수한 황으로 된 돌을 발견했습니다. 화성에서 처음이고, 왜 여기서 생겼는지 아직 모릅니다 ([JPL 2024-07-18](https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/), [JPL 2024-11-18](https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/), 원문 확인). 사람이 직접 가서 더 넓게 조사한다는 설정입니다.
-- **지도 범위**: 동경 137.4075°, 남위 4.7868°를 가운데 둔 2,048m × 2,048m.
-- **참고 경로**: Curiosity는 기지 위치에서 조사 지점까지 593m를 주행하며 45m를 올라갔습니다 (sol 4098 → 4200).
-- **이 지점을 고른 이유**: 원문 예시인 박스워크와 겹치지 않으면서, 같은 샤프산이라 지형·광학·방사선·로버 사진을 모두 쓸 수 있습니다.
+- **Survey site (sulfur stone field)**: 137.4089° E, 4.7857° S. Where Curiosity ended its drive on May 30, 2024 (sol 4200), the drive on which it cracked open a rock and found pure sulfur. It is about 102 m from the center of the map (the sol 4312 position, 137.4075° E, 4.7868° S). Evidence is in [docs/DATA.md](docs/DATA.md) section 2.
+- **Base**: where Curiosity stood on sol 4098. 358 m from the survey site in a straight line and 45 m lower.
+- **Science goal**: Curiosity found rocks of pure sulfur here, a first on Mars, and it is not yet known why they formed here ([JPL 2024-07-18](https://www.jpl.nasa.gov/news/nasas-curiosity-rover-discovers-a-surprise-in-a-martian-rock/), [JPL 2024-11-18](https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/), both read in full). The premise is that a human goes there to survey more widely.
+- **Map extent**: 2,048 m × 2,048 m centered on 137.4075° E, 4.7868° S.
+- **Reference path**: Curiosity drove 593 m and climbed 45 m from the base position to the survey site (sol 4098 → 4200).
+- **Why this site**: it does not overlap the boxwork example in the challenge text, and being on the same Mount Sharp it lets us use terrain, optical, radiation and rover photos.
 
-좌표와 수치의 근거는 [docs/DATA.md](docs/DATA.md)와 [docs/RESOURCES.md](docs/RESOURCES.md) 4·7장에 있습니다.
+The evidence for coordinates and figures is in [docs/DATA.md](docs/DATA.md) and [docs/RESOURCES.md](docs/RESOURCES.md) sections 4 and 7.
 
-### 데모 흐름 (심사에서 보여줄 1분)
+### Demo flow (the one minute shown to the judges)
 
-> **제출 규칙 확인 필요.** 공식 가이드에 따르면 제출하는 데모는 **30초 이하 영상 또는 7장 이하 슬라이드**이고, 넘으면 심사 대상에서 빠집니다. 만 18세 미만의 얼굴·목소리도 넣을 수 없습니다. 아래 흐름을 30초에 맞게 줄여야 합니다. 규칙 전체는 [docs/SUBMISSION.md](docs/SUBMISSION.md) 맨 위.
+> **Check against the submission rules.** The official guide says the submitted demo is **a video of 30 seconds or less, or a deck of 7 slides or fewer**; anything longer is not eligible for Global Judging. No image, video or voice of anyone under 18 may appear. The flow below has to be cut to fit 30 seconds. All the rules are at the top of [docs/SUBMISSION.md](docs/SUBMISSION.md).
 
-1. 왼손 손바닥을 들면 게디즈 발리스 3D 지도가 뜬다. 레이어를 바꿔 본다.
-2. "조사 지점으로 안내해 줘"라고 말하면 바닥에 화살표가 깔린다.
-3. **(킥)** 걷다가 의자(바위 역할)를 만나면 경로가 다시 계산된다.
-4. 온도 센서를 손으로 데우면 화면이 붉게 점멸하고, 기지 복귀 경로로 바뀐다.
+1. Raise the left palm and the Gediz Vallis 3D map appears. Switch layers.
+2. Say "Take me to the survey site" and arrows are laid on the floor.
+3. **(Kick)** While walking, meet a chair (playing a rock) and the route is recalculated.
+4. Warm the temperature sensor by hand: the screen flashes red and the route changes to the return-to-base route.
 
-데모 공간(방)은 화성 표면의 일부를 축소해 대신합니다. 발표에서 이 점을 먼저 밝힙니다.
+The demo space (a room) stands in for a scaled-down part of the Martian surface. We state this first in the presentation.
 
 ---
 
-## 2. 챌린지가 요구하는 것
+## 2. What the challenge asks for
 
-아래 인용은 모두 [docs/CHALLENGE.md](docs/CHALLENGE.md)에서 글자 그대로 가져왔습니다.
+All quotations below are taken verbatim from [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
-| # | 원문 | 우리 작품에서 |
+| # | Challenge text | In our entry |
 |---|---|---|
-| Q1 | "create a layered, integrated view of a location or route on the Martian surface that pulls together data from multiple NASA science missions" | **핵심 과제.** 1겹 궤도 지도 |
-| Q2 | "create a map, tool, or interface a Mars astronaut could use during a surface exploration mission, using NASA data and tools" | **핵심 과제.** HUD 전체 |
-| Q3 | "You might start by identifying some scientific goals for your mission and the location the astronaut will explore" | 미션 시나리오 |
-| Q4 | "You may consider including at least three kinds of data—optical, thermal, spectral, topographic, geophysical, atmospheric, radiation, and chemical are a few examples" | 레이어 3종 이상 |
-| Q5 | "they are built for regional and global views rather than the hyperlocalized areas astronauts will target" | 2겹 현장 지도 (우리의 차별점) |
-| Q6 | "NASA’s first priority is always astronaut safety" | 3겹 생존 정보, 비상 모드 |
-| Q7 | "include a route map that shows where the astronaut will travel to accomplish their scientific objectives while avoiding significant obstacles such as large rock formations" | 길안내 |
-| Q8 | "as a heads-up-display (HUD) projected on the spacesuit’s helmet visor" | HUD 형식 (원문이 허용) |
-| Q9 | "Consider how you might include these point-of-view images as part of your map" | 로버 시점 사진 (여유 시) |
-| Q10 | "Astronauts will conduct Mars surface science wearing spacesuits and possibly carrying scientific equipment and other supplies. Consider how this might impact their mobility" | 손바닥·음성 조작 (우리의 해석) |
+| Q1 | "create a layered, integrated view of a location or route on the Martian surface that pulls together data from multiple NASA science missions" | **Core task.** Layer 1, orbital map |
+| Q2 | "create a map, tool, or interface a Mars astronaut could use during a surface exploration mission, using NASA data and tools" | **Core task.** The whole HUD |
+| Q3 | "You might start by identifying some scientific goals for your mission and the location the astronaut will explore" | Mission scenario |
+| Q4 | "You may consider including at least three kinds of data—optical, thermal, spectral, topographic, geophysical, atmospheric, radiation, and chemical are a few examples" | Three or more layer kinds |
+| Q5 | "they are built for regional and global views rather than the hyperlocalized areas astronauts will target" | Layer 2, field map (our differentiator) |
+| Q6 | "NASA’s first priority is always astronaut safety" | Layer 3, survival info, emergency mode |
+| Q7 | "include a route map that shows where the astronaut will travel to accomplish their scientific objectives while avoiding significant obstacles such as large rock formations" | Route guidance |
+| Q8 | "as a heads-up-display (HUD) projected on the spacesuit’s helmet visor" | HUD format (allowed by the text) |
+| Q9 | "Consider how you might include these point-of-view images as part of your map" | Rover point-of-view photos (if time allows) |
+| Q10 | "Astronauts will conduct Mars surface science wearing spacesuits and possibly carrying scientific equipment and other supplies. Consider how this might impact their mobility" | Palm and voice control (our interpretation) |
 
-**우리의 접근**
+**Our approach**
 
-- 원문의 핵심은 Q1·Q2, 즉 **NASA 여러 임무의 데이터를 겹친 지도**입니다. 이것이 작품의 바탕이고, 전담 역할(C)이 최우선으로 만듭니다.
-- 실시간 환경 분석은 Q5와 Q7에 연결됩니다. NASA 데이터 지도 위에 **눈앞 장애물을 얹는 레이어**이자, 시연에서 지도가 실제 공간에 반응하는 것을 보여 주는 킥입니다.
+- The core of the text is Q1 and Q2: **a map that layers data from several NASA missions**. This is the foundation of the entry, and a dedicated role (C) builds it first.
+- Real-time environment analysis ties to Q5 and Q7. It is **a layer that puts nearby obstacles on top of the NASA data map**, and the kick that shows the map reacting to real space in the demo.
 
 ---
 
-## 3. 기능과 우선순위
+## 3. Features and priorities
 
-해커톤은 48시간입니다. 등급을 나눠 위에서부터 완성합니다.
+The hackathon is 48 hours. We grade features and finish from the top.
 
-- **P0**: 없으면 출품할 수 없는 것
-- **P1**: 작품을 돋보이게 하는 것
-- **P2**: 시간이 남으면 하는 것
+- **P0**: cannot submit without it
+- **P1**: makes the entry stand out
+- **P2**: only if time remains
 
-| 기능 | 근거 | 등급 | 담당 |
+| Feature | Basis | Grade | Owner |
 |---|---|---|---|
-| NASA 데이터 레이어 (3종 이상) | Q1, Q2, Q4 | P0 | C |
-| 손바닥 3D 지도, 레이어 전환 | Q1, Q8 | P0 | D, F |
-| 길안내 (장애물 회피 경로, 바닥 화살표) | Q7 | P0 | D |
-| Curiosity 실제 주행 경로 표시 (경로 검증) | Q1, Q7 | P0 | C, D |
-| 상태창 (방사선·높이·슈트 온도) | Q6 | P0 | F, E |
-| 비상 모드 (화면 붉은 점멸) | Q6 | P0 | F, E |
-| 실시간 환경 분석 (현장 장애물 레이어, 시연의 킥) | Q5, Q7 | P1 | A |
-| 음성 명령(STT)과 음성 안내(TTS) | Q10 | P1 | E |
-| 로버 시점 사진 표시 (Curiosity 실제 사진) | Q9 | P1 | F, C |
-| 야간투시 | 원문에 근거 없음 | P2 | A, F |
-| 영상촬영 모드 | 원문에 근거 없음 | P2 | F |
+| NASA data layers (three or more kinds) | Q1, Q2, Q4 | P0 | C |
+| Palm 3D map, layer switching | Q1, Q8 | P0 | D, F |
+| Route guidance (obstacle-avoiding route, floor arrows) | Q7 | P0 | D |
+| Curiosity's actual traverse shown (route validation) | Q1, Q7 | P0 | C, D |
+| Status panel (radiation, elevation, suit temperature) | Q6 | P0 | F, E |
+| Emergency mode (red flashing screen) | Q6 | P0 | F, E |
+| Real-time environment analysis (field obstacle layer, the demo kick) | Q5, Q7 | P1 | A |
+| Voice commands (STT) and voice guidance (TTS) | Q10 | P1 | E |
+| Rover point-of-view photos (real Curiosity photos) | Q9 | P1 | F, C |
+| Night vision | No basis in the text | P2 | A, F |
+| Video recording mode | No basis in the text | P2 | F |
 
-야간투시와 영상촬영을 P2로 둔 이유: Quest 브라우저에서 WebXR 세션이 패스스루 카메라 영상에 접근하는 기능(`camera-access`)이 거부된다는 사용자 보고가 있습니다 ([Meta 커뮤니티 포럼](https://communityforums.atmeta.com/discussions/Questions_Discussions/request-webxr-raw-camera-access-camera-access-feature-in-quest-browser/1367463), 검색 요약으로 확인, 기기에서 확인 필요). 영상을 직접 필터링하거나 녹화하는 방식이 안 될 수 있습니다.
-
----
-
-## 4. 시스템 구조
-
-```
-[NASA 데이터] --PC에서 미리 가공--> 레이어 파일 (높이 격자, 이미지, JSON) --+
-                                                                            v
-[Arduino 온도 센서] --USB 시리얼--> [Jetson Orin Nano Super] <--WebSocket--> [Quest 3 브라우저 (WebXR 앱)]
-                                      - 센서 수집, 위험 판정                   - 레이어 지도, 경로, HUD
-                                      - 음성 인식 -> 명령 해석 -> 음성 합성     - 현장 장애물 스캔
-                                      - 웹앱 서빙 (HTTPS)                      - 마이크 입력, 음성 출력
-```
-
-- **웹앱**: Three.js + WebXR, Vite로 빌드합니다. 모듈끼리는 공용 이벤트 버스로만 대화합니다. 형식은 [docs/INTERFACES.md](docs/INTERFACES.md)에 있습니다.
-- **NASA 데이터**: 해커톤 중에 PC에서 미리 가공해 정적 파일로 넣습니다. 헤드셋이 원본 데이터를 실시간으로 내려받지 않습니다.
-- **목(mock) 모드**: 모든 모듈은 가짜 데이터로 혼자 돌아가야 합니다. 헤드셋이나 젯슨이 없어도 PC 브라우저에서 개발할 수 있습니다.
-
-### 저장소 구조
-
-```
-web/                 웹앱 (Vite + Three.js)
-  src/core/          B  XR 세션, 이벤트 버스, 젯슨 연결
-  src/scan/          A  현장 장애물 스캔
-  src/map/           D  손바닥 지도, 레이어 표시
-  src/nav/           D  경로 탐색, 바닥 화살표
-  src/hud/           F  상태창, 비상 모드, 레이어 전환 UI
-  src/mock/          B  목 데이터 (각자 자기 것 추가)
-  public/data/       C  가공된 레이어 파일
-data-pipeline/       C  NASA 데이터 가공 스크립트 (Python)
-jetson/              E  허브 서버, 음성, 센서 수집
-arduino/             E  온도 센서 펌웨어
-docs/                문서
-design-system/       포인트 디자인 시스템 (HUD 색·글꼴의 원본)
-```
+Why night vision and recording are P2: users report that the Quest browser denies the feature that lets a WebXR session access passthrough camera frames (`camera-access`) ([Meta community forum](https://communityforums.atmeta.com/discussions/Questions_Discussions/request-webxr-raw-camera-access-camera-access-feature-in-quest-browser/1367463), confirmed by search summary, needs checking on the device). Filtering or recording the video directly may not be possible.
 
 ---
 
-## 5. 역할 한눈에
+## 4. System architecture
 
-자세한 내용은 [docs/ROLES.md](docs/ROLES.md)에 있습니다. 담당자는 [ROLES.md](docs/ROLES.md)의 표에 적혀 있습니다.
+```
+[NASA data] --preprocessed on a PC--> layer files (height grid, images, JSON) --+
+                                                                                v
+[Arduino temperature sensor] --USB serial--> [Jetson Orin Nano Super] <--WebSocket--> [Quest 3 browser (WebXR app)]
+                                              - sensor reading, hazard decision        - layered map, route, HUD
+                                              - speech recognition -> intent -> speech  - field obstacle scan
+                                              - web app serving (HTTPS)                 - microphone in, audio out
+```
 
-| 슬롯 | 담당 | 역할 | 한 줄 설명 |
+- **Web app**: Three.js + WebXR, built with Vite. Modules talk only through a shared event bus. Formats are in [docs/INTERFACES.md](docs/INTERFACES.md).
+- **NASA data**: preprocessed on a PC during the hackathon and shipped as static files. The headset does not download source data in real time.
+- **Mock mode**: every module must run alone on fake data. You can develop in a PC browser without the headset or the Jetson.
+
+### Repository layout
+
+```
+web/                 web app (Vite + Three.js)
+  src/core/          B  XR session, event bus, Jetson link
+  src/scan/          A  field obstacle scan
+  src/map/           D  palm map, layer display
+  src/nav/           D  path finding, floor arrows
+  src/hud/           F  status panel, emergency mode, layer switching UI
+  src/mock/          B  mock data (everyone adds their own)
+  public/data/       C  processed layer files
+data-pipeline/       C  NASA data processing scripts (Python)
+jetson/              E  hub server, voice, sensor reading
+arduino/             E  temperature sensor firmware
+docs/                documents
+```
+
+---
+
+## 5. Roles at a glance
+
+Details are in [docs/ROLES.md](docs/ROLES.md), which also lists the owners.
+
+| Slot | Owner | Role | One-line description |
 |---|---|---|---|
-| A | 이효제 | 실시간 환경 분석 | 헤드셋 깊이 센서로 눈앞 장애물 지도를 만든다 |
-| B | 차유근 | XR 코어 · 통합 리드 | 뼈대를 만들고 모두의 코드를 하나로 합친다 |
-| C | 김건민 | NASA 데이터 레이어 · 미션 시나리오 | NASA 데이터를 구해 지도 레이어로 가공한다 |
-| D | 안현상 | 지도 · 길안내 | 손바닥 지도를 띄우고 경로를 계산해 화살표를 깐다 |
-| E | 김도훈 | 젯슨 허브 · 음성 · 센서 | 젯슨에서 음성 비서와 온도 센서를 돌린다 |
-| F | 길윤석 | HUD UI · 데모 | 상태창과 비상 화면을 만들고 데모 영상을 찍는다 |
+| A | 이효제 | Real-time environment analysis | Builds a map of nearby obstacles from the headset depth sensor |
+| B | 차유근 | XR core · integration lead | Builds the skeleton and merges everyone's code into one |
+| C | 김건민 | NASA data layers · mission scenario | Gets NASA data and processes it into map layers |
+| D | 안현상 | Map · route guidance | Shows the palm map, computes the route and lays the arrows |
+| E | 김도훈 | Jetson hub · voice · sensor | Runs the voice assistant and the temperature sensor on the Jetson |
+| F | 길윤석 | HUD UI · demo | Builds the status panel and the emergency screen, shoots the demo video |
 
 ---
 
-## 6. 48시간 일정
+## 6. 48-hour schedule
 
-해커톤 일정은 11월 14~15일입니다 ([spaceappschallenge.org/2026](https://www.spaceappschallenge.org/2026/), 검색 요약으로 확인).
+The hackathon is on November 14–15 ([spaceappschallenge.org/2026](https://www.spaceappschallenge.org/2026/), confirmed by search summary).
 
-| 시간 | 할 일 | 끝났다는 기준 |
+| Time | To do | Done when |
 |---|---|---|
-| 0~3h | 지형 파일(3.6GB) 다운로드 시작, 인터페이스 확정, 뼈대 올리기 | 헤드셋에서 빈 AR 화면이 뜬다 |
-| 3~24h | 각자 모듈 개발 (목 모드) | 각 모듈이 가짜 데이터로 혼자 돈다 |
-| ~12h | **C가 지형 레이어 1종을 먼저 넘긴다** | D의 지도에 실제 화성 지형이 보인다 |
-| 24~36h | 통합 | 데모 흐름 1~4가 헤드셋에서 이어진다 |
-| 36~44h | 리허설, 데모 영상 촬영 | 영상 파일이 있다 |
-| 44~48h | 제출 | 제출 완료 |
+| 0–3 h | Start the terrain file (3.6 GB) download, fix the interfaces, put up the skeleton | An empty AR screen shows on the headset |
+| 3–24 h | Each module developed (mock mode) | Each module runs alone on fake data |
+| ~12 h | **C hands over one terrain layer first** | Real Martian terrain shows on D's map |
+| 24–36 h | Integration | Demo flow steps 1–4 run end to end on the headset |
+| 36–44 h | Rehearsal, demo video shoot | A video file exists |
+| 44–48 h | Submission | Submitted |
 
-24시간 시점에 P0가 안 된 것이 있으면 P1·P2 작업을 멈추고 P0를 돕습니다.
+If any P0 item is not done at the 24-hour mark, P1 and P2 work stops and helps P0.
 
 ---
 
-## 7. 위험과 대비
+## 7. Risks and mitigations
 
-| 위험 | 대비 | 담당 |
+| Risk | Mitigation | Owner |
 |---|---|---|
-| NASA 데이터 가공이 늦으면 지도가 비어 버린다 | 광학 타일은 바로 받을 수 있으니 먼저 넘긴다. 지형은 12시간 안에 | C |
-| 지형과 주행 기록의 높이 기준이 다를 수 있다 | 지형을 받은 직후 정차 지점에서 높이를 비교해 보정값을 구한다 | C |
-| 지형 높이 값은 3.6GB 파일에만 있다 | 시작 직후 다운로드를 건다. 일부만 잘라 받을 수 있는지 확인한다 | C |
-| 방사선 자료는 원시 자료에 가까워 해석이 오래 걸릴 수 있다 | 6시간 안에 안 되면 발표된 값을 고정값으로 쓴다 | C |
-| 대기(REMS) 자료는 확인하지 못했다 | 없어도 출품할 수 있게 상태창에서 필수로 두지 않는다 | C, F |
-| WebXR은 HTTPS(또는 localhost)에서만 켜진다 ([MDN](https://developer.mozilla.org/docs/Web/API/Navigator/xr)) | 첫 3시간 안에 헤드셋에서 접속되는지 확인한다 | B |
-| 깊이·메쉬 데이터가 기대대로 안 나올 수 있다 | 첫 3시간 안에 기기에서 확인한다. 안 되면 A는 평면 감지로 낮춘다 | A |
-| 손 추적, 마이크 입력이 브라우저에서 되는지 확인하지 못했다 | 첫 3시간 안에 기기에서 확인한다 | D, E |
-| 제출물 요건(영상, 설명문, 마감 시각)을 모른다 | 시작 직후 공식 페이지에서 확인해 팀에 공유한다 | C |
-| 통합이 막판에 몰린다 | 인터페이스 변경은 B 승인 후에만 한다 | B |
+| If NASA data processing is late the map is empty | Optical tiles can be fetched right away, so hand those over first. Terrain within 12 hours | C |
+| The terrain file and the traverse record may use different elevation references | **Resolved.** They agree: mean difference −0.17 m at 178 rover stops. No correction is used | C |
+| Terrain elevation values exist only in the 3.6 GB file | **Resolved.** The server accepts partial requests; only the map window is read | C |
+| Radiation data is close to raw and may take long to interpret | **Resolved.** Dose rates for sol 4200 are extracted from the RAD file (154 µGy/day on average) | C |
+| Atmospheric (REMS) data could not be verified | **Resolved.** Pressure and air temperature for sol 4200 are in `env.json` | C, F |
+| WebXR only works on HTTPS (or localhost) ([MDN](https://developer.mozilla.org/docs/Web/API/Navigator/xr)) | Confirm the headset can connect within the first 3 hours | B |
+| Depth and mesh data may not come out as expected | Check on the device within the first 3 hours. If not, A falls back to plane detection | A |
+| Hand tracking and microphone input in the browser are unverified | Check on the device within the first 3 hours | D, E |
+| Submission requirements (video, description, deadline) are unknown | **Resolved.** Read from the official guide and summarized at the top of [docs/SUBMISSION.md](docs/SUBMISSION.md). Demo: 30 s video or 7 slides; deadline Nov 15, 11:59 p.m. local | C |
+| Integration piles up at the end | Interface changes only after B approves | B |
 
 ---
 
-## 8. NASA 데이터
+## 8. NASA data
 
-Resources 탭이 공개되어 직접 접속해 확인했습니다. 자세한 분석과 주소는 [docs/RESOURCES.md](docs/RESOURCES.md)에 있습니다.
+The Resources tab was published and we checked it directly. Detailed analysis and addresses are in [docs/RESOURCES.md](docs/RESOURCES.md).
 
-| 순위 | 레이어 | 종류 (Q4) | 임무 · 장비 | 출처 |
+| Rank | Layer | Kind (Q4) | Mission · instrument | Source |
 |---|---|---|---|---|
-| 1 | 지형 높이 | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | [USGS Gale 1m DEM](https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m) |
-| 2 | 경사도 | (계산) | 위와 같음 | 지형에서 계산 |
-| 3 | 광학 영상 | optical | MRO · HiRISE | [Mars Trek](https://trek.nasa.gov/mars/) |
-| 4 | 열 영상 (야간) | thermal | Mars Odyssey · THEMIS | [Mars Trek](https://trek.nasa.gov/mars/) |
-| 5 | 로버 주행 기록 | (지상 실측) | MSL Curiosity | [NASA 주행 기록](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json) |
-| 6 | 로버 시점 사진 | optical (지상) | MSL Curiosity | NASA 원본 사진 |
-| 7 | 방사선 | radiation | MSL Curiosity · RAD | [PDS](https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/) |
-| 8 | 지질 단위 | geologic | USGS SIM 3292 | [Mars Trek](https://trek.nasa.gov/mars/) |
+| 1 | Terrain elevation | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | [USGS Gale 1m DEM](https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m) |
+| 2 | Slope | (derived) | Same as above | Computed from terrain |
+| 3 | Optical image | optical | MRO · HiRISE | [Mars Trek](https://trek.nasa.gov/mars/) |
+| 4 | Thermal image (night) | thermal | Mars Odyssey · THEMIS | [Mars Trek](https://trek.nasa.gov/mars/) |
+| 5 | Rover traverse record | (ground truth) | MSL Curiosity | [NASA traverse record](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json) |
+| 6 | Rover point-of-view photos | optical (ground) | MSL Curiosity | NASA raw images |
+| 7 | Radiation | radiation | MSL Curiosity · RAD | [PDS](https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/) |
+| 8 | Air pressure and temperature | atmospheric | MSL Curiosity · REMS | [PDS](https://atmos.nmsu.edu/PDS/data/mslrem_1001/) |
+| 9 | Geologic unit | geologic | USGS SIM 3292 | [Mars Trek](https://trek.nasa.gov/mars/) |
 
-- 1~6은 주소와 형식을 직접 확인했습니다. 7은 폴더 구조만 확인했고 값 추출은 해 보지 못했습니다.
-- 서로 다른 임무가 4개입니다 (MRO, Mars Odyssey, MGS, MSL Curiosity).
+- All of these are processed and in `web/public/data/`. What each file is, how it was made and how far it can be trusted is in [docs/DATA.md](docs/DATA.md).
+- Four different NASA missions are involved (MRO, Mars Odyssey, MGS, MSL Curiosity).
 
-**리소스 5개를 어떻게 쓰나**
+**How the five resources are used**
 
-| 리소스 | 쓰임 |
+| Resource | Use |
 |---|---|
-| Mars Trek | 광학·열 타일의 주 공급원 |
-| USGS-NASA Planetary Geologic Mapping Program | 지점의 지질 단위 표시 |
-| Curiosity 경로 지도 예시 | 경로 지도 디자인 참고 |
-| NASA Worldview | 레이어 전환 화면 참고 (지구 관측 도구이며 화성 데이터 출처가 아님) |
-| Mars Perseverance Raw Images Gallery | 같은 방식의 Curiosity 사진을 씀 (Perseverance는 다른 크레이터에 있음) |
+| Mars Trek | Main source of optical and thermal tiles |
+| USGS-NASA Planetary Geologic Mapping Program | Shows the geologic unit of the site |
+| Curiosity route map example | Design reference for the route map |
+| NASA Worldview | Reference for the layer switching screen (an Earth observation tool, not a source of Mars data) |
+| Mars Perseverance Raw Images Gallery | We use Curiosity photos served the same way (Perseverance is in a different crater) |
 
-**알아 둘 한계**
+**Limits to keep in mind**
 
-- Mars Trek의 지형 타일은 그림이라 높이 값을 얻을 수 없습니다. 높이는 USGS 파일에서만 나옵니다.
-- 열 영상은 약 81m/픽셀이라 우리 지도 범위에서 가로 25픽셀이고, 밝기는 온도가 아닌 상대 밝기입니다.
-- 광학 영상은 8비트 회색조입니다. 색을 입히면 발표에서 원본이 회색조라고 밝힙니다.
-- 지형 파일과 주행 기록의 높이 기준은 같습니다(정차 지점 178곳에서 차이 평균 −0.17m). 지형과 광학은 4m 이내로 겹칩니다. 확인 방법은 [docs/DATA.md](docs/DATA.md) 6장.
-- 전 지구 지질도는 우리 지점 전체가 한 단위(`Htu`)로 나옵니다.
-
----
-
-## 9. 협업 규칙
-
-1. **자기 폴더만 고칩니다.** 남의 폴더를 고쳐야 하면 그 담당자에게 요청합니다.
-2. **모듈끼리는 이벤트로만 대화합니다.** 다른 모듈의 함수를 직접 부르지 않습니다.
-3. **인터페이스를 바꾸려면 B에게 먼저 말합니다.** [docs/INTERFACES.md](docs/INTERFACES.md)를 고친 뒤 코드를 고칩니다.
-4. **브랜치**: `feat/<슬롯>-<내용>` (예: `feat/d-palm-map`). `main`에는 B가 합칩니다.
-5. **작게, 자주 올립니다.** 최소 3시간에 한 번은 푸시합니다.
-6. **AI에게는 필요한 것만 줍니다.** `docs/INTERFACES.md`와 자기 폴더만 주면 토큰이 덜 듭니다.
+- Mars Trek terrain tiles are pictures, so no elevation values can be read from them. Elevation comes only from the USGS file.
+- The thermal image is about 81 m per pixel, so 25 pixels across our map extent, and its brightness is relative brightness, not temperature.
+- The optical image is 8-bit grayscale. If we colorize it, we state in the presentation that the source is grayscale.
+- The terrain file and the traverse record share an elevation reference (mean difference −0.17 m at 178 rover stops), and terrain and optical overlap to within 4 m. How this was checked is in [docs/DATA.md](docs/DATA.md) section 6.
+- The radiation and weather values are a recording of one Martian day (sol 4200), not a live feed.
+- The global geologic map shows our whole site as a single unit (`Htu`).
 
 ---
 
-## 10. 이 문서의 확인 수준
+## 9. Collaboration rules
 
-- 챌린지 요구사항: 팀장이 준 원문에서 인용했습니다 ([docs/CHALLENGE.md](docs/CHALLENGE.md)).
-- NASA 데이터의 주소, 형식, 해상도, 좌표: 직접 접속해 확인했습니다 (2026-11-13). 항목별 확인 수준은 [docs/RESOURCES.md](docs/RESOURCES.md)에 표시했습니다.
-- 제출물 요건: 공식 사이트 접속이 실패해 모릅니다.
-- 대기(REMS) 자료, 방사선 값 추출 방법: 확인하지 못했습니다.
-- 해커톤 일정, Quest 브라우저 기능, 게디즈 발리스의 과학적 발견: 검색 결과 요약으로만 확인했습니다.
-- 우선순위, 역할 분담, 일정표, 토큰 소모 예상: 사실이 아니라 제안입니다. 팀이 바꿀 수 있습니다.
+1. **Edit only your own folder.** If someone else's folder needs a change, ask its owner.
+2. **Modules talk only through events.** Do not call another module's functions directly.
+3. **Tell B before changing an interface.** Edit [docs/INTERFACES.md](docs/INTERFACES.md) first, then the code.
+4. **Branches**: `feat/<slot>-<topic>` (for example `feat/d-palm-map`). B merges into `main`.
+5. **Push small and often.** At least once every 3 hours.
+6. **Give the AI only what it needs.** `docs/INTERFACES.md` and your own folder are enough and cost fewer tokens.
 
 ---
 
-## 11. 실행 방법
+## 10. Verification level of this document
 
-Node.js 20.19 이상(22 계열은 22.12 이상)이 필요합니다. 웹앱은 `web/`에 있습니다.
+- Challenge requirements: quoted from the text the team lead provided ([docs/CHALLENGE.md](docs/CHALLENGE.md)).
+- Addresses, formats, resolutions and coordinates of NASA data: checked by connecting directly (2026-11-13). The level per item is marked in [docs/RESOURCES.md](docs/RESOURCES.md).
+- Submission requirements: read from the official Project Submission Guide (2026-11-14).
+- Radiation (RAD), atmospheric (REMS) data, terrain alignment and the sulfur discovery at Gediz Vallis: checked against the source files and the JPL articles (2026-11-14). Details in [docs/DATA.md](docs/DATA.md) and [docs/RESOURCES.md](docs/RESOURCES.md) section 7.
+- Hackathon schedule and Quest browser capabilities: confirmed only from search result summaries.
+- **Not checked on the headset:** the data files were loaded by the web app in a desktop browser only.
+- Priorities, role split, schedule and expected token use: proposals, not facts. The team can change them.
+
+---
+
+## 11. How to run
+
+Node.js 20.19 or later is required (22.12 or later on the 22 line). The web app is in `web/`.
 
 ```bash
 cd web
 npm install
-npm run dev        # https://localhost:5173/ (자체 서명 인증서)
+npm run dev        # https://localhost:5173/ (self-signed certificate)
 ```
 
-**PC에서 목 모드** — 헤드셋·젯슨·실데이터 없이 모든 이벤트가 흐릅니다.
+**Mock mode on a PC** — every event flows without the headset, the Jetson or real data.
 
-- `https://localhost:5173/?mock=1` 을 엽니다. 인증서 경고는 "고급 → 계속"으로 넘어갑니다.
-- 왼쪽 위 창에 버스에 흐르는 이벤트와 횟수가 보입니다. 키보드 `N` 안내, `H` 기지, `S` 그만, `L` 열 지도, `T` 온도 급상승.
-- HUD 글자는 기본이 영어(목업 기준)이고, `?lang=ko` 를 붙이면 한국어로 나옵니다. HUD의 크기·위치·점멸 주기는 `web/src/hud/config.js` 의 숫자로 조정합니다.
-- 일부만 가짜로 돌릴 수 있습니다: `?mock=link,hazard` (부분: `data`, `link`, `hazard`). `?mockSpeed=10` 은 시간표를 10배 빠르게 돌립니다.
+- Open `https://localhost:5173/?mock=1`. Get past the certificate warning with "Advanced → Proceed".
+- The top-left panel shows the events on the bus and their counts. Keyboard: `N` guide, `H` base, `S` stop, `L` thermal map, `T` temperature spike.
+- HUD text is English by default (as in the mockup); add `?lang=ko` for Korean. HUD size, position and flash period are tuned with the numbers in `web/src/hud/config.js`.
+- Parts can be mocked separately: `?mock=link,hazard` (parts: `data`, `link`, `hazard`). `?mockSpeed=10` runs the timeline ten times faster.
 
-**헤드셋에서 접속** — PC와 헤드셋을 같은 Wi-Fi에 둡니다.
+**From the headset** — put the PC and the headset on the same Wi-Fi.
 
-1. `npm run dev` 가 찍는 `Network: https://<PC 주소>:5173/` 주소를 헤드셋 브라우저에 입력합니다.
-2. 인증서 경고를 넘긴 뒤 **AR 시작**을 누릅니다. 젯슨 없이 볼 때는 주소 뒤에 `?mock=1` 을 붙입니다.
-3. 젯슨 주소는 `?jetson=<주소>:8443` 으로 줍니다. 기본값은 페이지와 같은 호스트의 8443 포트입니다. 젯슨도 자체 서명 인증서를 쓰면, 헤드셋 브라우저에서 `https://<젯슨 주소>:8443/` 을 한 번 열어 경고를 넘겨야 WebSocket이 붙습니다.
+1. Enter the `Network: https://<PC address>:5173/` address printed by `npm run dev` in the headset browser.
+2. Get past the certificate warning and press **Start AR** (the button labelled `AR 시작`). Without a Jetson, append `?mock=1` to the address.
+3. Give the Jetson address with `?jetson=<address>:8443`. The default is port 8443 on the same host as the page. If the Jetson also uses a self-signed certificate, open `https://<Jetson address>:8443/` once in the headset browser and accept the warning, or the WebSocket will not connect.
 
-**기기 점검 페이지** — 헤드셋 브라우저에서 `https://<PC 주소>:5173/check.html` 을 엽니다. **AR 점검 시작**을 누르고 10초 동안 방을 둘러보며 두 손을 들면, 허용된 세션 기능과 손·깊이·메쉬·평면 수신 여부가 표로 나옵니다. 마이크는 **마이크 점검** 버튼으로 따로 확인합니다.
+**Device check page** — open `https://<PC address>:5173/check.html` in the headset browser. Press **Start AR check** (`AR 점검 시작`), look around the room for 10 seconds and raise both hands: a table shows the granted session features and whether hands, depth, mesh and planes were received. The microphone is checked separately with the **Microphone check** (`마이크 점검`) button.
 
-**빌드와 테스트**
+**Build and test**
 
 ```bash
-npm run build      # web/dist/ 에 정적 파일 (젯슨에서 서빙할 것)
-npm run smoke      # 개발 서버가 떠 있을 때, 목 모드 이벤트 흐름 확인 (Playwright 필요)
+npm run build      # static files in web/dist/ (served by the Jetson)
+npm run smoke      # with the dev server running, checks the mock-mode event flow (needs Playwright)
 ```
 
-모듈 담당자는 자기 폴더의 `index.js` 에서 시작합니다 (`web/src/scan/`, `map/`, `nav/`, `hud/`). `init(ctx)` 와 `update(frame)` 이 받는 값은 각 파일 맨 위 주석에 있습니다.
+Module owners start from `index.js` in their own folder (`web/src/scan/`, `map/`, `nav/`, `hud/`). What `init(ctx)` and `update(frame)` receive is described in the comment at the top of each file.

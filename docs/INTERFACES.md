@@ -1,52 +1,54 @@
-# 인터페이스 계약
+# Interface contract
 
-모듈끼리 주고받는 데이터의 형식입니다. **이 문서가 코드보다 먼저입니다.** 형식을 바꾸려면 B에게 말하고, 이 문서를 고친 뒤 코드를 고칩니다.
+The formats of the data modules exchange. **This document comes before the code.** To change a format, tell B, edit this document, then edit the code.
 
-AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
+When you give work to an AI, this file and your own folder are enough.
 
-> 여기 나오는 숫자(격자 크기, 온도 기준 등)는 모두 시작값입니다. 해커톤 첫 3시간에 팀이 확정합니다.
+> Every number here (grid size, temperature thresholds and so on) is a starting value. The team fixes them in the first 3 hours of the hackathon.
+>
+> All text in the project is English: labels, alert messages, voice commands and spoken guidance.
 
-## 목차
+## Contents
 
-1. [좌표와 단위](#1-좌표와-단위)
-2. [데이터 파일 (C가 만든다)](#2-데이터-파일-c가-만든다)
-3. [브라우저 이벤트](#3-브라우저-이벤트)
-4. [젯슨 ↔ 헤드셋 WebSocket](#4-젯슨--헤드셋-websocket)
-5. [아두이노 → 젯슨 시리얼](#5-아두이노--젯슨-시리얼)
-6. [음성 명령 목록](#6-음성-명령-목록)
+1. [Coordinates and units](#1-coordinates-and-units)
+2. [Data files (made by C)](#2-data-files-made-by-c)
+3. [Browser events](#3-browser-events)
+4. [Jetson ↔ headset WebSocket](#4-jetson--headset-websocket)
+5. [Arduino → Jetson serial](#5-arduino--jetson-serial)
+6. [Voice commands](#6-voice-commands)
 
 ---
 
-## 1. 좌표와 단위
+## 1. Coordinates and units
 
-좌표계가 둘 있습니다. 헷갈리면 통합 때 가장 많이 깨지는 부분입니다.
+There are two coordinate systems. Mixing them up is what breaks most often at integration.
 
-| 이름 | 무엇 | 단위 | 누가 쓰나 |
+| Name | What | Unit | Used by |
 |---|---|---|---|
-| 지도 격자 | 화성 지도의 칸. `[col, row]`, 남서쪽 구석이 `[0, 0]` | 칸 | C, D |
-| 방 좌표 | WebXR `local-floor` 기준 공간. `[x, y, z]`, y가 위쪽 | 미터 | A, D, F |
+| Map grid | Cells of the Mars map. `[col, row]`, the south-west corner is `[0, 0]` | cells | C, D |
+| Room coordinates | WebXR `local-floor` reference space. `[x, y, z]`, y is up | meters | A, D, F |
 
-- 두 좌표계를 잇는 변환은 **D만** 만듭니다 (`web/src/nav/`). 다른 모듈은 변환을 직접 계산하지 않습니다.
-- 변환 기준은 `layerset.json`의 `demo` 항목입니다. 지도의 일부 구역을 방 바닥 크기로 축소해 대응시킵니다.
-- 화성 경위도 ↔ 지도 격자 변환은 **C만** 합니다. 브라우저에는 격자 좌표만 넘어옵니다. 1도는 약 59,274.7m입니다 (반지름 3,396,190m 기준).
-- 시간은 모두 밀리초 단위 Unix 시각(`Date.now()`)입니다.
-- 온도는 섭씨(`C`), 거리는 미터(`M`)를 필드 이름 끝에 붙입니다. 예: `suitTempC`, `distanceM`.
+- **Only D** writes the conversion between the two (`web/src/nav/`). Other modules do not compute it themselves.
+- The conversion is defined by the `demo` entry of `layerset.json`. A region of the map is scaled down to the size of the room floor.
+- **Only C** converts Mars longitude/latitude ↔ map grid. The browser only receives grid coordinates. One degree is about 59,274.7 m (radius 3,396,190 m).
+- All times are Unix time in milliseconds (`Date.now()`).
+- Field names end with the unit: Celsius (`C`) for temperature, meters (`M`) for distance. Examples: `suitTempC`, `distanceM`.
 
 ---
 
-## 2. 데이터 파일 (C가 만든다)
+## 2. Data files (made by C)
 
-위치: `web/public/data/`
+Location: `web/public/data/`
 
-### 2.1 `layerset.json` — 레이어 목록
+### 2.1 `layerset.json` — layer list
 
-아래 값은 [RESOURCES.md](RESOURCES.md)의 분석 결과로 채운 것입니다. `null`은 C가 파일을 가공한 뒤 채웁니다.
+The values below come from the analysis in [RESOURCES.md](RESOURCES.md). C fills in each `null` after processing the files.
 
 ```json
 {
   "site": {
     "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
-    "scienceGoal": "황이 든 돌 조사",
+    "scienceGoal": "Survey sulfur-bearing rocks",
     "lat": -4.78681191,
     "lon": 137.4075342,
     "bounds": { "west": 137.39026, "east": 137.42481, "south": -4.80409, "north": -4.76954 },
@@ -64,7 +66,7 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
       "unit": "m",
       "min": null,
       "max": null,
-      "label": "지형 높이",
+      "label": "Terrain elevation",
       "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
     },
     {
@@ -77,7 +79,7 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
       "unit": "deg",
       "min": null,
       "max": null,
-      "label": "경사도",
+      "label": "Slope",
       "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m"
     },
     {
@@ -87,7 +89,7 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
       "instrument": "HiRISE",
       "file": "optical.png",
       "format": "image",
-      "label": "광학 영상",
+      "label": "Optical image",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
     },
     {
@@ -97,13 +99,13 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
       "instrument": "THEMIS",
       "file": "thermal.png",
       "format": "image",
-      "label": "열 영상 (야간)",
+      "label": "Thermal image (night)",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
     }
   ],
   "waypoints": [
-    { "id": "base", "label": "기지", "cell": [0, 0] },
-    { "id": "site1", "label": "황 암석 지대", "cell": [256, 256] }
+    { "id": "base", "label": "Base", "cell": [0, 0] },
+    { "id": "site1", "label": "Sulfur stone field", "cell": [256, 256] }
   ],
   "demo": {
     "regionCells": [246, 246, 266, 266],
@@ -112,43 +114,43 @@ AI에게 작업을 시킬 때 이 파일과 자기 폴더만 주면 됩니다.
 }
 ```
 
-- `grid`는 2,048m × 2,048m를 4m 칸 512×512로 나눈 것입니다. 원본 지형은 1m 해상도라 더 촘촘하게도 만들 수 있습니다. 헤드셋 성능을 보고 B, C, D가 정합니다.
-- `waypoints`의 `base` 좌표와 `demo`는 자리만 잡은 값입니다. C와 D가 확정합니다.
-- 위 예시의 `site1`은 격자 한가운데지만, **실제 파일의 `site1`은 `[275, 272]`입니다** (황 암석을 실제로 발견한 자리, [DATA.md](DATA.md) 2장). `base`, `site1`, `demo`의 값은 코드에 직접 쓰지 말고 `layerset.json`에서 읽습니다.
-- 실제 파일에는 `labelEn`, `credit`, `rmc`, `sol`, `scienceGoalEn` 같은 추가 필드가 있습니다. 읽지 않아도 동작합니다.
+- `grid` divides 2,048 m × 2,048 m into 512×512 cells of 4 m. The source terrain is 1 m resolution, so a finer grid is possible. B, C and D decide after seeing headset performance.
+- The `base` coordinates in `waypoints` and `demo` are placeholders. C and D fix them.
+- In the example above `site1` is the center of the grid, but **in the real file `site1` is `[275, 272]`**, the place where the sulfur was actually found ([DATA.md](DATA.md) section 2). Read `base`, `site1` and `demo` from `layerset.json`; do not hard-code them.
+- The real file has a few extra fields (`credit`, `rmc`, `sol`). Code works without reading them.
 
-필드 설명:
+Fields:
 
-| 필드 | 뜻 |
+| Field | Meaning |
 |---|---|
-| `site.lat`, `site.lon` | 기준점 좌표 (남위는 음수, 동경) |
-| `site.bounds` | 지도 범위. 모든 레이어를 이 범위로 잘라 맞춘다 |
-| `site.geologicUnit` | 이 지점의 지질 단위. 상태창과 범례에 표시 |
-| `grid` | 모든 레이어가 공유하는 격자. 레이어마다 해상도가 달라도 C가 이 격자에 맞춰 낸다 |
-| `layers[].kind` | 원문 Q4의 데이터 종류: `optical`, `thermal`, `spectral`, `topographic`, `geophysical`, `atmospheric`, `radiation`, `chemical`. 계산으로 만든 것은 `derived` |
-| `layers[].format` | `float32`(숫자 격자) 또는 `image`(색 입힌 이미지) |
-| `layers[].min`, `max` | 숫자 격자의 값 범위. 색 입히기와 범례에 쓴다 |
-| `layers[].sourceUrl` | 원본 데이터 주소. 제출 설명문에 그대로 쓴다. **비워 두지 않는다** |
-| `waypoints` | 기지와 조사 지점. `cell`은 지도 격자 좌표 |
-| `demo.regionCells` | 방에 대응시킬 지도 구역 `[col0, row0, col1, row1]` |
-| `demo.roomSizeM` | 그 구역을 축소해 놓을 방 바닥 크기 `[가로, 세로]` |
+| `site.lat`, `site.lon` | Reference point (south latitude is negative, east longitude) |
+| `site.bounds` | Map extent. Every layer is cropped to it |
+| `site.geologicUnit` | Geologic unit of the site. Shown in the status panel and the legend |
+| `grid` | The grid all layers share. C resamples every layer to it whatever its source resolution |
+| `layers[].kind` | Data kind from challenge text Q4: `optical`, `thermal`, `spectral`, `topographic`, `geophysical`, `atmospheric`, `radiation`, `chemical`. Computed layers are `derived` |
+| `layers[].format` | `float32` (numeric grid) or `image` |
+| `layers[].min`, `max` | Value range of a numeric grid. Used for coloring and the legend |
+| `layers[].sourceUrl` | Address of the source data. Used as is in the submission text. **Never empty** |
+| `waypoints` | Base and survey site. `cell` is a map grid coordinate |
+| `demo.regionCells` | Map region mapped onto the room `[col0, row0, col1, row1]` |
+| `demo.roomSizeM` | Room floor size that region is scaled down to `[width, depth]` |
 
-### 2.2 숫자 격자 파일 (`*.bin`)
+### 2.2 Numeric grid files (`*.bin`)
 
-- `Float32Array`, 리틀 엔디언, 길이 `cols * rows`
-- 행 우선 순서: 인덱스 `row * cols + col`
-- 값이 없는 칸은 `NaN`
+- `Float32Array`, little endian, length `cols * rows`
+- Row-major order: index `row * cols + col`
+- Cells without a value are `NaN`
 
-### 2.3 이미지 파일 (`*.png`)
+### 2.3 Image files (`*.png`)
 
-- 크기는 **정사각형이고 한 변이 2의 거듭제곱(2,048 또는 4,096픽셀)** 입니다. 격자(`cols` × `rows`)와 같을 필요는 없습니다. 이미지는 `site.bounds` 전체를 덮고, 지도 위에 입힐 때 늘려 맞춥니다. (광학 타일을 이어 붙이면 가로가 약 3,220픽셀이라, 격자의 정수배로 맞출 수 없습니다.)
-- 위쪽이 북쪽
-- 광학(`optical`)과 열(`thermal`) 원본은 8비트 **회색조**입니다. 색은 HUD에서 입힙니다.
-- 열(`thermal`) 이미지의 밝기는 온도가 아니라 **상대 밝기**입니다. `min`, `max`를 쓰지 않고, 범례에 "상대 밝기"로 표시합니다.
+- **Square, with a power-of-two side (2,048 or 4,096 pixels).** It need not match the grid (`cols` × `rows`). The image covers all of `site.bounds` and is stretched onto the map. (Stitched optical tiles are about 3,220 pixels wide, which is not an integer multiple of the grid.)
+- North is up
+- The optical and thermal sources are 8-bit **grayscale**. The HUD applies color.
+- Brightness in the thermal image is **relative brightness**, not temperature. It has no `min` / `max`, and the legend says "relative brightness".
 
-### 2.4 `env.json` — 방사선·대기 시계열
+### 2.4 `env.json` — radiation and atmosphere time series
 
-Curiosity 관측 자료에서 뽑은 값입니다. 헤드셋은 이를 데모 시간에 맞춰 순서대로 재생합니다.
+Values extracted from Curiosity observations. The headset replays them in order over the demo time.
 
 ```json
 {
@@ -160,12 +162,12 @@ Curiosity 관측 자료에서 뽑은 값입니다. 헤드셋은 이를 데모 �
 }
 ```
 
-- `radiationUGyPerDay`는 필수입니다. RAD 파일에서 뽑지 못하면 발표된 값을 넣고 `radiationIsFixedValue`를 `true`로 둡니다. 상태창은 이때 "발표값"이라고 표시합니다.
-- `pressurePa`, `airTempK`는 선택입니다. 대기(REMS) 자료를 확인하지 못했으므로 `null`일 수 있습니다. 상태창은 `null`인 항목을 숨깁니다.
+- `radiationUGyPerDay` is required. If it cannot be extracted from the RAD files, put in a published value and set `radiationIsFixedValue` to `true`. The status panel then labels it "published value".
+- `pressurePa` and `airTempK` are optional. The atmospheric (REMS) data is unverified, so they may be `null`. The status panel hides `null` items.
 
-### 2.5 `traverse.json` — Curiosity 실제 주행 경로
+### 2.5 `traverse.json` — Curiosity's actual traverse
 
-NASA 주행 기록에서 지도 범위 안의 정차 지점만 추린 것입니다.
+Only the rover stops inside the map extent, from the NASA traverse record.
 
 ```json
 {
@@ -176,13 +178,13 @@ NASA 주행 기록에서 지도 범위 안의 정차 지점만 추린 것입니�
 }
 ```
 
-- `rmc`는 원본의 `RMC` 값(`site_drive`)입니다. 사진과 위치를 잇는 열쇠입니다.
-- `cell`은 C가 지도 격자 좌표로 바꿔 넣습니다.
-- D는 이 점들을 이어 "Curiosity가 실제로 간 길"로 지도에 그립니다.
+- `rmc` is the source's `RMC` value (`site_drive`). It is the key that links photos to positions.
+- C fills `cell` with the map grid coordinate.
+- D connects these points and draws them on the map as "the path Curiosity actually took".
 
-### 2.6 `pov.json` — 로버 시점 사진
+### 2.6 `pov.json` — rover point-of-view photos
 
-Curiosity가 그 자리에서 찍은 실제 사진입니다.
+Real photos Curiosity took at that spot.
 
 ```json
 {
@@ -200,41 +202,41 @@ Curiosity가 그 자리에서 찍은 실제 사진입니다.
 }
 ```
 
-`rmc`가 `traverse.json`의 점과 같으면 그 자리에서 찍은 사진입니다.
+A photo whose `rmc` equals a point in `traverse.json` was taken at that point.
 
 ---
 
-## 3. 브라우저 이벤트
+## 3. Browser events
 
-웹앱 안에서 모듈끼리 대화하는 방법입니다. B가 `web/src/core/bus.js`에 버스를 만듭니다.
+How modules talk inside the web app. B provides the bus in `web/src/core/bus.js`.
 
 ```js
 import { bus } from '../core/bus.js';
 
-bus.emit('layer:toggle', { id: 'thermal', visible: true });   // 보내기
-bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
+bus.emit('layer:toggle', { id: 'thermal', visible: true });   // send
+bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 ```
 
-| 이벤트 | 보내는 쪽 | 받는 쪽 | 언제 |
+| Event | Sender | Receiver | When |
 |---|---|---|---|
-| `layers:ready` | B (core) | D, F | `layerset.json`과 파일을 다 읽었을 때 한 번 |
-| `layer:toggle` | F, B(음성 전달) | D | 레이어를 켜거나 끌 때 |
-| `env:update` | B (core) | F | `env.json`의 다음 표본을 재생할 때 |
-| `hazard:update` | A | D, F | 현장 장애물 격자가 바뀔 때 (초당 2회 이하) |
-| `nav:request` | F, B(음성 전달) | D | 경로를 요청할 때 |
-| `nav:route` | D | F | 경로를 새로 계산했을 때 |
-| `telemetry:update` | B (젯슨에서 받음) | F | 슈트 온도가 올 때 (초당 1회) |
-| `alert:raise` | B (젯슨에서 받음), D | F, D | 위험이 생겼을 때 |
-| `alert:clear` | B (젯슨에서 받음), D | F, D | 위험이 풀렸을 때 |
-| `voice:command` | B (젯슨에서 받음) | 전 모듈 | 음성 명령을 알아들었을 때 |
-| `voice:say` | 전 모듈 | B (젯슨으로 보냄) | 음성으로 안내할 말이 있을 때 |
-| `mode:change` | F | 전 모듈 | 화면 모드가 바뀔 때 |
+| `layers:ready` | B (core) | D, F | Once, when `layerset.json` and the files are loaded |
+| `layer:toggle` | F, B (from voice) | D | A layer is turned on or off |
+| `env:update` | B (core) | F | The next `env.json` sample is replayed |
+| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second) |
+| `nav:request` | F, B (from voice) | D | A route is requested |
+| `nav:route` | D | F | A route was computed |
+| `telemetry:update` | B (from the Jetson) | F | Suit temperature arrives (once a second) |
+| `alert:raise` | B (from the Jetson), D | F, D | A hazard appears |
+| `alert:clear` | B (from the Jetson), D | F, D | A hazard is gone |
+| `voice:command` | B (from the Jetson) | All modules | A voice command was understood |
+| `voice:say` | All modules | B (to the Jetson) | Something should be said aloud |
+| `mode:change` | F | All modules | The display mode changes |
 
-### payload 형식과 목 데이터
+### Payload formats and mock data
 
 **`layers:ready`**
 ```json
-{ "layerSet": { "...": "layerset.json 내용 그대로" }, "grids": { "topo": "Float32Array", "slope": "Float32Array" }, "traverse": { "...": "traverse.json 내용 그대로" } }
+{ "layerSet": { "...": "layerset.json as is" }, "grids": { "topo": "Float32Array", "slope": "Float32Array" }, "traverse": { "...": "traverse.json as is" } }
 ```
 
 **`layer:toggle`**
@@ -246,9 +248,9 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
 ```json
 { "sol": 4312, "localTime": "12:00", "radiationUGyPerDay": 200, "radiationIsFixedValue": false, "pressurePa": null, "airTempK": null }
 ```
-`pressurePa`와 `airTempK`는 `null`일 수 있습니다. 위의 `200`은 목 데이터용 값입니다.
+`pressurePa` and `airTempK` may be `null`. The `200` above is a mock value.
 
-**`hazard:update`** — 방 좌표 기준 바닥 격자
+**`hazard:update`** — floor grid in room coordinates
 ```json
 {
   "originXZ": [-2.0, -2.0],
@@ -259,7 +261,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
   "ts": 1794000000000
 }
 ```
-`cells` 값: `0` 지나갈 수 있음, `1` 장애물, `255` 아직 모름. 인덱스는 `row * cols + col`, `originXZ`는 격자 `[0, 0]` 칸의 방 좌표입니다.
+`cells` values: `0` passable, `1` obstacle, `255` unknown. The index is `row * cols + col`; `originXZ` is the room coordinate of cell `[0, 0]`.
 
 **`nav:request`**
 ```json
@@ -276,23 +278,23 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
   "reason": ""
 }
 ```
-- `status`: `ok`, `blocked`(길 없음), `arrived`, `cancelled`
-- `points`: 방 좌표. 바닥 화살표를 놓을 자리
-- `distanceM`: 방 기준 남은 거리
+- `status`: `ok`, `blocked` (no path), `arrived`, `cancelled`
+- `points`: room coordinates where the floor arrows go
+- `distanceM`: remaining distance in the room
 
 **`telemetry:update`**
 ```json
 { "suitTempC": 24.5, "source": "arduino", "ts": 1794000000000 }
 ```
-`source`: `arduino` 또는 `mock`
+`source`: `arduino` or `mock`
 
 **`alert:raise`**
 ```json
-{ "id": "suit-temp", "level": "critical", "message": "슈트 온도가 위험 수준입니다", "ts": 1794000000000 }
+{ "id": "suit-temp", "level": "critical", "message": "Suit temperature is critical", "ts": 1794000000000 }
 ```
-- `level`: `warn`(상태창 색만 바뀜) 또는 `critical`(화면 붉은 점멸)
-- `id` 목록: `suit-temp`(E), `route-blocked`(D), `radiation`(B가 `env.json` 기준으로 판정), `link-lost`(B, 젯슨 연결 끊김)
-- `critical`이 오면 D는 `base`로 가는 경로를 새로 계산합니다.
+- `level`: `warn` (only the status panel color changes) or `critical` (red flashing screen)
+- `id` values: `suit-temp` (E), `route-blocked` (D), `radiation` (B, decided from `env.json`), `link-lost` (B, Jetson connection lost)
+- On `critical`, D computes a new route to `base`.
 
 **`alert:clear`**
 ```json
@@ -301,15 +303,15 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
 
 **`voice:command`**
 ```json
-{ "intent": "nav.start", "slots": { "targetId": "site1" }, "text": "조사 지점으로 안내해 줘" }
+{ "intent": "nav.start", "slots": { "targetId": "site1" }, "text": "Take me to the survey site" }
 ```
-`intent` 목록은 [6장](#6-음성-명령-목록)에 있습니다.
+The `intent` list is in [section 6](#6-voice-commands).
 
 **`voice:say`**
 ```json
-{ "text": "경로를 다시 계산했습니다", "priority": "normal" }
+{ "text": "Route recalculated", "priority": "normal" }
 ```
-`priority`: `normal` 또는 `urgent`(말하던 것을 끊고 먼저 말함)
+`priority`: `normal` or `urgent` (interrupts what is being said)
 
 **`mode:change`**
 ```json
@@ -319,81 +321,81 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // 받기
 
 ---
 
-## 4. 젯슨 ↔ 헤드셋 WebSocket
+## 4. Jetson ↔ headset WebSocket
 
-- 주소: `wss://<젯슨 주소>:8443/ws` (포트는 시작값)
-- 글자 메시지는 모두 아래 봉투 형식의 JSON입니다.
+- Address: `wss://<Jetson address>:8443/ws` (the port is a starting value)
+- Every text message is JSON in the envelope below.
 
 ```json
 { "type": "telemetry", "ts": 1794000000000, "payload": {} }
 ```
 
-- 음성 데이터만 바이너리 프레임으로 보냅니다.
-- 브라우저에서는 B의 `web/src/core/link.js`만 WebSocket을 엽니다. 다른 모듈은 이벤트 버스만 씁니다.
+- Only audio is sent as binary frames.
+- In the browser only B's `web/src/core/link.js` opens the WebSocket. Other modules use the event bus.
 
-### 젯슨 → 헤드셋
+### Jetson → headset
 
-| type | payload | 브라우저에서 바뀌는 이벤트 |
+| type | payload | Browser event it becomes |
 |---|---|---|
 | `telemetry` | `{ "suitTempC": 24.5, "source": "arduino" }` | `telemetry:update` |
 | `alert.raise` | `{ "id": "suit-temp", "level": "critical", "message": "..." }` | `alert:raise` |
 | `alert.clear` | `{ "id": "suit-temp" }` | `alert:clear` |
 | `voice.command` | `{ "intent": "...", "slots": {}, "text": "..." }` | `voice:command` |
-| `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B가 재생 준비) |
-| (바이너리) | 16비트 PCM, 모노 | (B가 재생) |
-| `tts.end` | `{}` | (B가 재생 종료) |
+| `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B prepares playback) |
+| (binary) | 16-bit PCM, mono | (B plays it) |
+| `tts.end` | `{}` | (B ends playback) |
 
-### 헤드셋 → 젯슨
+### Headset → Jetson
 
-| type | payload | 언제 |
+| type | payload | When |
 |---|---|---|
-| `hello` | `{ "client": "quest", "mock": false }` | 연결 직후 |
-| `mic.begin` | `{ "sampleRate": 16000 }` | 마이크 전송 시작 |
-| (바이너리) | 16비트 PCM, 모노, 16kHz | 말하는 동안 |
-| `mic.end` | `{}` | 마이크 전송 끝 |
-| `voice.say` | `{ "text": "...", "priority": "normal" }` | 브라우저의 `voice:say`를 그대로 전달 |
-| `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | 상태가 바뀔 때. 음성 비서가 "지금 상황"을 답하는 데 쓴다 |
+| `hello` | `{ "client": "quest", "mock": false }` | Right after connecting |
+| `mic.begin` | `{ "sampleRate": 16000 }` | Microphone stream starts |
+| (binary) | 16-bit PCM, mono, 16 kHz | While speaking |
+| `mic.end` | `{}` | Microphone stream ends |
+| `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
+| `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
 
-### 슈트 온도 기준 (시작값)
+### Suit temperature thresholds (starting values)
 
-| 구간 | 결과 |
+| Range | Result |
 |---|---|
-| 30°C 미만 | 정상 |
-| 30°C 이상 | `alert.raise` (`warn`) |
-| 35°C 이상 | `alert.raise` (`critical`) |
-| 다시 28°C 미만 | `alert.clear` |
+| Below 30 °C | Normal |
+| 30 °C or above | `alert.raise` (`warn`) |
+| 35 °C or above | `alert.raise` (`critical`) |
+| Back below 28 °C | `alert.clear` |
 
-데모에서 센서를 손으로 쥐어 올릴 수 있는 온도로 잡은 값입니다. 실제 센서로 재 보고 E가 조정합니다.
+Chosen so that holding the sensor in a hand reaches them in the demo. E tunes them after measuring with the real sensor.
 
 ---
 
-## 5. 아두이노 → 젯슨 시리얼
+## 5. Arduino → Jetson serial
 
-- 속도: 115200 baud
-- 1초에 한 줄, 줄마다 JSON 하나, 줄 끝은 `\n`
+- Speed: 115200 baud
+- One line per second, one JSON object per line, lines end with `\n`
 
 ```json
 {"temp_c": 24.5}
 ```
 
-- 센서를 읽지 못하면 `{"temp_c": null, "error": "read_failed"}`
-- 젯슨은 5초 동안 줄이 안 오면 `source`를 `mock`으로 바꾸고 로그를 남깁니다.
+- If the sensor cannot be read: `{"temp_c": null, "error": "read_failed"}`
+- If no line arrives for 5 seconds, the Jetson switches `source` to `mock` and logs it.
 
 ---
 
-## 6. 음성 명령 목록
+## 6. Voice commands
 
-E의 명령 해석기가 말을 아래 `intent` 중 하나로 바꿉니다. 목록에 없는 말은 버립니다.
+E's intent parser turns speech into one of the `intent` values below. Speech is English. Anything not in the list is dropped.
 
-| intent | slots | 예시 문장 | 받는 모듈 |
+| intent | slots | Example sentence | Handled by |
 |---|---|---|---|
-| `nav.start` | `{ "targetId": "site1" }` | "조사 지점으로 안내해 줘" | D |
-| `nav.home` | `{}` | "기지로 돌아가자" | D |
-| `nav.stop` | `{}` | "안내 그만" | D |
-| `layer.show` | `{ "id": "thermal" }` | "열 지도 보여 줘" | B → `layer:toggle` |
-| `layer.hide` | `{ "id": "thermal" }` | "열 지도 꺼 줘" | B → `layer:toggle` |
-| `status.report` | `{}` | "상태 알려 줘" | E가 직접 음성으로 답함 |
-| `alert.ack` | `{}` | "경보 확인" | F |
-| `mode.set` | `{ "mode": "night" }` | "야간 모드" (P2) | F |
+| `nav.start` | `{ "targetId": "site1" }` | "Take me to the survey site" | D |
+| `nav.home` | `{}` | "Go back to base" | D |
+| `nav.stop` | `{}` | "Stop navigation" | D |
+| `layer.show` | `{ "id": "thermal" }` | "Show the thermal map" | B → `layer:toggle` |
+| `layer.hide` | `{ "id": "thermal" }` | "Hide the thermal map" | B → `layer:toggle` |
+| `status.report` | `{}` | "Status report" | E answers by voice itself |
+| `alert.ack` | `{}` | "Acknowledge alert" | F |
+| `mode.set` | `{ "mode": "night" }` | "Night mode" (P2) | F |
 
-`nav.start`, `nav.home`은 B가 `nav:request`로, `layer.show`·`layer.hide`는 `layer:toggle`로 바꿔 다시 내보냅니다. 그래서 D는 음성인지 UI인지 구분할 필요가 없습니다.
+B re-emits `nav.start` and `nav.home` as `nav:request`, and `layer.show` / `layer.hide` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.

@@ -1,28 +1,28 @@
-# 리소스 분석
+# Resource analysis
 
-챌린지 Resources 탭에 공개된 자료 5개를 직접 접속해 확인한 결과입니다. 확인일은 2026-11-13입니다.
+What we found by connecting to the five resources published on the challenge's Resources tab. Checked on 2026-11-13.
 
-**표기 규칙**
+**Marking**
 
-- **[직접 확인]**: 이 문서를 만든 환경에서 해당 주소에 접속해 응답을 읽었습니다.
-- **[검색 요약]**: 검색 결과 요약으로만 확인했습니다. 원문은 열어 보지 못했습니다.
-- **[확인 못함]**: 모릅니다.
+- **[checked directly]**: we connected to the address from the environment that produced this document and read the response.
+- **[search summary]**: confirmed only from a search result summary. The source page was not opened.
+- **[not verified]**: unknown.
 
-## 한눈에 보기
+## At a glance
 
-- **탐사 지점**: 게일 크레이터 샤프산의 **게디즈 발리스(Gediz Vallis) 수로**로 정했습니다. 원문 예시인 박스워크와 겹치지 않습니다.
-- **쓸 수 있는 레이어는 6종 이상**이고, 서로 다른 임무 4개에서 나옵니다 (MRO, Mars Odyssey, MGS, MSL Curiosity).
-- **걸어서 다니는 규모에서 선명한 것은 HiRISE 지형과 광학뿐입니다.** 열 영상은 약 100m, 지질도는 지점 전체가 한 단위입니다. 이 한계가 원문이 말한 빈틈이고, 헬멧 센서가 필요한 이유입니다.
-- **Curiosity가 실제로 지나간 길과 사진을 좌표로 얻을 수 있습니다.** 우리 경로를 검증하고, 지도 위에 실제 화성 사진을 꽂는 데 씁니다.
-- **지형 높이 값은 Mars Trek 타일로는 얻을 수 없습니다.** USGS의 3.6GB 파일에서 잘라 내야 합니다.
+- **Exploration site**: the **Gediz Vallis channel** on Mount Sharp, Gale Crater. It does not overlap the boxwork example in the challenge text.
+- **Six or more layers are usable**, from four different missions (MRO, Mars Odyssey, MGS, MSL Curiosity).
+- **At walking scale only HiRISE terrain and optical are sharp.** Thermal is about 100 m, and the geologic map shows the whole site as one unit. This limit is the gap the challenge text describes, and the reason the helmet sensor is needed.
+- **The path Curiosity actually drove and its photos are available with coordinates.** We use them to validate our route and to pin real Mars photos on the map.
+- **Terrain elevation values cannot be read from Mars Trek tiles.** They must be cropped from a 3.6 GB USGS file.
 
 ---
 
-## 1. Resources 탭 원문
+## 1. Resources tab text
 
-팀장이 준 화면에서 옮겼습니다.
+Copied from the screen the team lead provided.
 
-| # | 리소스 | 원문 설명 |
+| # | Resource | Description on the tab |
 |---|---|---|
 | R1 | Jet Propulsion Laboratory's (JPL) Mars Trek | "NASA web-based portal for exploration of Mars, showcases data collected by NASA at various landing sites." |
 | R2 | USGS-NASA Planetary Geologic Mapping Program | "High-quality standardized geologic map of Mars" |
@@ -30,251 +30,251 @@
 | R4 | NASA Worldview | "Visually explore the past and the present of this dynamic planet from a satellite's perspective. Select from an array of stories below to learn more about Worldview (a part of NASA Earthdata), the satellite imagery we provide and events occurring around the world." |
 | R5 | Mars Perseverance Raw Images Gallery | "Over 1 million images captured by the rover on its journey across the Mars surface." |
 
-탭 상단의 주의 문구: "For non-U.S. Government websites, participants must comply with any data use parameters of that specific website." NASA·USGS가 아닌 사이트의 자료를 쓸 때는 그 사이트의 이용 조건을 따라야 합니다.
+Notice at the top of the tab: "For non-U.S. Government websites, participants must comply with any data use parameters of that specific website." When using material from a site that is not NASA or USGS, follow that site's terms of use.
 
 ---
 
-## 2. 리소스별 분석
+## 2. Analysis per resource
 
-### R1. Mars Trek — 우리 지도의 주 공급원
+### R1. Mars Trek — the main source of our map
 
-주소: https://trek.nasa.gov/mars/
+Address: https://trek.nasa.gov/mars/
 
-- **지도 타일을 주소만으로 받을 수 있습니다.** WMTS 방식이고 로그인이 없습니다. [직접 확인]
-- **브라우저에서 바로 불러올 수 있습니다.** 타일 응답에 `Access-Control-Allow-Origin: *`가 붙어 있습니다. [직접 확인]
-- **등록된 자료는 225개**이고, 그중 39개가 우리 지점을 덮습니다. [직접 확인]
-- 타일은 256×256 PNG입니다. [직접 확인]
+- **Map tiles can be fetched by address alone.** It is WMTS with no login. [checked directly]
+- **They load straight into a browser.** Tile responses carry `Access-Control-Allow-Origin: *`. [checked directly]
+- **225 products are registered**, 39 of which cover our site. [checked directly]
+- Tiles are 256×256 PNG. [checked directly]
 
-우리 지점(동경 137.40°, 남위 4.75°)을 덮는 레이어 중 쓸 만한 것:
+Useful layers covering our site (137.40° E, 4.75° S):
 
-| 종류 (Q4) | 레이어 ID | 임무 · 장비 | 최대 확대 시 해상도 | 판단 |
+| Kind (Q4) | Layer ID | Mission · instrument | Resolution at maximum zoom | Verdict |
 |---|---|---|---|---|
-| 광학 | `curiosity_hirise_mosaic` | MRO · HiRISE | 약 0.64 m/px | **주 레이어.** 바위가 보이는 수준 |
-| 광학 | `Gale_CTX_BlockAdj_dd` | MRO · CTX | 약 10 m/px | 넓은 범위 배경용 |
-| 지형 | `Gale_DEM_SMG_1m` | MRO · HiRISE | 약 2.5 m/px | **그림으로만 쓸 수 있음.** 아래 주의 참고 |
-| 열 | `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018` | Mars Odyssey · THEMIS | 약 81 m/px | 쓸 수 있으나 흐림 |
-| 열 | `THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018` | Mars Odyssey · THEMIS | 약 81 m/px | 쓸 수 있으나 흐림 |
-| 열 | `TES_Thermal_Inertia` | MGS · TES | 약 20 km/px | 걷는 규모에서는 쓸모없음 |
-| 지질 | `SIM3292_Global_Geology` | USGS 전 지구 지질도 | 약 20 m/px (타일) | 지점 전체가 한 단위. 설명용 |
-| 지형 | `mola128_mola64_merge_90Nto90S_SimpleC_clon0` | MGS · MOLA | 약 1.3 km/px | 전 지구 배경용 |
+| Optical | `curiosity_hirise_mosaic` | MRO · HiRISE | about 0.64 m/px | **Main layer.** Rocks are visible |
+| Optical | `Gale_CTX_BlockAdj_dd` | MRO · CTX | about 10 m/px | Wide-area background |
+| Terrain | `Gale_DEM_SMG_1m` | MRO · HiRISE | about 2.5 m/px | **Usable as a picture only.** See the caution below |
+| Thermal | `THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018` | Mars Odyssey · THEMIS | about 81 m/px | Usable but blurry |
+| Thermal | `THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018` | Mars Odyssey · THEMIS | about 81 m/px | Usable but blurry |
+| Thermal | `TES_Thermal_Inertia` | MGS · TES | about 20 km/px | Useless at walking scale |
+| Geologic | `SIM3292_Global_Geology` | USGS global geologic map | about 20 m/px (tiles) | Whole site is one unit. For explanation |
+| Terrain | `mola128_mola64_merge_90Nto90S_SimpleC_clon0` | MGS · MOLA | about 1.3 km/px | Global background |
 
-해상도는 WMTS 설정의 최대 확대 단계에서 계산한 값입니다 (256px 타일, 화성 반지름 3,396,190m).
+Resolutions are computed from the maximum zoom level in the WMTS configuration (256 px tiles, Mars radius 3,396,190 m).
 
-**주의: Trek의 지형 타일에서는 높이 값을 얻을 수 없습니다.** `Gale_DEM_SMG_1m` 타일은 8비트 회색 그림입니다. 표본 타일 하나(가로 약 650m)의 밝기 범위가 32~40, 즉 8단계뿐이었습니다. 경사도 계산에는 못 씁니다. 높이 값은 아래 "지형 높이 파일"에서 얻어야 합니다. [직접 확인]
+**Caution: elevation values cannot be read from Trek's terrain tiles.** `Gale_DEM_SMG_1m` tiles are 8-bit gray pictures. In one sample tile (about 650 m across) the brightness range was 32–40, only 8 steps. That cannot be used for slope. Elevation must come from the "terrain elevation file" below. [checked directly]
 
-**광학·열 타일은 8비트 회색조입니다.** 표본 타일 6장이 모두 회색+투명도 형식(지질도만 색상표)이었습니다. [직접 확인] 그대로 쓰면 지도가 흑백입니다.
+**Optical and thermal tiles are 8-bit grayscale.** All six sample tiles were gray + alpha (only the geologic map uses a palette). [checked directly] Used as is, the map is black and white.
 
-- 광학: 색을 입힐지는 HUD 디자인(F)에서 정합니다. 화성답게 붉은 계열을 입히는 것은 사실을 꾸미는 것이 아니라 표현 선택이지만, **발표에서 원본이 회색조라고 밝힙니다.**
-- 열: 밝기는 온도 값이 아니라 상대적인 밝기입니다. "몇 도"로 표시할 수 없고, 경로 계산에 수치로 넣을 수도 없습니다. 열 레이어는 보여 주기용입니다.
+- Optical: whether to colorize is decided in the HUD design (F). A reddish Mars-like tint is a presentation choice, not a distortion of fact, but **we state in the presentation that the source is grayscale.**
+- Thermal: brightness is relative brightness, not a temperature value. It cannot be shown as "so many degrees" or fed into route computation as a number. The thermal layer is for display.
 
-타일 주소 형식 [직접 확인]:
+Tile address format [checked directly]:
 
 ```
-https://trek.nasa.gov/tiles/Mars/EQ/{레이어 ID}/1.0.0/default/default028mm/{확대}/{행}/{열}.png
+https://trek.nasa.gov/tiles/Mars/EQ/{layer ID}/1.0.0/default/default028mm/{zoom}/{row}/{col}.png
 
-열 = floor((경도 + 180) / 360 × 2^(확대+1))
-행 = floor((90 − 위도) / 180 × 2^확대)
+col = floor((longitude + 180) / 360 × 2^(zoom+1))
+row = floor((90 − latitude) / 180 × 2^zoom)
 ```
 
-레이어 목록 전체는 다음 주소에서 JSON으로 받습니다 [직접 확인]:
+The full layer list is returned as JSON from [checked directly]:
 
 ```
 https://trek.nasa.gov/mars/TrekServices/ws/index/eq/searchItems?start=0&rows=2147483647&facetKeys=itemType&facetValues=product
 ```
 
-레이어별 설정은 `https://trek.nasa.gov/tiles/Mars/EQ/{레이어 ID}/1.0.0/WMTSCapabilities.xml`에 있습니다.
+Per-layer configuration is at `https://trek.nasa.gov/tiles/Mars/EQ/{layer ID}/1.0.0/WMTSCapabilities.xml`.
 
-### R2. USGS-NASA Planetary Geologic Mapping Program — 설명용으로만
+### R2. USGS-NASA Planetary Geologic Mapping Program — for explanation only
 
-주소: https://astrogeology-usgs.hub.arcgis.com/pages/interactive-maps-mars
+Address: https://astrogeology-usgs.hub.arcgis.com/pages/interactive-maps-mars
 
-- 페이지는 대화형 지도 모음입니다. 내용이 스크립트로 그려져 목록 전체는 읽지 못했습니다. [확인 못함]
-- 전 지구 지질도(SIM 3292)는 Mars Trek에 레이어로도 올라와 있고, 좌표로 지질 단위를 조회할 수 있습니다. [직접 확인]
-- **우리 지점의 지질 단위는 `Htu` (Hesperian transition undivided unit)입니다.** [직접 확인]
-- 이 지도는 1:2,000만 축척입니다 ([USGS SIM 3292](https://pubs.usgs.gov/publication/sim3292), 검색 요약). 걷는 규모에서는 지점 전체가 한 단위로 나와 길 찾기에는 도움이 안 됩니다.
+- The page is a collection of interactive maps. Its content is drawn by script, so we could not read the full list. [not verified]
+- The global geologic map (SIM 3292) is also a layer on Mars Trek, and the geologic unit can be queried by coordinate. [checked directly]
+- **The geologic unit of our site is `Htu` (Hesperian transition undivided unit).** [checked directly]
+- The map is at 1:20,000,000 scale ([USGS SIM 3292](https://pubs.usgs.gov/publication/sim3292), search summary). At walking scale the whole site is one unit, so it does not help path finding.
 
-쓰임새: 지도 범례에 "이곳의 지질 단위" 한 줄로 넣습니다. 서로 다른 출처를 하나 더 겹쳤다는 근거가 됩니다.
+Use: one line in the map legend, "geologic unit of this place". It is evidence that one more distinct source is layered in.
 
-### R3. Curiosity's Proposed Path up Mount Sharp — 디자인 참고
+### R3. Curiosity's Proposed Path up Mount Sharp — design reference
 
-주소: https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
+Address: https://science.nasa.gov/resource/curiositys-proposed-path-up-mount-sharp/
 
-- 내려받을 수 있는 것은 1041×586 크기의 GIF 한 장(2.86MB)입니다. 데이터 파일이 아닙니다. [직접 확인]
-- 이 지도가 어떤 데이터로 만들어졌는지 페이지에 적혀 있습니다. [직접 확인]
+- What can be downloaded is one 1041×586 GIF (2.86 MB). It is not a data file. [checked directly]
+- The page states which data the map was made from. [checked directly]
 
   > "Data used in creating this map came from several instruments on NASA's Mars Reconnaissance Orbiter (MRO), including the High Resolution Imaging Science Experiment (HiRISE), Compact Reconnaissance Imaging Spectrometer for Mars (CRISM) and the Context Camera (CTX). The High Resolution Stereo Camera (HRSC) instrument on the European Space Agency's Mars Express also contributed data."
 
-쓰임새: NASA가 직접 만든 "경로 지도"의 본보기입니다. 우리 지도의 구역 표시와 경로 그리는 방식을 여기서 참고합니다. 같은 장비(HiRISE, CTX)의 데이터를 우리도 씁니다.
+Use: a model "route map" made by NASA itself. We borrow its way of marking regions and drawing the route. We use data from the same instruments (HiRISE, CTX).
 
-### R4. NASA Worldview — 화성 데이터 아님
+### R4. NASA Worldview — not Mars data
 
-주소: https://worldview.earthdata.nasa.gov/
+Address: https://worldview.earthdata.nasa.gov/
 
-- 페이지 설명: "Interactive interface for browsing full-resolution, global, daily satellite images. Supports time-critical application areas such as wildfire management, air quality measurements, and weather forecasting." [직접 확인]
-- 지구 관측 영상을 보는 도구입니다. 화성 레이어가 있는지는 확인하지 못했습니다. [확인 못함]
+- Page description: "Interactive interface for browsing full-resolution, global, daily satellite images. Supports time-critical application areas such as wildfire management, air quality measurements, and weather forecasting." [checked directly]
+- It is a tool for viewing Earth observation imagery. Whether it has Mars layers was not checked. [not verified]
 
-쓰임새: 데이터 출처가 아니라 화면 구성 참고용입니다. 원문도 "Look at how NASA missions to destinations other than Mars—Earth, the Moon, other planets in our solar system, and exoplanets in other systems—have created this type of map, for inspiration"이라고 했습니다. 레이어를 켜고 끄는 방식과 범례 표시를 참고합니다.
+Use: a screen layout reference, not a data source. The challenge text also says "Look at how NASA missions to destinations other than Mars—Earth, the Moon, other planets in our solar system, and exoplanets in other systems—have created this type of map, for inspiration". We borrow how layers are turned on and off and how the legend is shown.
 
-### R5. Mars Perseverance Raw Images Gallery — 지점이 다름
+### R5. Mars Perseverance Raw Images Gallery — a different site
 
-주소: https://mars.nasa.gov/mars2020/multimedia/raw-images/
+Address: https://mars.nasa.gov/mars2020/multimedia/raw-images/
 
-- JSON으로 사진 목록을 받을 수 있습니다. 응답의 전체 사진 수는 1,055,868장입니다. [직접 확인]
-- 사진마다 촬영 sol, 카메라, 크기별 이미지 주소가 들어 있습니다. [직접 확인]
-- **Perseverance는 게일 크레이터에 없습니다.** 이 사진들은 우리 지점의 풍경이 아닙니다.
+- The photo list is available as JSON. The response reports 1,055,868 photos in total. [checked directly]
+- Each photo carries its sol, camera and image addresses per size. [checked directly]
+- **Perseverance is not in Gale Crater.** These photos do not show our site.
 
-우리 지점의 사진은 **Curiosity 원본 사진**에서 얻습니다. Resources 탭에는 없지만 같은 NASA 사이트의 같은 종류 자료입니다.
+Photos of our site come from the **Curiosity raw images**. They are not on the Resources tab, but they are the same kind of material on the same NASA site.
 
-- 주소: `https://mars.nasa.gov/api/v1/raw_image_items/?order=sol+desc&per_page=50&page=0&condition_1=msl:mission&condition_2={시작 sol}:sol:gte&condition_3={끝 sol}:sol:lte&search={카메라 이름}` [직접 확인]
-- 전체 1,518,427장입니다. [직접 확인]
-- **사진을 지도 좌표에 꽂을 수 있습니다.** 사진의 `site`·`drive` 값이 아래 주행 기록의 `RMC` 값과 맞물립니다. 예: sol 4312의 내비게이션 카메라 사진은 `site 109, drive 120`이고, 주행 기록의 `RMC 109_120`은 동경 137.4075°, 남위 4.7868°입니다. [직접 확인]
+- Address: `https://mars.nasa.gov/api/v1/raw_image_items/?order=sol+desc&per_page=50&page=0&condition_1=msl:mission&condition_2={first sol}:sol:gte&condition_3={last sol}:sol:lte&search={camera name}` [checked directly]
+- 1,518,427 photos in total. [checked directly]
+- **Photos can be pinned to map coordinates.** A photo's `site` and `drive` values match the `RMC` value in the traverse record below. Example: the navigation camera photos of sol 4312 are `site 109, drive 120`, and `RMC 109_120` in the traverse record is 137.4075° E, 4.7868° S. [checked directly]
 
 ---
 
-## 3. Resources 탭 밖에서 찾은 NASA 데이터
+## 3. NASA data found outside the Resources tab
 
-### 지형 높이 파일 (USGS)
+### Terrain elevation file (USGS)
 
-- 이름: Mars MSL Gale Merged DEM 1m ([USGS 페이지](https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m)) [직접 확인]
-- 파일: `https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m_v3.tif`, 3.6GB [직접 확인: 주소와 크기. 파일 자체는 내려받지 않음]
-- 규격 (라벨 파일에서) [직접 확인]:
+- Name: Mars MSL Gale Merged DEM 1m ([USGS page](https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m)) [checked directly]
+- File: `https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m_v3.tif`, 3.6 GB [checked directly: address and size. The file itself was not downloaded]
+- Specification (from the label file) [checked directly]:
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 크기 | 32,980 × 57,440 픽셀 |
-| 해상도 | 1.0 m/픽셀 |
-| 값 형식 | 실수 (높이, 미터) |
-| 범위 | 동경 137.1242° ~ 137.6806°, 남위 5.0987° ~ 4.1296° |
-| 투영 | Equirectangular, 중심 위도 0°, 반지름 3,396,190m |
+| Size | 32,980 × 57,440 pixels |
+| Resolution | 1.0 m/pixel |
+| Value format | Real numbers (elevation, meters) |
+| Extent | 137.1242° E – 137.6806° E, 5.0987° S – 4.1296° S |
+| Projection | Equirectangular, center latitude 0°, radius 3,396,190 m |
 
-- 만든 방법: "The DEM is built up from High Resolution Stereo Camera (HRSC), Mars Reconnaissance Orbiter (MRO) Context Camera (CTX), and High Resolution Imaging Science Experiment (HiRISE) DEMs all tied to a Mars Orbiter Laser Altimeter (MOLA) DEM." [직접 확인]
-- **파일 전체를 받지 않고 일부만 잘라 받을 수 있는지는 확인하지 못했습니다.** [확인 못함] 안 되면 3.6GB를 한 번 받아야 합니다. 해커톤 시작 직후 가장 먼저 걸어 둘 다운로드입니다.
+- How it was made: "The DEM is built up from High Resolution Stereo Camera (HRSC), Mars Reconnaissance Orbiter (MRO) Context Camera (CTX), and High Resolution Imaging Science Experiment (HiRISE) DEMs all tied to a Mars Orbiter Laser Altimeter (MOLA) DEM." [checked directly]
+- **Whether a part of the file can be fetched without downloading all of it was not verified.** [not verified] If not, the 3.6 GB must be downloaded once. It is the first download to start when the hackathon begins.
 
-### Curiosity 주행 기록 (NASA)
+### Curiosity traverse record (NASA)
 
-- 주소: `https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json` (약 0.66MB) [직접 확인]
-- 경로선: `https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_traverse.json` (약 1.36MB) [직접 확인]
-- 내용: sol 3부터 5070까지 정차 지점 1,388개. 지점마다 경도, 위도, 높이, 로버 기울기, 누적 주행 거리가 있습니다. [직접 확인]
-- 전체 범위: 동경 137.3528° ~ 137.4494°, 남위 4.8257° ~ 4.5891°, 높이 −4521.3m ~ −3473.7m, 누적 38,610m [직접 확인]
-- 1,388개 지점 모두 위 지형 파일과 HiRISE 광학 레이어 범위 안에 있습니다. [직접 확인]
+- Address: `https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json` (about 0.66 MB) [checked directly]
+- Path line: `https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_traverse.json` (about 1.36 MB) [checked directly]
+- Contents: 1,388 rover stops from sol 3 to 5070. Each has longitude, latitude, elevation, rover tilt and cumulative drive distance. [checked directly]
+- Overall extent: 137.3528° E – 137.4494° E, 4.8257° S – 4.5891° S, elevation −4521.3 m to −3473.7 m, 38,610 m cumulative [checked directly]
+- All 1,388 stops are inside the terrain file above and the HiRISE optical layer. [checked directly]
 
-쓰임새가 큽니다.
+It is very useful.
 
-1. **경로 검증**: 우리가 계산한 경로를 Curiosity가 실제로 간 길과 나란히 보여 줍니다.
-2. **통행 기준**: 로버가 실제로 견딘 기울기를 통행 가능 기준의 근거로 씁니다. 전체 기록에서 기울기 중앙값 7.7°, 상위 10% 14.7°, 최대 29.1°입니다. 다만 이는 로버 차체의 기울기이고, 사람이 걸을 수 있는 경사의 기준은 아닙니다.
-3. **사진 위치**: 위 R5의 사진을 좌표에 꽂는 열쇠입니다.
+1. **Route validation**: we show our computed route next to the path Curiosity actually took.
+2. **Traversability criterion**: the tilt the rover actually withstood supports our traversability threshold. Over the whole record the median tilt is 7.7°, the top 10% is 14.7° and the maximum is 29.1°. This is the tilt of the rover body, however, not a criterion for slopes a person can walk.
+3. **Photo positions**: the key to pinning the R5-style photos to coordinates.
 
-### 방사선 (Curiosity RAD)
+### Radiation (Curiosity RAD)
 
-- 주소: https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/ [직접 확인]
-- sol 구간별 폴더로 나뉘어 있고, 가장 최근 폴더는 `SOL_04710_04843`입니다. 우리 지점을 지난 시기(`SOL_04258_04354`)도 있습니다. [직접 확인]
-- 형식: "The RDR files are in ASCII format." 다만 "The RDR data are NASA Level 1A data that mirror the raw instrument data obtained from telemetry"라고 적혀 있습니다. [직접 확인]
-- **이 파일에서 선량률 값을 뽑는 데 얼마나 걸릴지는 확인하지 못했습니다.** [확인 못함] 원시 자료에 가까워 해석 문서(SIS)를 읽어야 합니다.
-- 대안: 발표된 값을 고정값으로 씁니다. 게일 크레이터의 은하 우주선 선량률은 하루 약 180~225 µGy로 보고되어 있습니다 ([논문](https://pmc.ncbi.nlm.nih.gov/articles/PMC8981195), 검색 요약).
+- Address: https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/ [checked directly]
+- It is split into folders by sol range; the most recent is `SOL_04710_04843`. The period when the rover passed our site (`SOL_04258_04354`) is there too. [checked directly]
+- Format: "The RDR files are in ASCII format." But it also says "The RDR data are NASA Level 1A data that mirror the raw instrument data obtained from telemetry". [checked directly]
+- **How long it takes to extract dose rates from these files was not verified.** [not verified] They are close to raw, so the format document (SIS) has to be read.
+- Alternative: use a published value as a fixed value. The galactic cosmic ray dose rate in Gale Crater is reported as about 180–225 µGy per day ([paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC8981195), search summary).
 
-### 대기 (Curiosity REMS)
+### Atmosphere (Curiosity REMS)
 
-- 주소: https://atmos.nmsu.edu/data_and_services/atmospheres_data/MARS/curiosity/rems.html
-- **접속에 실패했습니다** (이 환경에서 인증서 검증 오류). [확인 못함]
-- 기압과 온도가 들어 있고 sol 1~3778을 다룬다는 것은 검색 요약으로만 확인했습니다. [검색 요약] 우리 지점을 지난 시기(sol 4100~4350)가 포함되는지는 모릅니다.
-
----
-
-## 4. 탐사 지점: 게디즈 발리스 수로
-
-### 왜 여기인가
-
-- 원문 예시(박스워크)와 겹치지 않습니다.
-- R3의 경로 지도에 나오는 구역입니다. 과학자들이 탐사하고 싶어 한 곳으로 꼽혔습니다 ([USGS 기사](https://www.usgs.gov/news/new-msl-video-fly-over-mount-sharp-mars), 검색 요약).
-- Curiosity가 2024년에 실제로 다녀가 사진과 주행 기록이 있습니다.
-- 과학 목표가 분명합니다. Curiosity가 이곳에서 순수한 황으로 된 돌을 발견했습니다 ([JPL](https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/), 검색 요약).
-
-### 좌표
-
-| 항목 | 값 | 근거 |
-|---|---|---|
-| 수로 안 기준점 | 동경 137.4075°, 남위 4.7868°, 높이 −3689.7m | 주행 기록 sol 4312 [직접 확인] |
-| 그 지점이 수로 안이라는 근거 | sol 4311~4312에 수로 안 파노라마 촬영 | [JPL PIA26410](https://www.jpl.nasa.gov/images/pia26410-curiositys-view-within-gediz-vallis-channel/), 검색 요약 |
-| 수로를 떠난 시점 | sol 4352 (2024-11-02) | [검색 요약](https://astrobiology.com/2024/11/19/mars-rover-curiosity-panorama-of-gediz-vallis-channel/) |
-| 수로에 들어간 시점 | 모름 | [확인 못함] |
-
-### 지도 범위 (제안)
-
-기준점을 가운데 둔 2,048m × 2,048m 정사각형입니다.
-
-- 동경 137.39026° ~ 137.42481°, 남위 4.80409° ~ 4.76954°
-- 지형 파일과 HiRISE 광학 레이어 범위 안에 완전히 들어갑니다. [직접 확인]
-- 이 안에 Curiosity 정차 지점이 178개 있습니다 (sol 3880 ~ 4493, 높이 −3808.2m ~ −3673.3m). [직접 확인]
-- 이 구간의 로버 기울기: 중앙값 9.1°, 상위 10% 15.7°, 최대 22.4° [직접 확인]
-
-참고 경로: Curiosity는 sol 4098에서 4312까지 약 1,001m를 주행하며 44m를 올라갔습니다 (−3733.6m → −3689.7m). [직접 확인] 우리 미션의 "기지 → 조사 지점" 구간으로 삼기에 알맞은 길이입니다.
-
-### 이 범위에서 레이어가 얼마나 선명한가
-
-| 레이어 | 2,048m를 가로지르는 픽셀 수 | 필요한 타일 수 |
-|---|---|---|
-| HiRISE 광학 | 약 3,220 | 182 |
-| 지형 (USGS 파일, 1m) | 2,048 | (파일에서 잘라 냄) |
-| CTX 광학 | 약 201 | 4 |
-| THEMIS 열 | 약 25 | 1 |
-
-**열 영상은 지도 전체에 25픽셀뿐입니다.** 겹치면 큰 모자이크처럼 보입니다. 숨기지 말고 발표에서 그대로 말합니다. 궤도 데이터가 걷는 규모에서 얼마나 거친지 보여 주는 증거이고, 원문의 "built for regional and global views rather than the hyperlocalized areas astronauts will target"과 그대로 이어집니다.
+- Address: https://atmos.nmsu.edu/data_and_services/atmospheres_data/MARS/curiosity/rems.html
+- **The connection failed** (certificate verification error in this environment). [not verified]
+- That it contains pressure and temperature and covers sols 1–3778 is confirmed only from a search summary. [search summary] Whether it includes the period when the rover passed our site (sols 4100–4350) is unknown.
 
 ---
 
-## 5. 확정 레이어
+## 4. Exploration site: Gediz Vallis channel
 
-| 순위 | 레이어 | 종류 (Q4) | 임무 · 장비 | 출처 | 상태 |
+### Why here
+
+- It does not overlap the example in the challenge text (boxwork).
+- It is a region on the R3 route map, named as a place scientists wanted to explore ([USGS article](https://www.usgs.gov/news/new-msl-video-fly-over-mount-sharp-mars), search summary).
+- Curiosity actually visited in 2024, so photos and a traverse record exist.
+- The science goal is clear. Curiosity found rocks of pure sulfur here ([JPL](https://www.jpl.nasa.gov/news/nasas-curiosity-mars-rover-takes-a-last-look-at-mysterious-sulfur/), search summary).
+
+### Coordinates
+
+| Item | Value | Evidence |
+|---|---|---|
+| Reference point inside the channel | 137.4075° E, 4.7868° S, elevation −3689.7 m | Traverse record, sol 4312 [checked directly] |
+| Evidence that the point is inside the channel | Panorama taken inside the channel on sols 4311–4312 | [JPL PIA26410](https://www.jpl.nasa.gov/images/pia26410-curiositys-view-within-gediz-vallis-channel/), search summary |
+| When the rover left the channel | sol 4352 (2024-11-02) | [search summary](https://astrobiology.com/2024/11/19/mars-rover-curiosity-panorama-of-gediz-vallis-channel/) |
+| When the rover entered the channel | Unknown | [not verified] |
+
+### Map extent (proposal)
+
+A 2,048 m × 2,048 m square centered on the reference point.
+
+- 137.39026° E – 137.42481° E, 4.80409° S – 4.76954° S
+- Entirely inside the terrain file and the HiRISE optical layer. [checked directly]
+- It contains 178 Curiosity stops (sols 3880–4493, elevation −3808.2 m to −3673.3 m). [checked directly]
+- Rover tilt over this stretch: median 9.1°, top 10% 15.7°, maximum 22.4° [checked directly]
+
+Reference path: from sol 4098 to 4312 Curiosity drove about 1,001 m and climbed 44 m (−3733.6 m → −3689.7 m). [checked directly] A fitting length for the "base → survey site" leg of our mission.
+
+### How sharp the layers are over this extent
+
+| Layer | Pixels across 2,048 m | Tiles needed |
+|---|---|---|
+| HiRISE optical | about 3,220 | 182 |
+| Terrain (USGS file, 1 m) | 2,048 | (cropped from the file) |
+| CTX optical | about 201 | 4 |
+| THEMIS thermal | about 25 | 1 |
+
+**The thermal image is only 25 pixels across the whole map.** Overlaid, it looks like a coarse mosaic. We do not hide this; we say it in the presentation. It is evidence of how coarse orbital data is at walking scale, and it leads straight to the challenge text's "built for regional and global views rather than the hyperlocalized areas astronauts will target".
+
+---
+
+## 5. Confirmed layers
+
+| Rank | Layer | Kind (Q4) | Mission · instrument | Source | Status |
 |---|---|---|---|---|---|
-| 1 | 지형 높이 | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | USGS 파일 | 주소 확인. 내려받기 필요 |
-| 2 | 경사도 | (계산) | 위와 같음 | 지형에서 계산 | 지형 다음 |
-| 3 | 광학 영상 | optical | MRO · HiRISE | Mars Trek 타일 | 바로 받을 수 있음 |
-| 4 | 열 영상 (야간) | thermal | Mars Odyssey · THEMIS | Mars Trek 타일 | 바로 받을 수 있음. 흐림 |
-| 5 | 로버 주행 기록 | (지상 실측) | MSL Curiosity | NASA JSON | 바로 받을 수 있음 |
-| 6 | 로버 시점 사진 | optical (지상) | MSL Curiosity | NASA JSON | 바로 받을 수 있음 |
-| 7 | 방사선 | radiation | MSL Curiosity · RAD | PDS | 형식 해석 필요. 안 되면 발표값 |
-| 8 | 지질 단위 | geologic | USGS SIM 3292 | Mars Trek 조회 | 한 줄 표시 |
-| 9 | 대기 | atmospheric | MSL Curiosity · REMS | PDS | 확인 못함 |
+| 1 | Terrain elevation | topographic | MRO HiRISE·CTX, Mars Express HRSC, MGS MOLA | USGS file | Address confirmed. Needs downloading |
+| 2 | Slope | (derived) | Same as above | Computed from terrain | After terrain |
+| 3 | Optical image | optical | MRO · HiRISE | Mars Trek tiles | Available now |
+| 4 | Thermal image (night) | thermal | Mars Odyssey · THEMIS | Mars Trek tiles | Available now. Blurry |
+| 5 | Rover traverse record | (ground truth) | MSL Curiosity | NASA JSON | Available now |
+| 6 | Rover point-of-view photos | optical (ground) | MSL Curiosity | NASA JSON | Available now |
+| 7 | Radiation | radiation | MSL Curiosity · RAD | PDS | Format needs interpreting. Otherwise a published value |
+| 8 | Geologic unit | geologic | USGS SIM 3292 | Mars Trek query | One line of text |
+| 9 | Atmosphere | atmospheric | MSL Curiosity · REMS | PDS | Not verified |
 
-1~6만으로도 원문의 "at least three kinds of data"와 "data from multiple NASA science missions"를 채웁니다.
+Layers 1–6 alone satisfy the challenge text's "at least three kinds of data" and "data from multiple NASA science missions".
 
-지형 파일에는 ESA Mars Express의 HRSC 자료가 섞여 있습니다. 파일을 만들어 배포하는 곳은 USGS와 NASA이지만, 제출 설명문에 ESA 자료가 포함됐다고 적습니다.
+The terrain file includes HRSC data from ESA's Mars Express. USGS and NASA produce and distribute the file, but the submission text will state that ESA data is included.
 
 ---
 
-## 6. 아직 모르는 것
+## 6. Still unknown
 
-| 항목 | 누가 | 언제 |
+| Item | Who | When |
 |---|---|---|
-| 지형 파일을 일부만 잘라 받을 수 있는지 | C | 시작 직후 |
-| RAD 파일에서 선량률을 뽑는 방법 | C | 지형·광학을 넘긴 뒤 |
-| REMS 자료가 sol 4100~4350을 포함하는지 | C | 지형·광학을 넘긴 뒤 |
-| 수로에 들어간 정확한 sol | C | 사진을 고를 때 |
-| 제출물 요건 (영상 길이, 설명문 항목, 마감 시각) | C | 시작 직후 |
-| 사람이 걸을 수 있는 경사 기준 | C, D | 경로 계산 전 |
-| 지형 파일과 주행 기록의 높이 기준이 같은지 (주행 기록 필드 이름은 `elev_geoid`) | C | 지형 파일을 받은 직후. 정차 지점 좌표에서 지형 높이를 뽑아 주행 기록의 `elev_geoid`와 비교한다. 차이가 일정하면 보정값으로 쓴다 |
-| 지형 파일과 광학 영상이 정확히 겹치는지 (서로 다른 자료가 따로 위치를 맞춤) | C | 두 레이어 위에 주행 경로를 얹어 본다. 몇 미터 어긋나는지 기록한다 |
+| Whether a part of the terrain file can be fetched | C | Right at the start |
+| How to extract dose rates from the RAD files | C | After handing over terrain and optical |
+| Whether the REMS data covers sols 4100–4350 | C | After handing over terrain and optical |
+| The exact sol the rover entered the channel | C | When picking photos |
+| Submission requirements (video length, description items, deadline) | C | Right at the start |
+| Slope criterion for what a person can walk | C, D | Before route computation |
+| Whether the terrain file and the traverse record share an elevation reference (the traverse field is named `elev_geoid`) | C | Right after getting the terrain file. Sample terrain elevation at the rover stops and compare with `elev_geoid`. If the difference is constant, use it as a correction |
+| Whether the terrain file and the optical image overlap exactly (the two products were registered separately) | C | Lay the traverse over both layers. Record how many meters they are off |
 
-제출물 요건은 공식 사이트(spaceappschallenge.org) 접속이 이 환경에서 인증서 오류로 실패해 확인하지 못했습니다.
+The submission requirements could not be checked because connecting to the official site (spaceappschallenge.org) failed with a certificate error in this environment.
 
 ---
 
-## 7. 해커톤 중에 확인한 것 (C, 2026-11-14)
+## 7. What we confirmed during the hackathon (C, 2026-11-14)
 
-위 6장의 항목을 실제로 해 본 결과입니다. 모두 [직접 확인]이고, 가공은 `data-pipeline/build_data.py`에 있습니다.
+The results of actually doing the items in section 6. All are [checked directly]; the processing is in `data-pipeline/build_data.py` and the checks in `data-pipeline/validate.py`.
 
-| 항목 | 결과 |
+| Item | Result |
 |---|---|
-| 지형 파일을 일부만 잘라 받을 수 있는지 | **됩니다.** 서버가 부분 요청(Range)을 받습니다. 3.6GB를 다 받지 않고 지도 범위 2,048×2,048픽셀만 읽었습니다 |
-| 지형 파일과 주행 기록의 높이 기준 | **같습니다.** 범위 안 정차 지점 178곳에서 (지형 − `elev_geoid`)가 평균 −0.17m, 표준편차 0.24m. 보정값을 쓰지 않습니다 |
-| 지형과 광학 영상이 겹치는지 | 두 레이어에 주행 경로를 얹으면 둘 다 수로를 따라갑니다 (`data-pipeline/check_overlay.png`). 지형으로 만든 음영 그림과 광학 영상이 가장 잘 겹치는 자리는 1칸(4m) 이내였습니다. 상관이 0.29로 높지 않아 "4m보다 크게 어긋나 있지는 않다"까지만 말할 수 있습니다 |
-| RAD 파일에서 선량률을 뽑는 방법 | sol별 파일의 `[DOSIMETRY_TOTAL_DOSE_E: NN]` 아래 숫자가 E 검출기 선량률(µGy/h)입니다 (`DOCUMENT/RAD_RDR_SIS`). sol 4200은 관측 88개 중 QC 표시가 있는 2개를 빼고 86개, 하루 평균 **154 µGy/일**(시간별 152~157). sol 4312도 뽑아 봤고 153 µGy/일이었습니다. 기기가 낸 값 그대로이며 보정하지 않았습니다 |
-| REMS 자료가 sol 4100~4350을 포함하는지 | **포함합니다.** `https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/`에 sol 4843까지 있습니다 (안내 페이지는 안 열리지만 자료 폴더는 열립니다). sol 4200의 MODRDR 파일에서 기압 800~889 Pa, 기온 206~268 K를 얻었습니다 |
-| 사진을 좌표에 꽂을 수 있는지 | **됩니다.** sol 4200 `RMC 107_2484`와 sol 4098 `RMC 106_438`에서 찍은 전체 크기 왼쪽 내비게이션 카메라 사진이 각각 19장 있습니다. 한 장씩 골라 `pov/site1.jpg`, `pov/base.jpg`로 씁니다 |
-| 황 암석 발견 | JPL 기사 두 편 원문 확인 (2024-07-18, 2024-11-18). 로버가 돌을 밟아 깨뜨린 것은 **2024년 5월 30일**이고, NASA 사진 기록에서 그날은 **sol 4200**입니다. 순수한 황은 화성에서 처음이고, 황 암석은 HiRISE로 보기에는 너무 작았다고 적혀 있습니다. 로버가 수로를 떠나며 파노라마를 찍은 것은 sol 4352입니다 |
-| **황 암석 지대의 위치** | **4장의 기준점(sol 4312 위치)이 아닙니다.** sol 4200에 로버는 `107_2394`에서 `107_2484`(137.40886°E, 4.78571°S)까지 약 9m를 달렸고, 그 뒤 sol 4237까지 그 근처에 머물렀습니다. 기준점에서 약 102m 떨어진 곳입니다. 데이터의 조사 지점(`site1`)은 이 자리로 옮겼습니다. 지도 범위는 그대로입니다. 자세한 근거는 [DATA.md](DATA.md) 2장 |
-| 기지에서 조사 지점까지 | 로버가 실제로 달린 거리 593m, 높이 변화 +45.2m (sol 4098 → 4200). 4장의 "1,001m, 44m"는 sol 4312까지의 값입니다 |
-| 사람이 걸을 수 있는 경사 기준 | 달에서의 근거를 찾았습니다. Apollo 우주인은 15° 미만의 경사를 걸었고(EPSC2024-196), Artemis 초기 보행 계획은 20° 미만입니다(David Kring, Universe Today 2023). 화성 기준은 찾지 못했습니다. **15°부터 피하고 20°를 넘으면 막는 것**을 제안합니다. 10° 이하로는 기지에서 조사 지점까지 길이 끊깁니다. 이 기준으로 계산한 길(390m)은 로버가 실제로 간 길에서 평균 16m 떨어져 있습니다 ([DATA.md](DATA.md) 7장) |
-| 제출물 요건 | 공식 Project Submission Guide 확인. 요약은 [SUBMISSION.md](SUBMISSION.md) 맨 위. **데모는 30초 이하 영상 또는 7장 이하 슬라이드, 영어, 18세 미만의 모습·목소리 금지, 마감 11월 15일 23:59 현지 시각** |
+| Whether a part of the terrain file can be fetched | **Yes.** The server accepts range requests. We read only the 2,048 × 2,048 pixel map window instead of the 3.6 GB file |
+| Elevation reference of the terrain file and the traverse record | **The same.** At the 178 rover stops inside the extent, (terrain − `elev_geoid`) is −0.17 m on average with a standard deviation of 0.24 m. No correction is used |
+| Whether terrain and optical overlap | With the traverse laid over both, it follows the channel in each (`data-pipeline/check_overlay.png`). Shading computed from the terrain matches the optical image best within one cell (4 m). The correlation is only 0.29, so all we can say is that they are not off by much more than 4 m |
+| How to extract dose rates from the RAD files | The number under `[DOSIMETRY_TOTAL_DOSE_E: NN]` in each per-sol file is the E-detector dose rate in µGy/h (`DOCUMENT/RAD_RDR_SIS`). For sol 4200: 88 observations, 2 dropped for a QC flag, 86 used, daily mean **154 µGy/day** (hourly 152–157). Sol 4312 gave 153 µGy/day. These are the instrument's values, uncorrected |
+| Whether the REMS data covers sols 4100–4350 | **Yes.** `https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/` goes up to sol 4843 (the landing page does not open, but the data folders do). The sol 4200 MODRDR file gives pressure 800–889 Pa and air temperature 206–268 K |
+| Whether photos can be pinned to coordinates | **Yes.** There are 19 full-frame Left Navigation Camera images each at sol 4200 `RMC 107_2484` and sol 4098 `RMC 106_438`. One of each is used as `pov/site1.jpg` and `pov/base.jpg` |
+| The sulfur discovery | Two JPL articles read in full (2024-07-18, 2024-11-18). The rover cracked the rock open on **May 30, 2024**, which is **sol 4200** in NASA's raw image record. Pure sulfur is a first on Mars, and the sulfur stones were too small for HiRISE to see. The rover took its farewell panorama on sol 4352 |
+| **Where the sulfur stone field is** | **Not at the reference point of section 4 (the sol 4312 position).** On sol 4200 the rover drove about 9 m from `107_2394` to `107_2484` (137.40886° E, 4.78571° S) and stayed near there until sol 4237. That is about 102 m from the reference point. The survey site (`site1`) in the data was moved there. The map extent is unchanged. See [DATA.md](DATA.md) section 2 |
+| From base to the survey site | The rover actually drove 593 m and climbed 45.2 m (sol 4098 → 4200). The "1,001 m, 44 m" in section 4 is the figure up to sol 4312 |
+| Slope criterion for what a person can walk | Evidence from the Moon: Apollo astronauts walked on slopes below 15° (EPSC2024-196), and early Artemis walking traverses are planned below 20° (David Kring, Universe Today 2023). We found nothing for Mars. We propose **avoiding ground above 15° and closing ground above 20°**. With a 10° limit there is no route from base to the survey site. A route computed with this rule (390 m) stays 16 m on average from the path the rover actually drove ([DATA.md](DATA.md) section 7) |
+| Submission requirements | Read from the official Project Submission Guide. Summary at the top of [SUBMISSION.md](SUBMISSION.md). **Demo is a video of 30 seconds or less or 7 slides or fewer, in English, with no image or voice of anyone under 18; deadline November 15, 11:59 p.m. local time** |
 
-아직 모르는 것: 수로에 들어간 정확한 sol, 깨뜨린 황 암석의 정확한 좌표, 화성 중력에서 우주복을 입은 사람이 걸을 수 있는 경사.
+Still unknown: the exact sol the rover entered the channel, the exact position of the rock that was cracked open, and what slope a suited person can walk in Mars gravity.
