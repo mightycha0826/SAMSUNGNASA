@@ -11,8 +11,8 @@
 // In field mode (the second button on the start page)
 //   - The palm map shows FIELD.spanM around the wearer, 1 : 1 with the room, and on it only
 //     what the headset has scanned (`hazard:update` from scan/): clear floor and structure.
-//     Ground the headset knows nothing about is left empty; a thin frame shows how far the map
-//     reaches. (It used to show the Mars image there, which read as floor that had been seen.)
+//     Ground the headset knows nothing about is left empty, with no frame around the map.
+//     (It used to show the Mars image there, which read as floor that had been seen.)
 //     The scan arrives at most twice a second, and with live depth (on by default in this mode,
 //     core/xr.js) it includes what was put down or taken away a moment ago: the map follows.
 //     The scanned ground still rises and falls with the Mars terrain under the wearer.
@@ -244,11 +244,8 @@ function drawPalmMap() {
   g.save();
   // Only what the headset has scanned is drawn. Ground it knows nothing about is left empty:
   // there used to be the Mars image there as a stand-in floor, which read as floor that had
-  // been seen. A thin frame shows how far the map reaches.
+  // been seen. Nothing marks the edge of the map either: no frame around it.
   g.clearRect(0, 0, W, W);
-  g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-  g.lineWidth = 3;
-  g.strokeRect(1.5, 1.5, W - 3, W - 3);
 
   // What the headset scanned: clear floor and structure.
   if (grid && gridCanvas) {
