@@ -23,10 +23,13 @@ export const HUD = {
     // from the right edge and 7 deg from the bottom, pulled inward for the Quest 3's narrower
     // field of view. The panel is 0.3 deg larger on every side for its outline and text glow,
     // and the card is drawn against the panel's bottom edge.
-    // On the headset the card was too far out to read comfortably, so it sits 6 deg further in
-    // than the mockup (leftDeg 54.96 there): its far edge is 29 deg from the middle, not 35.
-    // The alert card and the toast move 4 deg the other way to stay clear of it (centreShiftDeg).
-    leftDeg: 48.96, topDeg: 11.86, wDeg: 20.1, hDeg: 31.6,
+    // On the headset the card was too far out and too high to read comfortably, so it sits
+    // further in and lower than the mockup (leftDeg 54.96, topDeg 11.86 there): its far edge is
+    // 25 deg from the middle of the view and its middle 5 deg below it. It is also shorter: it
+    // shows the pinned readings and the two most important others (importance.js), not every
+    // number there is. The alert card and the toast move the other way to stay clear of it
+    // (centreShiftDeg).
+    leftDeg: 46.4, topDeg: 17.2, wDeg: 19.2, hDeg: 26.6,
     /** Opacity of the whole status card (0 to 1). Both values are 1, as in the mockup: the card's
      *  face is already clear and only its outlines and text are drawn.
      *  `mapOpacity` applies while the map is in view (palm up in the headset; always on a PC
@@ -36,7 +39,7 @@ export const HUD = {
   },
   /** The alert card and the toast are centred this far from the middle of the view (deg,
    *  negative = left), so that they end where the status card begins. */
-  centreShiftDeg: -4,
+  centreShiftDeg: -6.6,
   /** Toast strip ("what was heard", a layer change): just below the line of sight, where it is
    *  seen without looking up. It used to sit 19 deg above it and was easy to miss. */
   banner: { topDeg: 28.5, wDeg: 26, hDeg: 4 },
@@ -80,6 +83,20 @@ export const HUD = {
     /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다.
      *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: core/palm.js 의 PALM.upDot 을 그대로 쓴다 */
     palmUpDot: PALM.upDot,
+  },
+  /** The readings the status card can show besides the pinned ones, and how much each matters
+   *  when nothing is wrong (importance.js: `base`). `span` is the range a graph of it covers
+   *  and `bad` the side where it goes out of range (+1 high, -1 low, 0 both, null: it has no limit). A reading out of
+   *  range, or heading there fast, comes up whatever its base. `historyS` is how far back the
+   *  graphs go. */
+  readings: {
+    historyS: 60,
+    route: { base: 70 },
+    heart: { base: 35, span: [40, 160], bad: 0 },
+    radiation: { base: 32, bad: 1 },
+    pressure: { base: 30, span: [24, 33], bad: 0 },
+    airTemp: { base: 12, bad: null }, // no limit to head for: its movement does not raise it
+    airPressure: { base: 10, bad: null },
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },

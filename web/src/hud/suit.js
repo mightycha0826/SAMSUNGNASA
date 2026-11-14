@@ -332,6 +332,9 @@ export function createSuit(ctx) {
     },
     /** The headset's battery in percent, or null (for the rescue signal). */
     battery: () => reading.battery,
+    /** The readings as they are now, and which of them are out of range ('' | 'warn' | 'crit'): the status card shows some of them. */
+    readings: () => reading,
+    states: () => suitStates(reading, HUD.suit, HUD.suitGauge),
     // ---- console and tests ----
     /** PC: show(true, [x, y, z]) puts the hologram in the scene without a hand; show(false) takes it away. */
     show(on, at = [0.6, 1.2, 0.3]) {

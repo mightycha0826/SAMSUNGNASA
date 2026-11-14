@@ -33,6 +33,7 @@ import { createSuit } from './suit.js';
 import { createRescue } from './rescue.js';
 import { handOpen } from '../core/palm.js';
 import { walkableNear, reachableFrom } from '../core/waypoints.js';
+import { choose, importance, trend } from './importance.js';
 import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
 import { pickOnFieldMap, fieldPlaceOnMap, showFieldPick } from '../field/index.js';
 
@@ -350,57 +351,101 @@ const waypointLabel = (id) => {
 };
 
 // ---- 표시용 값 ----
+// What the readings were over the last minute, one value a second: the graphs on the status
+// card, and how fast each reading is moving (importance.js: trend).
+const history = { heart: [], radiation: [], pressure: [], airTemp: [], airPressure: [] };
+let lastSample = 0;
+let rankedShown = []; // ids of the ranked readings on the card, in the order of their places
+let routeFrom = 0; // the longest distance seen on the route in progress: where its bar starts
+
+function sampleReadings(now) {
+  if (now - lastSample < 1000) return;
+  lastSample = now;
+  const r = suit.readings();
+  const e = state.env;
+  const push = (key, value) => {
+    history[key].push(Number.isFinite(value) ? value : null);
+    if (history[key].length > HUD.readings.historyS) history[key].shift();
+  };
+  push('heart', r.heart);
+  push('pressure', r.pressureKpa);
+  push('radiation', e?.radiationUGyPerDay);
+  push('airTemp', e?.airTempK != null ? e.airTempK - 273.15 : null);
+  push('airPressure', e?.pressurePa);
+  dirty.status = true; // the graphs moved on
+}
+
+/**
+ * The status card: the pinned readings in their fixed places (battery, oxygen, suit
+ * temperature: what has to be watched all the time), and under them the readings that matter
+ * most right now, chosen by importance.js.
+ */
 function statusVM() {
+  const R = HUD.readings;
+  const r = suit.readings();
+  const z = suit.states();
+  const e = state.env;
   const linkLost = state.alerts.has('link-lost');
+  const fill = (v, lo, hi) => (v == null ? 0 : Math.max(0, Math.min(1, (v - lo) / (hi - lo))));
+  const num = (v, digits = 0) => (v == null ? '—' : v.toFixed(digits).replace('-', '−'));
+
+  // ---- pinned: a bar each, with the limits marked on it ----
   const suitAlert = state.alerts.get('suit-temp');
   const t = state.suit.temp;
-  const suitState = linkLost || t === null ? 'stale' : suitAlert?.level === 'critical' ? 'crit' : suitAlert ? 'warn' : '';
   const G = HUD.suitGauge;
-  const suit = {
-    label: S.suit,
-    value: t === null ? '—' : t.toFixed(1),
-    word: suitState === 'stale' ? '' : suitState === 'crit' ? S.word.crit : suitState === 'warn' ? S.word.warn : S.word.normal,
-    state: suitState,
-    tag: linkLost ? S.lastValue : state.suit.source,
-    fill: t === null ? 0 : Math.max(0, Math.min(1, (t - G.min) / (G.max - G.min))),
-  };
+  const pinned = [
+    {
+      id: 'battery', pinned: true, label: 'Battery', value: num(r.battery), unit: '%',
+      tag: r.battery == null ? 'no reading' : r.charging ? 'charging' : null,
+      state: z.battery, fill: fill(r.battery, 0, 100),
+      marks: [{ at: HUD.suit.battery.crit / 100 }, { at: HUD.suit.battery.warn / 100 }], lowIsBad: true,
+    },
+    {
+      id: 'o2', pinned: true, label: 'Oxygen', value: num(r.o2), unit: '%', tag: 'sim',
+      state: z.o2, fill: fill(r.o2, 0, 100),
+      marks: [{ at: HUD.suit.o2.crit / 100 }, { at: HUD.suit.o2.warn / 100 }], lowIsBad: true,
+    },
+    {
+      id: 'suitTemp', pinned: true, label: S.suit, value: num(t, 1), unit: '°C',
+      tag: linkLost ? S.lastValue : state.suit.source === 'mock' ? 'mock' : null,
+      state: linkLost || t === null ? 'stale' : suitAlert?.level === 'critical' ? 'crit' : suitAlert ? 'warn' : '',
+      fill: fill(t, G.min, G.max),
+      marks: [{ at: fill(G.warn, G.min, G.max), label: String(G.warn) }, { at: fill(G.crit, G.min, G.max), label: String(G.crit) }],
+    },
+  ];
 
+  // ---- the rest: a graph each; the card shows the most important ones ----
   const nav = state.nav;
-  const target = nav.targetId ? waypointLabel(nav.targetId) : '';
-  const dist = { label: target && nav.status !== 'cancelled' ? S.distanceTo(target) : S.distance, value: '—', unit: '', word: '', state: '' };
-  if (nav.status === 'ok') Object.assign(dist, { value: nav.distanceM.toFixed(1), unit: 'm' });
-  else if (nav.status === 'arrived') Object.assign(dist, { value: '0.0', unit: 'm', word: S.arrived });
-  else if (nav.status === 'blocked') Object.assign(dist, { word: S.blocked, state: 'warn' });
-  else if (nav.status === 'cancelled') dist.word = S.noRoute;
-
-  const env = [];
-  const e = state.env;
+  const routeOn = nav.status === 'ok' || nav.status === 'blocked';
+  if (nav.status === 'ok') routeFrom = Math.max(routeFrom, nav.distanceM);
+  else if (!routeOn) routeFrom = 0;
   const radAlert = state.alerts.get('radiation');
-  env.push({
-    k: S.radiation,
-    v: e?.radiationUGyPerDay != null ? String(Math.round(e.radiationUGyPerDay)) : '—',
-    unit: S.radUnit,
-    tag: e?.radiationIsFixedValue ? S.published : null,
-    state: radAlert ? (radAlert.level === 'critical' ? 'crit' : 'warn') : '',
-  });
-  // 높이: 현재 위치의 격자 좌표를 알려 주는 이벤트가 아직 없어, 조사 지점(site1)의 지형 높이를 보여 준다.
-  const ls = state.layerSet;
-  const site = ls?.waypoints?.find((w) => w.id === 'site1');
-  const topo = state.grids.topo;
-  if (ls && site && topo) {
-    const h = topo[site.cell[1] * ls.grid.cols + site.cell[0]];
-    if (Number.isFinite(h)) env.push({ k: S.elevation, v: h.toFixed(0), unit: 'm' });
-  }
-  if (ls?.site?.geologicUnit?.code) env.push({ k: S.geoUnit, v: ls.site.geologicUnit.code });
-  if (e?.pressurePa != null) env.push({ k: S.pressure, v: String(Math.round(e.pressurePa)), unit: 'Pa' });
-  if (e?.airTempK != null) env.push({ k: S.airTemp, v: (e.airTempK - 273.15).toFixed(1).replace('-', '−'), unit: '°C' });
-
-  const foot = {
-    layerLabel: S.layer,
-    layer: state.activeLayer ? layerLabel(state.activeLayer) : '—',
-    sol: e ? `Sol ${e.sol} · ${e.localTime}` : '',
+  const graph = (key, bad, span) => {
+    const h = history[key];
+    const seen = h.filter(Number.isFinite);
+    // Without a set range the graph covers what the reading has done, with a little room.
+    const lo = span ? span[0] : seen.length ? Math.min(...seen) : 0;
+    const hi = span ? span[1] : seen.length ? Math.max(...seen) : 1;
+    const room = span ? 0 : Math.max((hi - lo) * 0.25, Math.abs(hi) * 0.02, 1e-6);
+    return { history: h, min: lo - room, max: hi + room, trend: bad == null ? 0 : trend(h, bad, span ? span[1] - span[0] : Math.max(hi - lo, Math.abs(hi) * 0.2, 1e-6)) };
   };
-  return { suit, dist, env, foot };
+  const others = [
+    {
+      id: 'route', base: R.route.base, active: routeOn, viz: 'progress',
+      label: nav.targetId ? S.distanceTo(waypointLabel(nav.targetId)) : S.distance,
+      value: nav.status === 'ok' ? num(nav.distanceM, 1) : '—', unit: nav.status === 'ok' ? 'm' : '',
+      word: nav.status === 'blocked' ? S.blocked : '', state: nav.status === 'blocked' ? 'warn' : '',
+      fill: nav.status === 'ok' && routeFrom > 0 ? 1 - nav.distanceM / routeFrom : 0,
+    },
+    { id: 'heart', base: R.heart.base, viz: 'graph', label: 'Heart rate', value: num(r.heart), unit: 'bpm', tag: 'sim', state: z.heart, lines: [HUD.suit.heart.warnLow, HUD.suit.heart.warnHigh], ...graph('heart', R.heart.bad, R.heart.span) },
+    { id: 'radiation', base: R.radiation.base, viz: 'graph', label: S.radiation, value: num(e?.radiationUGyPerDay), unit: S.radUnit, tag: e?.radiationIsFixedValue ? S.published : null, state: radAlert ? (radAlert.level === 'critical' ? 'crit' : 'warn') : '', active: e?.radiationUGyPerDay != null, ...graph('radiation', R.radiation.bad) },
+    { id: 'pressure', base: R.pressure.base, viz: 'graph', label: 'Suit pressure', value: num(r.pressureKpa, 1), unit: 'kPa', tag: 'sim', state: z.pressure, lines: [HUD.suit.pressureKpa.warnLow, HUD.suit.pressureKpa.warnHigh], ...graph('pressure', R.pressure.bad, R.pressure.span) },
+    { id: 'airTemp', base: R.airTemp.base, viz: 'graph', label: S.airTemp, value: num(e?.airTempK != null ? e.airTempK - 273.15 : null, 1), unit: '°C', state: '', active: e?.airTempK != null, ...graph('airTemp', R.airTemp.bad) },
+    { id: 'airPressure', base: R.airPressure.base, viz: 'graph', label: S.pressure, value: num(e?.pressurePa), unit: 'Pa', state: '', active: e?.pressurePa != null, ...graph('airPressure', R.airPressure.bad) },
+  ];
+  const { ranked } = choose([...pinned, ...others], rankedShown);
+  rankedShown = ranked.map((m) => m.id);
+  return { pinned, ranked, foot: e ? `Sol ${e.sol} · ${e.localTime}` : '', scores: others.map((m) => [m.id, importance(m)]) };
 }
 
 function sortedAlerts() {
@@ -939,6 +984,7 @@ export function update(frame) {
   updateHands(frame);
   updatePointer(frame, now);
   suit.tick(now, frame.dt);
+  sampleReadings(now);
   // The emergency button counts down while armed: the card is redrawn ten times a second then.
   if (rescue.tick(now) && now - lastSosDraw > 100) {
     lastSosDraw = now;
@@ -1007,7 +1053,7 @@ export function update(frame) {
   pStatus.mat.opacity += (wanted - pStatus.mat.opacity) * (1 - Math.exp(-S_.fadeRate * frame.dt));
 
   if (dirty.status) {
-    drawStatus(pStatus.g, HUD.pxPerDeg, statusVM(), HUD.suitGauge);
+    drawStatus(pStatus.g, HUD.pxPerDeg, statusVM());
     pStatus.tex.needsUpdate = true;
     dirty.status = false;
   }
