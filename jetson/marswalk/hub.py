@@ -115,7 +115,7 @@ class Hub:
             await self.broadcast("tts.end", {})
 
     async def handle_text_command(self, text: str):
-        cmd = intents.parse(text)
+        cmd = intents.parse(text, self.args.wake_word)
         if cmd is None:
             log.info("no intent for %r", text)
             return
@@ -246,8 +246,8 @@ async def serve(args):
         await web.TCPSite(runner, args.host, args.http_port).start()
         log.info("HTTP   http://%s:%d/   ws://.../ws  (localhost / adb reverse only)",
                  args.host, args.http_port)
-    log.info("stt=%s tts=%s serial=%s dev=%s", hub.stt.name, hub.tts.name,
-             args.serial or "auto", args.dev)
+    log.info("stt=%s tts=%s serial=%s dev=%s wake=%s", hub.stt.name, hub.tts.name,
+             args.serial or "auto", args.dev, args.wake_word)
     await asyncio.Event().wait()
 
 
@@ -268,6 +268,8 @@ def main():
     p.add_argument("--stt", default="auto", help="auto | sensevoice | null")
     p.add_argument("--tts", default="auto", help="auto | supertonic | tone")
     p.add_argument("--lang", default="en", help="speech language code for STT and TTS")
+    p.add_argument("--wake-word", default=None,
+                   help="only obey speech containing this word, e.g. 'helmet' (noisy rooms)")
     p.add_argument("--dev", action="store_true", help="accept dev.* messages from tools/fake_quest.py")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()

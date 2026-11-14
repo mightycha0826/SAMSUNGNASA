@@ -29,6 +29,7 @@ Without `uv`: `python3 -m venv .venv && .venv/bin/pip install -r requirements.tx
 | `--serial /dev/ttyACM0` | Arduino port. Default: auto-detect. `none`: mock temperature only |
 | `--static ../web/dist` | B's build output. If missing, the connection test page is served |
 | `--warn-c 30 --critical-c 35 --clear-c 28` | Temperature alert thresholds (tune with the real sensor) |
+| `--wake-word helmet` | Only obey speech that contains the word ("Helmet, status report"). For rooms where other people talk; off by default |
 | `--stt auto --tts auto` | Speech backends. `auto` uses the models if present, otherwise `null` / `tone` |
 
 The same command runs on a PC without a Jetson (no Arduino → `source: mock`; no models → no STT, beep TTS).
