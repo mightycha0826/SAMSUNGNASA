@@ -151,6 +151,15 @@ For A, B and D when chasing "errors that only happen on the device" ([ROLES.md](
 
 `adb tcpip 5555`, unplug the cable, then `adb connect <headset IP>:5555`. The console stays visible while the headset is on the hotspot.
 
+## Keeping the headset awake off the head
+
+The Quest sleeps when its proximity sensor sees no face, which stops the page while the headset sits on a desk. To turn the sensor off (developer mode needed):
+
+- **Meta Quest Developer Hub** (PC, headset connected): Device Manager → Device Actions → **Proximity Sensor** off. Meta's docs say it turns itself back on some minutes after the headset is disconnected from the Hub.
+- **adb**: `adb shell am broadcast -a com.oculus.vrpowermanager.prox_close` keeps the headset awake as if worn; `adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable` restores the sensor. A restart also restores it.
+
+The battery drains faster with the sensor off.
+
 ## Walking beyond the Guardian boundary
 
 When the wearer walks out of the Quest's boundary, the headset pauses the app and the HUD disappears. Two ways around it:
