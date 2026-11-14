@@ -635,6 +635,10 @@ function updateHands(frame) {
     }
     aim.position.copy(wristPos);
     aim.position.y += C.liftM;
+    // A little beyond the hand, away from the wearer: the pointing hand is then on the near
+    // side of the card even when it is held as far out as the left one.
+    v3.subVectors(wristPos, v2).setY(0);
+    if (v3.lengthSq() > 1e-6) aim.position.addScaledVector(v3.normalize(), C.awayM);
     aim.lookAt(v2);
   }
   followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt);

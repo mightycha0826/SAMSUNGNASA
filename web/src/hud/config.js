@@ -136,6 +136,8 @@ export const HUD = {
     /** Height of the card's centre above the back of the hand (m): its lower edge is then
      *  about 8 cm above the hand */
     liftM: 0.145,
+    /** How far beyond the hand, away from the wearer, the card stands (m) */
+    awayM: 0.08,
   },
   toastMs: 4000,
 };

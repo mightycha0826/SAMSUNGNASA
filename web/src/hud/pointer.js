@@ -228,8 +228,12 @@ export function createPointer(ctx, K) {
         if (src.hand && !K.hands.includes(src.handedness)) continue; // the other hand holds the map
         const st = stateFor(`${src.handedness}:${src.hand ? 'hand' : 'controller'}`);
         if (!readRay(st, src, frame)) continue;
-        if (src.hand) readPinch(st, src, frame);
-        else {
+        if (src.hand) {
+          readPinch(st, src, frame);
+          // A select whose end was never delivered would block every later press. The joints
+          // say when the hand is plainly open again: the held select is dropped then.
+          if (st.strength === 0) systemDown.set(src, false);
+        } else {
           st.jointDown = false;
           st.strength = 0;
         }
