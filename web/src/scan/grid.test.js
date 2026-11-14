@@ -159,6 +159,18 @@ test('an unclear read changes nothing: too few points, or floor with a little of
   assert.equal(readCell(grid, 0, many), PASSABLE);
 });
 
+test('an obstacle that stays out of sight for forgetScans reads is forgotten; one in sight is kept', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  for (let i = 0; i < SCAN.setScans; i++) readCell(grid, many, 0);
+  for (let i = 1; i < SCAN.forgetScans; i++) assert.equal(readCell(grid, 0, 0), OBSTACLE, `still there after ${i} reads out of sight`);
+  assert.equal(readCell(grid, 0, 0), UNKNOWN); // whoever stood there may have walked away
+  // It has to be seen setScans times again before it counts.
+  for (let i = 1; i < SCAN.setScans; i++) assert.equal(readCell(grid, many, 0), UNKNOWN);
+  assert.equal(readCell(grid, many, 0), OBSTACLE);
+  for (let i = 0; i < SCAN.forgetScans * 2; i++) assert.equal(readCell(grid, many, 0), OBSTACLE); // in sight: kept
+});
+
 test('live depth adds to the room scan and never removes structure from it', () => {
   const [O, P, U] = [OBSTACLE, PASSABLE, UNKNOWN];
   // every pairing of what the room scan says with what live depth says
