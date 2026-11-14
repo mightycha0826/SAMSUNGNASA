@@ -23,6 +23,67 @@
 //   frame.refSpace local-floor 기준 공간. 세션 밖에서는 null
 //   frame.session  XRSession 또는 null
 
-export function init(ctx) {}
+import * as THREE from 'three';
+import { NAV } from './config.js';
+import { Navigation } from './controller.js';
+import { createArrows } from './arrows.js';
+import { cellToRoom, containsCell, roomToCell } from './coordinates.js';
 
-export function update(frame) {}
+let ctx, navigation, arrows, actor, off = [], keys = new Set(), wasXR = false;
+
+export function init(context) {
+  dispose(); ctx = context;
+  arrows = createArrows(ctx.scene);
+  actor = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba }));
+  actor.name = 'nav-desktop-explorer'; ctx.scene.add(actor);
+  const worker = new Worker(new URL('./planner.worker.js', import.meta.url), { type: 'module' });
+  navigation = new Navigation({ bus: ctx.bus, worker, onRoute: route => arrows.update(route),
+    onPosition: p => { if (p) actor.position.set(p[0], 0.065, p[2]); } });
+  off.push(ctx.bus.on('layers:ready', () => {
+    if (!ctx.xr.presenting && navigation.transform) {
+      const base = navigation.data.layerSet.waypoints?.find(w => w.id === 'base');
+      if (base && containsCell(navigation.transform, base.cell)) navigation.setPosition(cellToRoom(navigation.transform, base.cell));
+    }
+  }));
+  const keyDown = e => {
+    if (ctx.xr.presenting || !e.key.startsWith('Arrow') || /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName)) return;
+    e.preventDefault(); e.stopImmediatePropagation(); keys.add(e.key);
+  };
+  const keyUp = e => keys.delete(e.key);
+  const blur = () => keys.clear();
+  window.addEventListener('keydown', keyDown, true); window.addEventListener('keyup', keyUp); window.addEventListener('blur', blur);
+  off.push(() => window.removeEventListener('keydown', keyDown, true), () => window.removeEventListener('keyup', keyUp), () => window.removeEventListener('blur', blur));
+  const end = () => { keys.clear(); navigation.setPosition(null); arrows.update({ status: 'blocked' }); };
+  off.push(ctx.xr.onSessionStart(end), ctx.xr.onSessionEnd(end));
+}
+
+export function update(frame) {
+  if (!navigation) return;
+  const xr = !!frame.session;
+  actor.visible = !xr;
+  if (xr) {
+    const pose = frame.xrFrame && frame.refSpace && frame.xrFrame.getViewerPose(frame.refSpace);
+    const p = pose?.transform.position;
+    if (p) navigation.setPosition([p.x, 0, p.z]);
+    else if (navigation.position) navigation.setPosition(null);
+  } else {
+    if (wasXR && navigation.transform) {
+      const base = navigation.data.layerSet.waypoints?.find(w => w.id === 'base');
+      if (base) navigation.setPosition(cellToRoom(navigation.transform, base.cell));
+    }
+    if (navigation.position && keys.size && navigation.transform) {
+      const dx = Number(keys.has('ArrowRight')) - Number(keys.has('ArrowLeft'));
+      const dz = Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'));
+      const norm = Math.hypot(dx, dz) || 1, step = NAV.desktopSpeedMps * frame.dt / norm;
+      const p = [navigation.position[0] + dx * step, 0, navigation.position[2] + dz * step];
+      if (containsCell(navigation.transform, roomToCell(navigation.transform, p)) && navigation.routeClear([navigation.position, p])) navigation.setPosition(p);
+    }
+  }
+  wasXR = xr; navigation.tick();
+}
+
+export function dispose() {
+  off.forEach(fn => fn()); off = []; keys.clear(); wasXR = false;
+  navigation?.dispose(); navigation = null; arrows?.dispose(); arrows = null;
+  if (actor) { actor.removeFromParent(); actor.geometry.dispose(); actor.material.dispose(); actor = null; }
+}
