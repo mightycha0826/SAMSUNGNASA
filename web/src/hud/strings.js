@@ -36,7 +36,7 @@ export const STRINGS = {
     relative: 'Relative brightness',
     keys: ['■ Base', '◆ Survey site', '▲ You'],
     layers: { topo: 'Elevation', slope: 'Slope', optical: 'Optical', thermal: 'Thermal' },
-    waypoints: { base: 'Base', site1: 'Survey site 1', mark: 'target', near: 'nearby point' },
+    waypoints: { base: 'Base', site1: 'Survey site 1', mark: 'target', near: 'nearby point', pick: 'selected point' },
   },
   ko: {
     suit: '슈트 온도',

@@ -17,6 +17,8 @@ export class Navigation {
     const on = (name, fn) => this.off.push(bus.on(name, fn));
     on('layers:ready', data => this.load(data));
     on('nav:request', ({ targetId }) => this.request(targetId));
+    // A destination picked on the map (hud): it joins the waypoints, and the planner learns it.
+    on('nav:waypoint', wp => this.setWaypoint(wp));
     // The wearer's position in map metres, from the headset's tracking (field/index.js).
     on('nav:position', ({ point }) => this.setPosition(point));
     on('hazard:update', h => this.updateHazard(h));
@@ -74,6 +76,14 @@ export class Navigation {
     else this.onRoute({ status: 'cancelled', points: [] });
     this.lastPlanAt = -Infinity; this.dirty = true;
     this.tick();
+  }
+  setWaypoint({ id, cell, label }) {
+    if (!this.data || !id || !containsCell(this.transform, cell)) return;
+    const list = this.data.layerSet.waypoints ??= [];
+    const wp = { id, label: label ?? id, labelEn: label ?? id, cell: [Math.round(cell[0]), Math.round(cell[1])], derived: true };
+    const i = list.findIndex(w => w.id === id);
+    if (i >= 0) list[i] = wp; else list.push(wp);
+    this.worker.postMessage({ type: 'waypoint', id, cell: wp.cell });
   }
   cancel() {
     this.invalidate(); this.route = []; this.dirty = false;

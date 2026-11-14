@@ -30,6 +30,10 @@ import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
 import { createPointer } from './pointer.js';
 import { createSuit } from './suit.js';
+import { createRescue } from './rescue.js';
+import { handOpen } from '../core/palm.js';
+import { walkableNear, reachableFrom } from '../core/waypoints.js';
+import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -48,7 +52,7 @@ const state = {
   baseMode: 'normal',
   mode: 'normal',
 };
-const dirty = { status: true, banner: true, layers: true, commands: true };
+const dirty = { status: true, banner: true, layers: true, commands: true, pick: true };
 
 // ---- 패널 ----
 let rigid; // 카메라에 붙는 묶음 (비상 테두리, 그리고 followRate가 0이면 카드도)
@@ -82,8 +86,19 @@ const menuCommands = () => commands.filter((c) => !c.mode || c.mode === mode.cur
 let pointer;
 let pointerTargets = [];
 // Which menus a pointer was on in the last frame: a menu that is being pointed at holds still.
-const engaged = { layers: false, commands: false, sos: false };
-let suit = null; // the right hand: suit view over the palm, emergency button over the back (suit.js)
+const engaged = { layers: false, commands: false, pick: false };
+let rescue = null; // the emergency button on the command card (rescue.js)
+let leftOpen = false; // the left hand is held open: only then does it bring a menu up
+// A place picked on the palm map with the pointer: a pin on the map and a small card over it
+// with "Navigate" and "Cancel". Saying "Navigate" or "Cancel" does the same as pressing them.
+let pick = null; // { cell: [col, row] } while the card is up
+let pPick = null;
+let pickHits = [];
+const pickTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
+const UP = new THREE.Vector3(0, 1, 0);
+let lastSosDraw = 0;
+let mapPointed = false; // the right hand's pointer is on the map this frame
+let suit = null; // the right hand: the vitals hologram over the palm (suit.js)
 // Test hook: keep the command menu up without a hand (PC).
 let commandsPinned = false;
 let audio = null;
@@ -173,7 +188,71 @@ function commandsVM() {
     title: S.voiceTitle ?? 'Commands',
     hint: S.voiceHint ?? 'Say it, or point and pinch',
     items: menuCommands().map((c) => ({ id: c.say, label: c.say, hover: c.say === cmdTouch.hoverId, pressed: c.say === pressedId })),
+    sos: { id: SOS_ID, ...rescue.vm(performance.now()), hover: cmdTouch.hoverId === SOS_ID, pressed: pressedId === SOS_ID },
   };
+}
+const SOS_ID = '__sos';
+
+function pickVM() {
+  const pressedId = performance.now() < pickTouch.pressedUntil ? pickTouch.pressedId : null;
+  const ls = state.layerSet;
+  let hint = '';
+  if (pick && ls) {
+    const at = Math.round(pick.cell[1]) * ls.grid.cols + Math.round(pick.cell[0]);
+    const h = state.grids.topo?.[at];
+    const slope = state.grids.slope?.[at];
+    hint = [pick.note || (Number.isFinite(h) ? `${h.toFixed(0)} m` : null), Number.isFinite(slope) ? `slope ${slope.toFixed(0)}°` : null].filter(Boolean).join(' · ');
+  }
+  return {
+    cols: 2,
+    title: 'Selected point',
+    hint,
+    items: ['Navigate', 'Cancel'].map((label) => ({ id: label, label, hover: label === pickTouch.hoverId, pressed: label === pressedId })),
+  };
+}
+
+function selectPoint(cell) {
+  // The planner closes ground steeper than 20 degrees, and much of this terrain is: the pick
+  // goes to the nearest walkable cell, and the card says how far that was.
+  const asked = [Math.round(cell[0]), Math.round(cell[1])];
+  const ls = state.layerSet;
+  // Reachable from the base over walkable slopes, worked out once per data set.
+  if (ls && state.reachable?.for !== ls) {
+    const base = ls.waypoints?.find((w) => w.id === 'base');
+    state.reachable = { for: ls, cells: base ? reachableFrom(ls, state.grids.slope ?? null, base.cell) : null };
+  }
+  const walkable = ls ? walkableNear(ls, state.grids.slope ?? null, asked, { within: state.reachable?.cells ?? null, reachCells: 40 }) : asked;
+  const to = walkable ?? asked;
+  const movedM = ls ? Math.round(Math.hypot(to[0] - asked[0], to[1] - asked[1]) * ls.grid.cellSizeM) : 0;
+  pick = { cell: to, note: !walkable ? 'no walkable ground near' : movedM ? `moved ${movedM} m to reachable ground` : '' };
+  showPick(pick.cell);
+  dirty.pick = true;
+  clickSound();
+  ctx.bus.emit('map:pick', { cell: pick.cell });
+}
+
+function clearPick(keepPin = false) {
+  if (!pick) return;
+  pick = null;
+  if (!keepPin) showPick(null);
+  pPick.mesh.visible = false;
+  ctx.bus.emit('map:pick', null);
+}
+
+/** Go to the picked place: it becomes the destination `pick`, and the route is requested. */
+function navigatePick() {
+  if (!pick) return;
+  ctx.bus.emit('nav:waypoint', { id: 'pick', cell: pick.cell, label: 'Selected point' });
+  ctx.bus.emit('nav:request', { targetId: 'pick' });
+  clearPick(true); // the card goes, the pin stays where the route leads
+}
+
+function pressPick(id) {
+  pickTouch.pressedId = id;
+  pickTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
+  clickSound();
+  if (id === 'Navigate') navigatePick();
+  else clearPick();
 }
 
 /** Run a command from the menu exactly as if it had been spoken. `id` is what the button says. */
@@ -448,6 +527,10 @@ function wire(bus) {
       state.acked = true; // 점멸을 멈춘다. 테두리와 경보 카드는 alert:clear까지 남는다.
       dirty.banner = true;
     }
+    // The card over a picked place: saying its buttons presses them. (link.js leaves the
+    // route request to us while a place is picked.)
+    if (pick && intent === 'nav.start') navigatePick();
+    else if (pick && intent === 'nav.stop') clearPick();
   });
   // "Base" is a Mars-map command and "Mark target" a field-map one: the menu follows the mode.
   bus.on('app:mode', () => {
@@ -475,7 +558,8 @@ function pressCommand(id) {
   cmdTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
   dirty.commands = true;
   clickSound();
-  runCommand(id);
+  if (id === SOS_ID) rescue.press();
+  else runCommand(id);
 }
 
 function initInput() {
@@ -484,10 +568,13 @@ function initInput() {
   pointerTargets = [
     { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer },
     { id: 'commands', panel: pCommands, hits: () => commandHits, press: pressCommand },
-    suit.target, // the emergency button: pressed by the left hand
+    { id: 'pick', panel: pPick, hits: () => pickHits, press: pressPick },
   ];
   // PC: mouse click
   const el = ctx.renderer.domElement;
+  // A click that ends a drag of the view is not a click on the map.
+  let downAt = null;
+  el.addEventListener('pointerdown', (ev) => (downAt = [ev.clientX, ev.clientY]));
   el.addEventListener('click', (ev) => {
     if (ctx.xr.presenting) return;
     const r = el.getBoundingClientRect();
@@ -502,6 +589,10 @@ function initInput() {
         return;
       }
     }
+    // Not on a menu: a place on the map, if the click was not the end of a drag.
+    if (downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
+    const hit = mode.current === 'mars' ? pickOnMap(raycaster.ray.origin, raycaster.ray.direction, 40) : null;
+    if (hit) selectPoint(hit.cell);
   });
 }
 
@@ -605,13 +696,19 @@ function updateHands(frame) {
   } else if (wrist) {
     const o = wrist.transform.orientation;
     v1.set(0, 1, 0).applyQuaternion(q1.set(o.x, o.y, o.z, o.w)); // back-of-hand direction
-    palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
-    backUp = v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
+    // A menu comes up only over an open hand: one that points, pinches or makes a fist has
+    // turned for another reason. (A hand that relaxes a little stays "open": handOpen is sticky.)
+    leftOpen = handOpen(left, xrFrame, refSpace, leftOpen);
+    palmUp = leftOpen && v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
+    backUp = leftOpen && v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
   }
   // The right hand's own two views (suit.js). While its emergency button is up, the left hand
   // is the one that points: its command card stays away so it does not pop up over the ray.
-  suit.place(frame, now, frame.dt, { right, crowded, engaged: engaged.sos });
-  if (suit.sosShown) backUp = false;
+  // The right hand has one thing of its own, the vitals over its palm, and it is also the hand
+  // that points. Where the two hands could get in each other's way the left one has the say:
+  // the vitals stay away while the hands are too close for the tracking to be trusted, and
+  // while the right hand's pointer is on a menu or on the map.
+  suit.place(frame, !crowded && !pointer.busy().right && !mapPointed);
   // Palm up shows the map in both modes, so in both it sends the command card away at once.
   const mapUp = palmUp;
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
@@ -669,9 +766,36 @@ function updatePointer(frame, now) {
       dirty[flag] = true;
     }
   }
-  const s = res.get('sos');
-  engaged.sos = s.engaged;
-  suit.setHover(s.hoverId != null);
+  const p = res.get('pick');
+  engaged.pick = p.engaged;
+  if (p.hoverId !== pickTouch.hoverId) {
+    pickTouch.hoverId = p.hoverId;
+    dirty.pick = true;
+  }
+
+  // A pointer that is on no menu may be on the map: a cursor on the terrain, and a pinch picks
+  // the place under it. The same hands that press the left hand's menus (and controllers).
+  mapPointed = false;
+  if (mode.current === 'mars') {
+    for (const ray of pointer.free()) {
+      if (ray.hand && !HUD.pointer.hands.includes(ray.hand)) continue;
+      const hit = pickOnMap(ray.origin, ray.dir, HUD.pointer.maxM);
+      if (!hit) continue;
+      ray.show(hit.point, UP);
+      if (ray.hand === 'right') mapPointed = true;
+      if (ray.pressed) selectPoint(hit.cell);
+      break;
+    }
+  }
+  // The card stands over the picked place and goes where the map goes; it hides with the map.
+  const over = pick && mapCellInRoom(pick.cell);
+  pPick.mesh.visible = !!over;
+  if (over) {
+    pPick.mesh.position.copy(over);
+    pPick.mesh.position.y += HUD.pick.liftM * (ctx.xr.presenting ? 1 : 8);
+    pPick.mesh.lookAt(ctx.camera.getWorldPosition(v1));
+    pPick.mesh.scale.setScalar(HUD.pick.scale * (ctx.xr.presenting ? 1 : 6));
+  }
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -723,7 +847,11 @@ export function init(context) {
   camera.add(wash);
   placeLayersFixed();
 
-  suit = createSuit(ctx, { makePanel, followMenu, aim, showToast });
+  suit = createSuit(ctx);
+  rescue = createRescue(ctx, { showToast, changed: () => (dirty.commands = true), battery: suit.battery });
+  pPick = makePanel(HUD.pick.wDeg, HUD.pick.hDeg);
+  pPick.mesh.visible = false;
+  ctx.scene.add(pPick.mesh);
   wire(ctx.bus);
   initInput();
   loadFont().then(() => {
@@ -745,6 +873,7 @@ export function init(context) {
     },
     pointer,
     suit,
+    rescue,
     panels: () => ({ layers: pLayers, commands: pCommands, layerHits, commandHits }),
     state,
     statusVM,
@@ -779,6 +908,11 @@ export function update(frame) {
   updateHands(frame);
   updatePointer(frame, now);
   suit.tick(now, frame.dt);
+  // The emergency button counts down while armed: the card is redrawn ten times a second then.
+  if (rescue.tick(now) && now - lastSosDraw > 100) {
+    lastSosDraw = now;
+    dirty.commands = true;
+  }
   if (touch.pressedId && now > touch.pressedUntil) {
     touch.pressedId = null;
     dirty.layers = true;
@@ -861,6 +995,15 @@ export function update(frame) {
     layerHits = drawLayers(pLayers.g, HUD.pxPerDeg, layersVM());
     pLayers.tex.needsUpdate = true;
     dirty.layers = false;
+  }
+  if (pickTouch.pressedId && now > pickTouch.pressedUntil) {
+    pickTouch.pressedId = null;
+    dirty.pick = true;
+  }
+  if (dirty.pick && pPick.mesh.visible) {
+    pickHits = drawCommands(pPick.g, HUD.pxPerDeg, pickVM());
+    pPick.tex.needsUpdate = true;
+    dirty.pick = false;
   }
   if (dirty.commands && pCommands.mesh.visible) {
     commandHits = drawCommands(pCommands.g, HUD.pxPerDeg, commandsVM());

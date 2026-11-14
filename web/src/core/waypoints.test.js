@@ -1,7 +1,7 @@
 // node --test src/core/waypoints.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nearbyWaypoint, navTarget } from './waypoints.js';
+import { nearbyWaypoint, navTarget, walkableNear, reachableFrom } from './waypoints.js';
 
 // The real map: 512 x 512 cells of 4 m, base and survey site where layerset.json has them.
 const REAL = { grid: { cols: 512, rows: 512, cellSizeM: 4 }, waypoints: [{ id: 'base', cell: [247, 357] }, { id: 'site1', cell: [275, 272] }] };
@@ -51,4 +51,28 @@ test('"Navigate" goes to the nearby point, or to the survey site on a map withou
   assert.equal(navTarget('near', noNear), 'site1');
   assert.equal(navTarget(undefined, noNear), 'site1');
   assert.equal(navTarget('near', null), 'near'); // before the map loads: as asked
+});
+
+test('a place picked on steep ground moves to the nearest walkable cell', () => {
+  const ls = { grid: { cols: 20, rows: 20, cellSizeM: 4 } };
+  const slope = new Float32Array(400).fill(35);
+  slope[10 * 20 + 14] = 8; // walkable, 4 cells east of the pick
+  slope[3 * 20 + 3] = 5; // walkable, but farther
+  assert.deepEqual(walkableNear(ls, slope, [10.2, 9.8]), [14, 10]);
+  slope[10 * 20 + 10] = 12;
+  assert.deepEqual(walkableNear(ls, slope, [10.2, 9.8]), [10, 10], 'a walkable pick stays where it is');
+  assert.equal(walkableNear(ls, new Float32Array(400).fill(35), [10, 10]), null, 'nothing walkable within reach');
+  assert.deepEqual(walkableNear(ls, null, [10.4, 9.6]), [10, 10], 'no slope data: as picked');
+});
+
+test('a walkable patch that nothing leads to is not a destination: the pick goes to ground connected to the wearer', () => {
+  const ls = { grid: { cols: 20, rows: 20, cellSizeM: 4 } };
+  const slope = new Float32Array(400).fill(35);
+  for (let c = 0; c <= 8; c++) slope[10 * 20 + c] = 5; // a walkable strip from the wearer at [0, 10] to [8, 10]
+  slope[10 * 20 + 12] = 5; // an island next to the pick, cut off by steep ground
+  const within = reachableFrom(ls, slope, [0, 10]);
+  assert.equal(within[10 * 20 + 8], 1);
+  assert.equal(within[10 * 20 + 12], 0);
+  assert.deepEqual(walkableNear(ls, slope, [13, 10]), [12, 10], 'without the reachable set: the island');
+  assert.deepEqual(walkableNear(ls, slope, [13, 10], { within }), [8, 10], 'with it: the end of the strip');
 });
