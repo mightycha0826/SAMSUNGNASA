@@ -102,10 +102,15 @@ test('a plane is a polygon in its own x-z plane; a repeated first point or too f
   const table = plane([[-0.4, -0.3], [0.4, -0.3], [0.4, 0.3], [-0.4, 0.3], [-0.4, -0.3]]);
   const sliver = plane([[0, 0], [1, 0]]);
   scan(room, frame([], [table, sliver], new Map([[table, top], [sliver, top]])));
-  // both halves of the rectangle: it is cut into triangles that fan out from its first point
+  // both halves of the rectangle are filled
   for (const probe of [[0, 0, 0], [0.3, 0, -0.2], [-0.3, 0, 0.2], [0.35, 0, 0.25], [-0.35, 0, -0.25]]) assert.equal(cellAt(room, probe, top), OBSTACLE, `at ${probe}`);
   assert.equal(cellAt(room, [0.75, 0, 0], top), UNKNOWN);
   assert.deepEqual(room.counts, { meshes: 0, planes: 2 });
+  // a polygon with more corners is filled to its middle: its triangles fan out from its first point
+  const hexagon = plane([0, 1, 2, 3, 4, 5].map((k) => [0.5 * Math.cos((k * Math.PI) / 3), 0.5 * Math.sin((k * Math.PI) / 3)]));
+  const aside = new THREE.Matrix4().makeTranslation(2.03, 0.75, -1.04);
+  scan(room, frame([], [hexagon], new Map([[hexagon, aside]])));
+  for (const probe of [[0, 0, 0], [0.4, 0, 0], [-0.4, 0, 0], [0.2, 0, 0.35], [-0.2, 0, -0.35]]) assert.equal(cellAt(room, probe, aside), OBSTACLE, `hexagon at ${probe}`);
 });
 
 test('a large mesh is rasterised over several frames, trianglesPerFrame at a time', () => {
@@ -158,4 +163,38 @@ test('a mesh that keeps saying it changed is looked at again only after rescanMs
   while (room.pending) room.work();
   room.collect(frame([m]), REF, t + 3 * SCAN.rescanMs); // it stopped saying it changed: never again
   assert.equal(room.pending, 0);
+});
+
+test('a plane follows the same rules: tried again when its space cannot be located, looked at again only after rescanMs, rasterised again only when its polygon or place changed', () => {
+  const room = newRoom();
+  const top = new THREE.Matrix4().makeTranslation(-2.03, 0.75, 1.04);
+  const p = plane([[-0.4, -0.3], [0.4, -0.3], [0.4, 0.3], [-0.4, 0.3]]);
+  const at = new Map([[p, top]]);
+  room.collect(frame([], [p], new Map([[p, null]])), REF, 0);
+  assert.equal(room.pending, 0); // its space cannot be located yet: it is tried again
+  room.collect(frame([], [p], at), REF, 100);
+  assert.equal(room.pending, 1);
+  while (room.pending) room.work();
+  p.lastChangedTime = 200;
+  room.collect(frame([], [p], at), REF, 200);
+  assert.equal(room.pending, 0, 'not again before rescanMs');
+  let t = 100 + SCAN.rescanMs;
+  p.lastChangedTime = t;
+  room.collect(frame([], [p], at), REF, t);
+  assert.equal(room.pending, 0, 'the same polygon in the same place');
+  assert.equal(cellAt(room, [-0.8, 0, -0.29], top), UNKNOWN);
+  p.polygon = p.polygon.map((q, i) => (i === 0 ? { ...q, x: q.x - 0.5 } : q));
+  p.lastChangedTime = t + 1;
+  room.collect(frame([], [p], at), REF, t + 1);
+  assert.equal(room.pending, 0, 'too soon after the last look');
+  t += SCAN.rescanMs;
+  p.lastChangedTime = t;
+  room.collect(frame([], [p], at), REF, t);
+  assert.equal(room.pending, 1, 'a corner moved');
+  while (room.pending) room.work();
+  assert.equal(cellAt(room, [-0.8, 0, -0.29], top), OBSTACLE); // only the moved corner reaches here
+  t += SCAN.rescanMs;
+  p.lastChangedTime = t;
+  room.collect(frame([], [p], new Map([[p, new THREE.Matrix4().makeTranslation(-1.03, 0.75, 1.04)]])), REF, t);
+  assert.equal(room.pending, 1, 'its space moved');
 });
