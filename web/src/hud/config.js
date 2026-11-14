@@ -17,7 +17,7 @@ export const HUD = {
   stage: { wDeg: 80.26, hDeg: 50.16 },
   status: { leftDeg: 3.5, topDeg: 4.5, wDeg: 20, hDeg: 31 },
   banner: { topDeg: 4.5, wDeg: 38, hDeg: 11 },
-  /** 비상 테두리: 가운데에서 좌우·상하 절반 크기 (도, 기본은 목업 화면 전체 = 실제 시야각 약 ±35° × ±23.5°), 밝아지는 주기 (초) */
+  /** 경보 테두리 (critical 빨강, warn 주황): 가운데에서 좌우·상하 절반 크기 (도, 기본은 목업 화면 전체 = 실제 시야각 약 ±35° × ±23.5°), 밝아지는 주기 (초) */
   edge: { halfWDeg: 40.13, halfHDeg: 25.08, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },
   /** 레이어 탭 + 범례 */
   layers: {

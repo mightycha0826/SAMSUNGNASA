@@ -2,6 +2,7 @@
 //
 // 받는 이벤트: layers:ready, layer:toggle, env:update, telemetry:update, alert:raise, alert:clear,
 //              nav:route, voice:command (intent가 alert.ack, mode.set일 때)
+// 테두리: critical 경보는 빨강, warn 경보는 같은 테두리를 주황으로 점멸한다.
 // 보내는 이벤트: layer:toggle (탭을 누를 때, 그리고 layers:ready 직후 기본 레이어 한 번),
 //                mode:change (critical 경보가 생기면 emergency, 모두 풀리면 원래 모드)
 // 형식: docs/INTERFACES.md 3장. 디자인: mockups/hud-mockup.html, design-system/point
@@ -21,7 +22,7 @@
 import * as THREE from 'three';
 import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
-import { loadFont } from './tokens.js';
+import { T, loadFont } from './tokens.js';
 import { drawStatus, drawBanner, drawLayers, drawEdge } from './draw.js';
 
 const S = STRINGS[HUD.lang];
@@ -191,6 +192,12 @@ function hasCritical() {
   return false;
 }
 
+/** 비상 테두리의 등급: critical이 하나라도 있으면 critical, 아니면 warn이 있을 때 warn, 없으면 null */
+function frameLevel() {
+  if (hasCritical()) return 'critical';
+  return state.alerts.size ? 'warn' : null;
+}
+
 function updateMode() {
   const mode = hasCritical() ? 'emergency' : state.baseMode;
   if (mode === state.mode) return;
@@ -237,14 +244,14 @@ function wire(bus) {
   });
   bus.on('alert:raise', ({ id, level, message, ts }) => {
     const before = state.alerts.get(id);
-    if (level === 'critical' && before?.level !== 'critical') state.acked = false; // 새 위험은 다시 점멸
+    if (before?.level !== level) state.acked = false; // 새 경보나 등급이 바뀐 경보는 다시 점멸
     state.alerts.set(id, { level, message, ts: ts ?? Date.now() });
     dirty.status = dirty.banner = true;
     updateMode();
   });
   bus.on('alert:clear', ({ id }) => {
     if (!state.alerts.delete(id)) return;
-    if (!hasCritical()) state.acked = false;
+    if (!state.alerts.size) state.acked = false;
     dirty.status = dirty.banner = true;
     updateMode();
   });
@@ -258,7 +265,7 @@ function wire(bus) {
     dirty.status = true;
   });
   bus.on('voice:command', ({ intent, slots }) => {
-    if (intent === 'alert.ack' && hasCritical()) {
+    if (intent === 'alert.ack' && state.alerts.size) {
       state.acked = true; // 점멸을 멈춘다. 테두리와 경보 카드는 alert:clear까지 남는다.
       dirty.banner = true;
     } else if (intent === 'mode.set' && MODES.includes(slots?.mode)) {
@@ -416,7 +423,7 @@ export function init(context) {
   });
 
   // 테스트와 콘솔에서 상태를 볼 수 있게 열어 둔다.
-  window.__hud = { state, statusVM, bannerVM, layersVM, tabScreenXY };
+  window.__hud = { state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel };
 }
 
 export function update(frame) {
@@ -445,11 +452,13 @@ export function update(frame) {
     dirty.banner = true;
   }
 
-  // 비상 테두리: 느리게 밝아졌다 어두워진다. "경보 확인" 뒤에는 흐리게 멈춘다.
-  const crit = hasCritical();
-  pEdge.mesh.visible = crit;
-  if (crit) {
+  // 테두리: critical은 빨강, warn은 같은 테두리를 주황으로. 느리게 밝아졌다 어두워진다.
+  // "경보 확인" 뒤에는 흐리게 멈춘다. mode:change(emergency)는 critical일 때만 보낸다.
+  const level = frameLevel();
+  pEdge.mesh.visible = !!level;
+  if (level) {
     const E = HUD.edge;
+    pEdge.mat.color.set(level === 'critical' ? T.dangerLine : T.point);
     const wave = 0.5 - 0.5 * Math.cos((2 * Math.PI * now) / 1000 / E.periodS);
     pEdge.mat.opacity = state.acked ? E.ackedOpacity : E.minOpacity + (1 - E.minOpacity) * wave;
   }

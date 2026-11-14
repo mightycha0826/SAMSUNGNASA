@@ -351,12 +351,13 @@ export function drawLayers(g, d, vm) {
 }
 
 // ---- 비상 테두리 ----
-// 가장자리만 붉게, 가운데는 비운다 (지도와 화살표를 가리지 않게).
+// 가장자리만 칠하고 가운데는 비운다 (지도와 화살표를 가리지 않게).
+// 흰색으로 그려 두고, 색은 index.js가 경보 등급에 따라 입힌다 (critical 빨강, warn 주황).
 export function drawEdge(g) {
   const { width: W, height: H } = g.canvas;
   g.clearRect(0, 0, W, H);
   const depth = Math.round(W * 0.075);
-  g.strokeStyle = T.dangerLine;
+  g.strokeStyle = '#ffffff';
   g.lineWidth = 1.5;
   for (let i = 0; i < depth; i++) {
     g.globalAlpha = (1 - i / depth) ** 2;
