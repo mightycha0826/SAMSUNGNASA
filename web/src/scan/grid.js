@@ -16,7 +16,7 @@ export const UNKNOWN = 255;
 
 /**
  * cfg: thingMinM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans, and for
- * settling: settleScans, giveUpScans, leaveM, vantageM, depthRangeM, bodyM, viewHalfDeg (SCAN in index.js).
+ * settling: settleScans, resettleScans, giveUpScans, leaveM, vantageM, depthRangeM, bodyM, viewHalfDeg (SCAN in index.js).
  *
  * Settling (cfg.settleScans > 0): a cell that has been read settleScans times in a row with the
  * same answer is settled and is not read any more: points that fall into it are dropped. So is
@@ -24,7 +24,8 @@ export const UNKNOWN = 255;
  * under the lower edge of the image). The sensor's time then goes to cells that are still open,
  * and unsettledInView says when there are none in view, so the caller can skip the read.
  * A settled cell is opened again when the wearer comes back after having been more than leaveM
- * away from it. A given-up one is also opened as soon as the wearer looks from somewhere else
+ * away from it, and, while it is in view, every so often by refresh(), which keeps the sensor
+ * looking at ground it knows at a steady, lower rate. A given-up one is also opened as soon as the wearer looks from somewhere else
  * or in another direction (view.sig changes): it may be in the picture now.
  *
  * The grid is a window on a floor without an edge (tiles.js): `shift` moves it by whole cells
@@ -45,6 +46,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const idle = new Uint8Array(n); // reads in a row in which the cell was in view and gave no answer
   const away = new Uint8Array(n); // the wearer has been more than leaveM from this settled cell
   const gaveUp = new Int32Array(n); // for a cell settled without an answer: the view.sig it was given up from, else 0
+  const stamp = new Float64Array(n); // when the cell settled (ms, the caller's clock): refresh() opens the oldest again
   const settling = cfg.settleScans > 0;
   let settledCount = 0;
   const cosHalf = Math.cos(((cfg.viewHalfDeg ?? 40) * Math.PI) / 180);
@@ -69,11 +71,12 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
     return [Math.max(0, c - k), Math.min(cols - 1, c + k), Math.max(0, r - k), Math.min(rows - 1, r + k)];
   }
 
-  function settle(i, sig = 0) {
+  function settle(i, sig = 0, now = 0) {
     settled[i] = 1;
     settledCount++;
     away[i] = 0;
     gaveUp[i] = sig;
+    stamp[i] = now;
   }
 
   return {
@@ -131,11 +134,11 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
           const thing = obstacle[i] >= cfg.minPoints;
           if (answered && next === cells[i] && next === (thing ? OBSTACLE : PASSABLE)) {
             idle[i] = 0;
-            if (++same[i] >= cfg.settleScans) settle(i);
+            if (++same[i] >= cfg.settleScans) settle(i, 0, view?.now ?? 0);
           } else if (answered || next !== cells[i]) {
             same[i] = idle[i] = 0; // still changing, or an obstacle being confirmed
           } else if (view && cfg.giveUpScans > 0 && inView(i, view)) {
-            if (++idle[i] >= cfg.giveUpScans) settle(i, view.sig || 1); // in view all this time and nothing to see
+            if (++idle[i] >= cfg.giveUpScans) settle(i, view.sig || 1, view.now ?? 0); // in view all this time and nothing to see
           }
         }
         if (next !== cells[i]) {
@@ -171,6 +174,34 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       return opened;
     },
 
+    /**
+     * Look again at what is settled: every settled cell in view that settled more than
+     * `minAgeMs` ago is opened. It is not treated as new: if the next cfg.resettleScans reads
+     * say what the cell already is, it settles again; a read that says otherwise starts the
+     * usual counting, so a chair put down on floor that was settled is marked, and one taken
+     * away is cleared. Without this, settled ground would only be read again after the wearer
+     * had been away from it (the "chair problem"). Returns how many cells were opened.
+     */
+    refresh(view, now, minAgeMs) {
+      if (!settling || !settledCount) return 0;
+      const again = cfg.resettleScans ?? 2;
+      const [c0, c1, r0, r1] = reach(view);
+      let opened = 0;
+      for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+          const i = r * cols + c;
+          if (!settled[i] || now - stamp[i] < minAgeMs || !inView(i, view)) continue;
+          settled[i] = away[i] = 0;
+          gaveUp[i] = 0;
+          same[i] = Math.max(0, cfg.settleScans - again);
+          idle[i] = Math.max(0, (cfg.giveUpScans ?? 0) - again);
+          settledCount--;
+          opened++;
+        }
+      }
+      return opened;
+    },
+
     /** True when a cell the depth image can see from `view` is still open: worth a read. */
     unsettledInView(view) {
       if (!settling) return true;
@@ -191,7 +222,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
      */
     shift(dCols, dRows, nextOriginXZ) {
       shiftCells(cells, cols, rows, dCols, dRows, UNKNOWN);
-      for (const a of [sightings, hold, unseen, obstacle, floor, settled, same, idle, away, gaveUp]) shiftCells(a, cols, rows, dCols, dRows, 0);
+      for (const a of [sightings, hold, unseen, obstacle, floor, settled, same, idle, away, gaveUp, stamp]) shiftCells(a, cols, rows, dCols, dRows, 0);
       origin = [nextOriginXZ[0], nextOriginXZ[1]];
       settledCount = 0;
       for (let i = 0; i < n; i++) settledCount += settled[i];

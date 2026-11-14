@@ -29,6 +29,10 @@
 // out of it are kept (the archive) and come back when the wearer returns. `hazard:update` is
 // always the window, so its originXZ changes when the window moves. Not yet checked on the headset.
 //
+// Settling (grid.js): a cell that keeps giving the same answer is settled and the reads go to
+// what is new; ground that is all settled is still looked at again every refreshS, so a chair
+// put down on it, or taken away, shows within 2 to 3 seconds.
+//
 // Where the wearer has walked is clear floor: the cells under them are freed at once and the
 // room scan cannot block them again (standAt, room.js).
 //
@@ -72,6 +76,8 @@ export const SCAN = {
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
   // Settling (grid.js): what has been read often enough is left alone, so the reads go to what is new.
   settleScans: new URLSearchParams(globalThis.location?.search ?? '').get('settle') === '0' ? 0 : 6, // same answer this many reads in a row (6 = 2 s): settled. ?settle=0 turns settling off
+  refreshS: 1.5, // settled ground in view is looked at again this long after it settled (0 = only after the wearer has been away)
+  resettleScans: 2, // and settles again after this many reads that say what it already is: a chair put down or taken away shows in 2 to 3 s
   giveUpScans: 12, // in view this many reads without an answer (behind something): settled too
   leaveM: 4, // a settled cell is read again when the wearer returns after being this far from it
   vantageM: 1, // a cell that gave no answer is read again when the wearer has moved about this far (or turned, or tilted the head)
@@ -101,6 +107,7 @@ let lastEmit = 0;
 let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0, depth: 0 };
 let reads = 0; // depth reads made
 let skips = 0; // depth reads not made because everything in view was settled
+let refreshes = 0; // times settled ground in view was opened to be read again
 let live; // what live depth sees, on the same cells
 let depthOn = false; // this session has depth-sensing and reading it has not failed
 let depthSeen = false; // the live layer holds what a recent read saw
@@ -300,7 +307,7 @@ export function init(context) {
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
   window.__scan = {
-    stats: () => ({ ...stats, queued: room.pending, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0, archived: archive.size, windowXZ: [...origin] }),
+    stats: () => ({ ...stats, queued: room.pending, run, stored: !!stored, trusted, reads, skips, refreshes, settled: live?.settledCount ?? 0, archived: archive.size, windowXZ: [...origin] }),
   };
 }
 
@@ -367,13 +374,20 @@ function readLive(frame) {
     let view = null;
     if (head) {
       view = viewOf(head, SCAN.vantageM);
+      view.now = time;
       live.reopen(view);
-      // Everything the image could show has been read often enough: no read, the frame is free.
+      // Everything the image could show has been read often enough. The sensor keeps looking all
+      // the same, at a steady, lower rate: what settled more than refreshS ago is opened again,
+      // so something put down or taken away on known ground is still noticed (grid.js: refresh).
+      // Only when that opens nothing is the read skipped and the frame free.
       if (!live.unsettledInView(view)) {
-        skips++;
-        lastDepth = time;
-        waitFrom = 0;
-        view = null;
+        if (SCAN.refreshS > 0 && live.refresh(view, time, SCAN.refreshS * 1000)) refreshes++;
+        else {
+          skips++;
+          lastDepth = time;
+          waitFrom = 0;
+          view = null;
+        }
       }
     }
     read = !!view && readDepth(ctx.renderer, frame, live, SCAN);
@@ -430,7 +444,7 @@ function send(time) {
   lastEmit = time;
   toStore = true;
   // archived, windowXZ: how many tiles are kept outside the window and where the window is, for diagnosis.
-  stats = { ...room.counts, ...counts, stored: kept, settled: live.settledCount, reads, skips, archived: archive.size, windowXZ: [...origin] };
+  stats = { ...room.counts, ...counts, stored: kept, settled: live.settledCount, reads, skips, refreshes, archived: archive.size, windowXZ: [...origin] };
   ctx.bus.emit('hazard:update', {
     originXZ: [...origin],
     cellSizeM: SCAN.cellM,

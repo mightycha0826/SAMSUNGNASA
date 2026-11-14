@@ -470,3 +470,73 @@ test('a known cell that comes back into the window is settled and left alone unt
   for (let i = 1; i < SCAN.clearScans; i++) assert.equal(look(grid, beside, chair[0], chair[1], 0, many), OBSTACLE, `still held after ${i} clear read(s)`);
   assert.equal(look(grid, beside, chair[0], chair[1], 0, many), PASSABLE);
 });
+
+// ---- the chair problem: something put down on, or taken off, ground that was already settled ----
+
+// Reads of one cell, 350 ms apart, until `until(state)` holds or `limit` reads have passed.
+// The caller stands still; the app's read loop is played here: reopen, refresh when nothing is
+// open in view, read, commit. Returns the seconds it took, or null.
+function watch(grid, view, x, z, obstaclePoints, floorPoints, until, clock, limit = 40) {
+  for (let k = 1; k <= limit; k++) {
+    clock.ms += 350;
+    view.now = clock.ms;
+    grid.reopen(view);
+    if (!grid.unsettledInView(view) && !grid.refresh(view, clock.ms, SCAN.refreshS * 1000)) continue; // a skipped read
+    for (let p = 0; p < obstaclePoints; p++) grid.add(x, 0.5, z);
+    for (let p = 0; p < floorPoints; p++) grid.add(x, 0, z);
+    grid.commit(view);
+    if (until(grid.cells[cellOf(x, z)])) return (k * 350) / 1000;
+  }
+  return null;
+}
+
+test('a chair put down on settled floor is marked within a few seconds, and cleared again when it is taken away', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const view = headAt(0, 0);
+  const clock = { ms: 0 };
+  const [x, z] = [0.05, -1.55];
+  // Empty floor in view until everything in view has settled (the rest of the view gives no answer and is given up).
+  watch(grid, view, x, z, 0, many, () => false, clock, 40);
+  assert.equal(grid.cells[cellOf(x, z)], PASSABLE);
+  assert.equal(grid.unsettledInView(view), false, 'all of the view is settled');
+  // A chair is put down.
+  const marked = watch(grid, view, x, z, many, 0, (cell) => cell === OBSTACLE, clock);
+  assert.ok(marked !== null && marked <= 3, `marked after ${marked} s`);
+  // It stands there until that has settled too, then it is taken away.
+  watch(grid, view, x, z, many, 0, () => false, clock, 30);
+  assert.equal(grid.cells[cellOf(x, z)], OBSTACLE);
+  const cleared = watch(grid, view, x, z, 0, many, (cell) => cell === PASSABLE, clock);
+  assert.ok(cleared !== null && cleared <= 4, `cleared after ${cleared} s`);
+});
+
+test('ground that stays as it is costs only a few reads each time it is looked at again', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const view = headAt(0, 0);
+  const [x, z] = [0.05, -1.55];
+  let reads = 0;
+  let ms = 0;
+  for (let k = 0; k < 120; k++) { // 42 s of standing still in front of bare floor
+    ms += 350;
+    view.now = ms;
+    grid.reopen(view);
+    if (!grid.unsettledInView(view) && !grid.refresh(view, ms, SCAN.refreshS * 1000)) continue;
+    for (let p = 0; p < many; p++) grid.add(x, 0, z);
+    grid.commit(view);
+    if (k >= 60) reads++; // the second half: everything has settled once by then
+  }
+  assert.ok(reads >= 15 && reads <= 45, `${reads} of 60 possible reads in the second half: looking again, at a lower rate`);
+});
+
+test('with refreshS 0 settled ground is not read again while the wearer stays (the old behaviour)', () => {
+  const grid = createGrid(COLS, COLS, SCAN.cellM, ORIGIN, SCAN);
+  const view = headAt(0, 0);
+  for (let k = 0; k < 40; k++) {
+    grid.reopen(view);
+    for (let p = 0; p < 9; p++) grid.add(0.05, 0, -1.55);
+    grid.commit(view);
+  }
+  assert.equal(grid.unsettledInView(view), false);
+  assert.equal(grid.refresh(view, 1e9, Infinity), 0, 'nothing is old enough');
+});
