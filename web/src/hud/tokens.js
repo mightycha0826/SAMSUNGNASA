@@ -1,6 +1,7 @@
 // HUD 색과 글꼴. 포인트 디자인 시스템(design-system/point)의 다크 테마를 그대로 쓴다.
 // 배경이 실제 방이라 테마는 다크로 고정한다 (mockups/hud-mockup.html).
 
+import { HUD } from './config.js';
 import tokens from '../../../design-system/point/tokens.json';
 import fontUrl from '../../../design-system/point/fonts/WantedSansVariable.woff2?url';
 import atkinson400 from './fonts/AtkinsonHyperlegible-400.woff2?url';
@@ -15,6 +16,8 @@ function alpha(hex, a) {
 
 export const T = {
   surface: alpha(dark.surface, 0.88),
+  /** Background of the layer menu and legend, which sit next to the map (HUD.layers.faceOpacity) */
+  menu: alpha(dark.surface, HUD.layers.faceOpacity),
   row: dark.row,
   track: dark.track,
   badge: dark['badge-bg'],

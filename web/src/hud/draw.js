@@ -367,7 +367,7 @@ export function drawLayers(g, d, vm) {
   const tabH = 3.2 * d;
   const rows = Math.ceil(vm.tabs.length / 2);
   const segH = pad * 2 + rows * tabH + Math.max(0, rows - 1) * pad;
-  box(g, 0, 0, W, segH, 1.1 * d, T.surface);
+  box(g, 0, 0, W, segH, 1.1 * d, T.menu);
   const tabW = (W - pad * 3) / 2;
   vm.tabs.forEach((tab, i) => {
     const x = pad + (i % 2) * (tabW + pad);
@@ -411,7 +411,7 @@ export function drawLayers(g, d, vm) {
     const size = 1.05 * d;
     const inner = W - lp * 2;
     const h = 1.4 * d + 0.8 * d + (2 + lg.src.length) * line + (2 + lg.src.length) * 0.3 * d;
-    box(g, 0, y0, W, h, 1.1 * d, T.surface);
+    box(g, 0, y0, W, h, 1.1 * d, T.menu);
     let y = y0 + 0.7 * d;
     const stops = RAMPS[lg.rampId] ?? RAMPS.default;
     const grad = g.createLinearGradient(lp, 0, W - lp, 0);

@@ -1,10 +1,12 @@
 export function createPlanningPanel({ plan, stop }) {
   const root = document.createElement('section'); root.id = 'route-planner'; root.setAttribute('aria-label', 'Planetary route planner');
   root.innerHTML = `<style>
-    #route-planner{position:fixed;right:18px;top:18px;width:288px;padding:18px;z-index:10;background:rgba(20,24,32,.96);border:1px solid #454d60;border-radius:12px;color:#eef1fa;font:14px/1.5 system-ui;box-sizing:border-box}
+    #route-planner{position:fixed;right:18px;top:18px;width:288px;padding:18px;z-index:10;background:rgba(20,24,32,.5);border:1px solid rgba(69,77,96,.7);border-radius:12px;color:#eef1fa;font:14px/1.5 system-ui;box-sizing:border-box;text-shadow:0 1px 2px rgba(0,0,0,.8);transition:background .2s}
+    /* See-through so it does not hide the map behind it; solid again while it is being used. */
+    #route-planner:hover,#route-planner:focus-within{background:rgba(20,24,32,.94)}
     #route-planner h2{font-size:17px;margin:0 0 5px}#route-planner p{color:#b8c1d6;margin:4px 0 12px;font-size:12px}
-    #route-planner label{display:block;margin:10px 0 4px}#route-planner select,#route-planner input{background:#282f40;color:#eef1fa;border:1px solid #5b6782;border-radius:6px;padding:8px;width:100%;box-sizing:border-box}
-    #route-planner .cells{display:flex;gap:8px}#route-planner .cells label{flex:1;min-width:0;font-size:12px}#route-planner button{padding:9px 14px;margin:12px 6px 8px 0;border:0;border-radius:6px;background:#8192ff;color:#101522;cursor:pointer;font-weight:600}#route-planner button.secondary{background:#343d52;color:#eef1fa}
+    #route-planner label{display:block;margin:10px 0 4px}#route-planner select,#route-planner input{background:rgba(40,47,64,.6);color:#eef1fa;border:1px solid rgba(91,103,130,.8);border-radius:6px;padding:8px;width:100%;box-sizing:border-box}
+    #route-planner .cells{display:flex;gap:8px}#route-planner .cells label{flex:1;min-width:0;font-size:12px}#route-planner button{padding:9px 14px;margin:12px 6px 8px 0;border:0;border-radius:6px;background:#8192ff;color:#101522;cursor:pointer;font-weight:600}#route-planner button.secondary{background:rgba(52,61,82,.75);color:#eef1fa}#route-planner button{text-shadow:none}#route-planner option{background:#282f40}
     #route-planner output{display:block;min-height:40px;font-size:13px;white-space:pre-line}#route-planner small{color:#b8c1d6}
     @media(max-width:800px){#route-planner{top:8px;right:8px;width:242px;padding:12px}}
   </style>
