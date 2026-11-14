@@ -160,6 +160,7 @@ const tabAt = (x, y) => hitAt(layerHits, x, y);
 function commandsVM() {
   const pressedId = performance.now() < cmdTouch.pressedUntil ? cmdTouch.pressedId : null;
   return {
+    cols: HUD.commands.cols,
     title: S.voiceTitle ?? 'Voice commands',
     hint: S.voiceHint ?? 'Say it, or pinch to select',
     items: commands.map((c, i) => ({ id: String(i), label: c.say, hover: String(i) === cmdTouch.hoverId, pressed: String(i) === pressedId })),
@@ -396,7 +397,7 @@ function wire(bus) {
   // The hub's own command list (jetson/commands.json), for the menu over the back of the hand.
   bus.on('voice:commands', ({ commands: list }) => {
     if (Array.isArray(list) && list.length) {
-      commands = list.filter((c) => c?.say && c?.intent).slice(0, 16);
+      commands = list.filter((c) => c?.say && c?.intent).slice(0, 15);
       dirty.commands = true;
     }
   });
@@ -477,6 +478,10 @@ function initInput() {
   }
 }
 
+const wearX = new THREE.Vector3();
+const wearY = new THREE.Vector3();
+const wearZ = new THREE.Vector3();
+const wearBasis = new THREE.Matrix4();
 const tipPos = new THREE.Vector3();
 const thumbPos = new THREE.Vector3();
 const v3 = new THREE.Vector3();
@@ -592,16 +597,25 @@ function updateHands(frame) {
     pLayers.mesh.scale.setScalar(L.palmScale);
   }
   if (backUp) {
-    // Over the back of the hand, a little toward the knuckles, facing the wearer.
+    // Worn on the back of the hand: the panel lies in the plane of the hand, a little above
+    // the skin. Its reading direction (+x) runs from the wrist toward the fingers and its
+    // normal (+z) is the back-of-hand direction, so its top edge (+y = z cross x) points away
+    // from a wearer who holds the left forearm level across the body.
     const p = wrist.transform.position;
-    pCommands.mesh.position.set(p.x, p.y, p.z);
+    const o = wrist.transform.orientation;
+    q1.set(o.x, o.y, o.z, o.w);
+    wearZ.set(0, 1, 0).applyQuaternion(q1); // back of the hand
     const knuckle = xrFrame.getJointPose?.(left.get('middle-finger-phalanx-proximal'), refSpace);
     if (knuckle) {
       const k = knuckle.transform.position;
-      pCommands.mesh.position.lerp(v1.set(k.x, k.y, k.z), 0.5);
-    }
-    pCommands.mesh.position.y += C.liftM + (pCommands.hM * C.scale) / 2;
-    pCommands.mesh.lookAt(v2);
+      wearX.set(k.x - p.x, k.y - p.y, k.z - p.z);
+    } else wearX.set(0, 0, -1).applyQuaternion(q1); // the wrist joint's -z points to the fingers
+    const reach = wearX.length() || 0.09;
+    wearX.addScaledVector(wearZ, -wearX.dot(wearZ)).normalize(); // keep it in the hand's plane
+    wearY.crossVectors(wearZ, wearX).normalize();
+    wearBasis.makeBasis(wearX, wearY, wearZ);
+    pCommands.mesh.quaternion.setFromRotationMatrix(wearBasis);
+    pCommands.mesh.position.set(p.x, p.y, p.z).addScaledVector(wearX, reach * C.along).addScaledVector(wearZ, C.liftM);
     pCommands.mesh.scale.setScalar(C.scale);
   }
 

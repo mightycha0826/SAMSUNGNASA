@@ -43,6 +43,7 @@ export function initDiag(sendJson, xr) {
 
   xr.onSessionStart((session) => {
     log('xr', { event: 'start', features: xr.enabledFeatures, visibility: session.visibilityState });
+    setTimeout(() => xr.session === session && log('xr', { event: 'space', space: xr.space }), 1500);
     session.addEventListener('visibilitychange', () => log('xr', { event: 'visibility', visibility: session.visibilityState }));
     const space = xr.refSpace;
     space?.addEventListener?.('reset', () => log('xr', { event: 'reference-space-reset' }));
