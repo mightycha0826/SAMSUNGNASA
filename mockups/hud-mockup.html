@@ -2,7 +2,7 @@
 <title>Marswalk Visor HUD Mockup</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=check_circle,error,fullscreen,fullscreen_exit,layers,link_off,navigation,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=check_circle,error,layers,link_off,navigation,warning&display=block">
 <style>
 /* Layout: helmet view (stage) on top, then controls, event log and the spec tables.
    Tokens are the Point design system, combo 1 (cobalt + orange). HUD sizes are in degrees of visual angle. */
@@ -39,34 +39,81 @@ a{color:var(--primary-text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .ms{font-family:var(--icon);font-weight:400;font-style:normal;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-variation-settings:"FILL" 1;-webkit-font-smoothing:antialiased}
 
-/* full-viewport edge frame (covers the entire viewport A, outside inner stage B) */
+/* Device-adaptive outermost perimeter alert frame (flashes 0.1s AFTER beep fires) */
 .edge{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;--ed:clamp(10px,1.25vw,22px);--edge-col:var(--h-danger-line)}
 body.warn .edge{opacity:1;--edge-col:var(--h-point)}
 body.crit .edge{opacity:1;--edge-col:var(--h-danger-line)}
-.edge .glow{position:absolute;inset:0;box-shadow:inset 0 0 calc(4.5*var(--ed)) calc(1.4*var(--ed)) var(--edge-col);animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite}
-.edge .br{position:absolute;width:calc(7*var(--ed));height:calc(7*var(--ed));border:calc(.7*var(--ed)) solid var(--edge-col);border-radius:calc(1.6*var(--ed));animation:pulse var(--period,1.6s) cubic-bezier(.3,0,.5,1) infinite;display:none}
+
+/* 1) Rectangular Display Contour (Monitor / Laptop / Mobile viewport edge) */
+.edge .rect-layer{position:absolute;inset:0;display:none}
+.edge.shape-rect .rect-layer{display:block}
+.edge .rect-glow{
+  position:absolute;inset:0;
+  box-shadow:inset 0 0 calc(4.5*var(--ed)) calc(1.4*var(--ed)) var(--edge-col);
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+}
+.edge .br{
+  position:absolute;width:calc(7*var(--ed));height:calc(7*var(--ed));
+  border:calc(.7*var(--ed)) solid var(--edge-col);border-radius:calc(1.6*var(--ed));
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+  display:none;
+}
 .edge .br.a{left:max(calc(1.5*var(--ed)),env(safe-area-inset-left,0px));top:max(calc(1.5*var(--ed)),env(safe-area-inset-top,0px));border-right:0;border-bottom:0;border-radius:calc(1.6*var(--ed)) 0 0 0}
 .edge .br.b{right:max(calc(1.5*var(--ed)),env(safe-area-inset-right,0px));top:max(calc(1.5*var(--ed)),env(safe-area-inset-top,0px));border-left:0;border-bottom:0;border-radius:0 calc(1.6*var(--ed)) 0 0}
 .edge .br.c{left:max(calc(1.5*var(--ed)),env(safe-area-inset-left,0px));bottom:max(calc(1.5*var(--ed)),env(safe-area-inset-bottom,0px));border-right:0;border-top:0;border-radius:0 0 0 calc(1.6*var(--ed))}
 .edge .br.e{right:max(calc(1.5*var(--ed)),env(safe-area-inset-right,0px));bottom:max(calc(1.5*var(--ed)),env(safe-area-inset-bottom,0px));border-left:0;border-top:0;border-radius:0 0 calc(1.6*var(--ed)) 0}
-body.blink-bracket .edge .glow{box-shadow:inset 0 0 0 calc(.25*var(--ed)) var(--edge-col);animation:none;opacity:.55}
-body.blink-bracket .edge .br{display:block}
-body.blink-steady .edge .glow,body.acked .edge .glow,body.acked .edge .br{animation:none}
-body.acked .edge{opacity:.5}
-@keyframes pulse{0%,100%{opacity:.28}50%{opacity:1}}
-@media (prefers-reduced-motion: reduce){.edge .glow,.edge .br,.chev{animation:none!important}}
+
+body.blink-bracket .edge.shape-rect .rect-glow{box-shadow:inset 0 0 0 calc(.25*var(--ed)) var(--edge-col);animation:none;opacity:.55}
+body.blink-bracket .edge.shape-rect .br{display:block}
+
+/* 2) Quest 3 Optical Lens Contour (Superellipse / Rounded Oval FOV boundary) */
+.edge .quest-layer{position:absolute;inset:0;display:none}
+.edge.shape-quest3 .quest-layer{display:block}
+.edge .oval-glow{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse 52% 50% at 50% 50%, transparent 64%, color-mix(in srgb, var(--edge-col) 46%, transparent) 87%, var(--edge-col) 100%);
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+}
+.edge .oval-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.edge .q3-rim{
+  fill:none;stroke:var(--edge-col);stroke-width:14;
+  filter:url(#ovalBlur);
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+}
+.edge .q3-arcs{
+  fill:none;stroke:var(--edge-col);stroke-width:16;stroke-linecap:round;
+  stroke-dasharray:10 15;
+  filter:url(#ovalBlur);
+  animation:pulse var(--period,1.6s) cubic-bezier(.25,0,.4,1) 0.1s infinite backwards;
+  display:none;
+}
+
+body.blink-bracket .edge.shape-quest3 .oval-glow{opacity:.22;animation:none}
+body.blink-bracket .edge.shape-quest3 .q3-rim{stroke-width:4;opacity:.45;animation:none}
+body.blink-bracket .edge.shape-quest3 .q3-arcs{display:block}
+
+/* Steady & Acknowledged overrides across both shapes */
+body.blink-steady .edge .rect-glow,body.blink-steady .edge .br,
+body.blink-steady .edge .oval-glow,body.blink-steady .edge .q3-rim,body.blink-steady .edge .q3-arcs,
+body.acked .edge .rect-glow,body.acked .edge .br,
+body.acked .edge .oval-glow,body.acked .edge .q3-rim,body.acked .edge .q3-arcs{animation:none;opacity:1}
+body.acked .edge{opacity:.42}
+
+@keyframes pulse{
+  0%{opacity:1}
+  48%{opacity:.16}
+  92%{opacity:.16}
+  100%{opacity:1}
+}
+@media (prefers-reduced-motion: reduce){
+  .edge .rect-glow,.edge .br,.edge .oval-glow,.edge .q3-rim,.edge .q3-arcs,.chev{animation:none!important}
+}
 
 /* ---------- stage ---------- */
 .stage-scroll{overflow-x:auto;border-radius:20px;background:#000}
 .stage{position:relative;min-width:760px;aspect-ratio:16/10;container-type:inline-size;overflow:hidden;background:#222}
 .stage svg.scene{position:absolute;inset:0;width:100%;height:100%;display:block}
 .caption{color:var(--ink-muted);font-size:13px;line-height:18px;max-width:100ch}
-
-/* Full visor mode: expands stage B to match the entire viewport A */
-body.full-visor{overflow:hidden}
-body.full-visor .stage{position:fixed;inset:0;width:100vw;height:100vh;min-width:0;aspect-ratio:auto;border-radius:0;z-index:9000}
-.exit-visor{display:none;position:fixed;right:calc(3*var(--d));bottom:calc(3*var(--d));z-index:9500;pointer-events:auto;align-items:center;gap:calc(.45*var(--d));padding:calc(.65*var(--d)) calc(1.1*var(--d));border-radius:999px;border:1.5px solid rgba(255,255,255,.85);background:rgba(28,28,28,.85);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.6)}
-body.full-visor .exit-visor{display:inline-flex}
 
 .hud{position:absolute;inset:0;--d:1.246cqw;font-size:calc(1.2*var(--d));color:var(--h-ink);font-family:var(--sans);font-weight:500;line-height:1.3;letter-spacing:-.01em;font-variant-numeric:tabular-nums;pointer-events:none}
 .hud,.hud *{box-sizing:border-box}
@@ -198,19 +245,34 @@ td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
 .card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:22px}
 .small{font-size:13px;line-height:18px;color:var(--ink-muted)}
 code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--row);border-radius:6px;padding:1px 5px}
-.top-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.btn-visor{font:inherit;font-size:14px;font-weight:700;padding:8px 14px;border-radius:12px;border:0;background:var(--primary);color:var(--on-primary);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 </style>
 
-<!-- Full-viewport perimeter alert frame (always spans the outer screen A) -->
-<div class="edge" aria-hidden="true"><div class="glow"></div><div class="br a"></div><div class="br b"></div><div class="br c"></div><div class="br e"></div></div>
+<!-- Device-adaptive outermost perimeter alert frame -->
+<div class="edge shape-rect" id="edge" aria-hidden="true">
+  <!-- Rectangular Display Contour -->
+  <div class="rect-layer">
+    <div class="rect-glow"></div>
+    <div class="br a"></div><div class="br b"></div><div class="br c"></div><div class="br e"></div>
+  </div>
+  <!-- Quest 3 Optical Lens Contour (Superellipse / Rounded Oval) -->
+  <div class="quest-layer">
+    <div class="oval-glow"></div>
+    <svg class="oval-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+      <defs>
+        <filter id="ovalBlur" x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur stdDeviation="6" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <path class="q3-rim" id="q3Rim" vector-effect="non-scaling-stroke"/>
+      <path class="q3-arcs" id="q3Arcs" pathLength="100" vector-effect="non-scaling-stroke"/>
+    </svg>
+  </div>
+</div>
 
 <div class="page">
   <header style="display:flex;flex-direction:column;gap:12px">
-    <div class="top-bar">
-      <h1>Marswalk Visor HUD Mockup</h1>
-      <button type="button" class="btn-visor" data-tog="fullVisor"><span class="ms" style="font-size:18px">fullscreen</span><span>Full Visor Mode</span></button>
-    </div>
+    <h1>Marswalk Visor HUD Mockup</h1>
     <p class="lede">The central part of the Quest 3 passthrough view (about 70° wide), drawn flat for a design check. Colours, type, radii and wording follow the Point design system, combo 1.</p>
     <p class="notice"><span class="ms">warning</span><span>Atmosphere and radiation values have not been extracted from NASA data yet. A dash with a <b>TBD</b> tag means the value is not set. The map terrain is synthetic.</span></p>
   </header>
@@ -220,8 +282,6 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <div class="stage" id="stage">
         <svg class="scene" id="scene" viewBox="0 0 1600 1000" preserveAspectRatio="none" role="img" aria-label="Simulated passthrough room with floor arrows and an obstacle outline"></svg>
         <div class="hud" id="hud">
-          <button type="button" class="exit-visor" data-tog="fullVisor"><span class="ms">fullscreen_exit</span><span>Exit Full Visor</span></button>
-
           <div class="status" id="status">
             <div class="st-main" id="rowSuit">
               <span class="ms" id="suitIco">check_circle</span>
@@ -284,7 +344,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         </div>
       </div>
     </div>
-    <p class="caption" style="margin-top:8px">Quest 3 has a 110° horizontal field of view; this drawing covers the central 70° × 47°. The alert frame spans the entire outer viewport perimeter. On a monitor everything looks far smaller than in the headset, so judge type sizes by the angles in the table below.</p>
+    <p class="caption" style="margin-top:8px">The perimeter alert frame adapts to the active device’s outermost boundary (rounded-oval optical contour on Quest 3; rectangular screen edge on standard displays) and fires its audio cue 0.1 s ahead of each flash.</p>
   </div>
 
   <div class="controls" id="controls">
@@ -304,8 +364,10 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
       <div class="seg"><button id="c-bg-bright" data-k="bg" data-v="bright">Bright</button><button id="c-bg-dark" data-k="bg" data-v="dark">Dark</button><button id="c-bg-busy" data-k="bg" data-v="busy">Cluttered</button></div></div>
     <div class="ctl"><span>Status card position</span>
       <div class="seg"><button id="c-pos-tl" data-k="pos" data-v="tl">Top left</button><button id="c-pos-tr" data-k="pos" data-v="tr">Top right</button><button id="c-pos-strip" data-k="pos" data-v="strip">Top strip</button><button id="c-pos-bl" data-k="pos" data-v="bl">Bottom left</button></div></div>
+    <div class="ctl"><span>Device contour</span>
+      <div class="seg"><button id="c-dev-auto" data-k="deviceMode" data-v="auto">Auto</button><button id="c-dev-quest" data-k="deviceMode" data-v="quest3">Quest 3 lens</button><button id="c-dev-rect" data-k="deviceMode" data-v="rect">Monitor rect</button></div></div>
     <div class="ctl"><span>Alert frame</span>
-      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Edge glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner brackets</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
+      <div class="seg"><button id="c-bl-glow" data-k="blink" data-v="glow">Edge glow</button><button id="c-bl-bracket" data-k="blink" data-v="bracket">Corner arcs</button><button id="c-bl-steady" data-k="blink" data-v="steady">Steady</button></div></div>
     <div class="ctl"><label for="c-period">Pulse period <b id="periodOut"></b></label>
       <input type="range" id="c-period" min="0.8" max="3" step="0.1" value="1.6"></div>
     <div class="ctl"><span>Obstacle colour</span>
@@ -313,7 +375,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
     <div class="ctl"><span>Distance shown as</span>
       <div class="seg"><button id="c-dm-room" data-k="distMode" data-v="room">Room metres</button><button id="c-dm-mars" data-k="distMode" data-v="mars">Mars scale ×10</button></div></div>
     <div class="ctl"><span>Check tools</span>
-      <div class="seg"><button id="c-fullvisor" data-tog="fullVisor">Full visor</button><button id="c-grid" data-tog="grid">Angle grid</button><button id="c-fill" data-tog="fill">Sample digits</button></div></div>
+      <div class="seg"><button id="c-sound" data-tog="sound">Alarm sound</button><button id="c-grid" data-tog="grid">Angle grid</button><button id="c-fill" data-tog="fill">Sample digits</button></div></div>
   </div>
 
   <div class="grid2">
@@ -347,15 +409,15 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
         <li><b>High-legibility typography.</b> Atkinson Hyperlegible paired with Pretendard, tabular numerals, and −0.02em tracking on large values to prevent character ambiguity (such as 0/O or 1/I/l).</li>
         <li><b>Shape.</b> Cards 20, rows and toasts 16, segmented control 14 with a 10 selected cell, scaled to degrees.</li>
         <li><b>No explanatory sentences in the HUD.</b> Titles, data and state words only.</li>
-        <li><b>Slow pulse.</b> The full-viewport perimeter frame pulses once every 1.6 s in both Warn (orange) and Critical (red) states, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
+        <li><b>Audio-leading device-adaptive pulse.</b> Synthesized Web Audio piezo beeps (single 880 Hz tone for Warn, high-pitched 2350 Hz double pulse for Critical) fire 0.1 s ahead of each perimeter flash every 1.6 s, well under three flashes per second (<a href="https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html">WCAG 2.3.1</a>).</li>
       </ul>
     </div>
     <div class="card">
       <h2>Behaviour this mockup settles</h2>
       <ul>
         <li><b>Status card</b> sits top left with a transparent face. Bottom left collides with the palm map; the top strip keeps route toasts clear below it.</li>
-        <li><b>Full-viewport alert frame & centre-gaze alerts.</b> The flashing perimeter attaches to the entire viewport edge, while Warn and Critical alert cards render dead-centre in the user’s direct line of sight.</li>
-        <li><b>Acknowledge alert</b> stops the perimeter pulse in both Warn and Critical states. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
+        <li><b>Device-adaptive alert perimeter & centre-gaze alerts.</b> Automatically detects Quest 3 / WebXR headsets to trace the rounded-oval optical lens boundary, or conforms to the rectangular display perimeter on standard screens, while Warn and Critical alert cards render dead-centre.</li>
+        <li><b>Acknowledge alert</b> stops both the perimeter pulse and the alarm beep in Warn and Critical states. The frame stays dim and the alert card stays until <code>alert:clear</code>.</li>
         <li><b>Several alerts.</b> The card shows the highest level and a “+1” tag for the rest.</li>
         <li><b>Critical clears.</b> The route returns to the previous target.</li>
         <li><b>Link lost.</b> The last suit temperature stays, greyed, tagged “last value”.</li>
@@ -402,8 +464,112 @@ var RAMPS={
   thermal:[[10,6,40],[110,30,120],[230,110,40],[252,240,150]]
 };
 var C={ink:"#f2f2f2",primary:"#596ae0",primaryIcon:"#7a88e6",point:"#f27a0a",danger:"#ed716b",dangerLine:"#e5342b",surface:"rgba(38,38,38,.92)"};
-var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"tl",blink:"glow",period:1.6,hazColor:"red",distMode:"room",grid:false,fill:false,fullVisor:false,ack:false};
+var S={level:"normal",alertId:"suit-temp",nav:"ok",layer:"topo",palm:true,hazard:false,bg:"bright",pos:"tl",deviceMode:"auto",blink:"glow",period:1.6,hazColor:"red",distMode:"room",sound:true,grid:false,fill:false,ack:false};
 var $=function(id){return document.getElementById(id)};
+
+/* ---------- Device contour detection & Quest 3 superellipse builder ---------- */
+function detectDeviceContour(){
+  var ua=navigator.userAgent||"";
+  var isQuest=/OculusBrowser|Quest/i.test(ua);
+  var isXR=document.body.classList.contains("xr-active");
+  return (isQuest||isXR)?"quest3":"rect";
+}
+function buildQuestSuperellipse(rx,ry,n,startAngleDeg){
+  var pts=[],steps=160,exp=2/n,off=startAngleDeg*Math.PI/180;
+  for(var i=0;i<=steps;i++){
+    var t=off+(i/steps)*Math.PI*2;
+    var ct=Math.cos(t),st=Math.sin(t);
+    var x=500+rx*Math.sign(ct)*Math.pow(Math.abs(ct),exp);
+    var y=500+ry*Math.sign(st)*Math.pow(Math.abs(st),exp);
+    pts.push((i===0?"M":"L")+x.toFixed(2)+","+y.toFixed(2));
+  }
+  return pts.join(" ")+" Z";
+}
+$("q3Rim").setAttribute("d",buildQuestSuperellipse(492,488,2.6,0));
+$("q3Arcs").setAttribute("d",buildQuestSuperellipse(490,486,2.6,-32));
+
+/* ---------- Web Audio synthesized alarm (fires 0.1s BEFORE edge flash) ---------- */
+var audioCtx=null,beepTimeout=null,lastAlarmKey="";
+function getAudioCtx(){
+  if(!audioCtx){
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(AC)audioCtx=new AC();
+  }
+  if(audioCtx&&audioCtx.state==="suspended")audioCtx.resume();
+  return audioCtx;
+}
+function playPiezoPulse(ctx,freq,startTime,dur,gainVal){
+  var osc=ctx.createOscillator(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();
+  osc.type="square";
+  osc.frequency.setValueAtTime(freq,startTime);
+  filter.type="lowpass";
+  filter.frequency.setValueAtTime(3400,startTime);
+  gain.gain.setValueAtTime(0.0001,startTime);
+  gain.gain.exponentialRampToValueAtTime(gainVal,startTime+0.008);
+  gain.gain.setValueAtTime(gainVal,startTime+dur-0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001,startTime+dur);
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(startTime);
+  osc.stop(startTime+dur+0.015);
+}
+function playSoftTone(ctx,freq,startTime,dur,gainVal){
+  var osc=ctx.createOscillator(),gain=ctx.createGain();
+  osc.type="sine";
+  osc.frequency.setValueAtTime(freq,startTime);
+  gain.gain.setValueAtTime(0.0001,startTime);
+  gain.gain.exponentialRampToValueAtTime(gainVal,startTime+0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001,startTime+dur);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(startTime);
+  osc.stop(startTime+dur+0.02);
+}
+function triggerBeep(level){
+  if(!S.sound)return;
+  var ctx=getAudioCtx();
+  if(!ctx)return;
+  var t=ctx.currentTime+0.004;
+  if(level==="critical"){
+    /* Sharp 2350 Hz two-pulse electronic buzzer ("삐-삐!") */
+    playPiezoPulse(ctx,2350,t,0.105,0.22);
+    playPiezoPulse(ctx,2350,t+0.165,0.135,0.22);
+  }else if(level==="warn"){
+    /* Single 880 Hz caution beep */
+    playSoftTone(ctx,880.0,t,0.14,0.20);
+  }
+}
+function restartEdgeAnimation(){
+  var nodes=document.querySelectorAll("#edge .rect-glow, #edge .br, #edge .oval-glow, #edge .q3-rim, #edge .q3-arcs");
+  nodes.forEach(function(el){el.style.animation="none";});
+  void $("edge").offsetWidth;
+  nodes.forEach(function(el){el.style.animation="";});
+}
+function syncAlarm(activeShape){
+  var active=(S.level==="warn"||S.level==="critical")&&!S.ack&&S.sound;
+  var key=active?(S.level+"|"+S.alertId+"|"+S.blink+"|"+S.period+"|"+activeShape):"off";
+  if(key===lastAlarmKey)return;
+  lastAlarmKey=key;
+  if(beepTimeout){clearTimeout(beepTimeout);beepTimeout=null;}
+  if(!active)return;
+
+  restartEdgeAnimation();
+  triggerBeep(S.level);
+
+  if(S.blink!=="steady"){
+    var periodMs=Math.round(S.period*1000);
+    var nextAt=performance.now()+periodMs;
+    var step=function(){
+      if(!((S.level==="warn"||S.level==="critical")&&!S.ack&&S.sound))return;
+      triggerBeep(S.level);
+      nextAt+=periodMs;
+      var delay=Math.max(10,nextAt-performance.now());
+      beepTimeout=setTimeout(step,delay);
+    };
+    beepTimeout=setTimeout(step,periodMs);
+  }
+}
 
 /* ---------- projection: eye height 1.6 m, pitched 20° down, 70° horizontal ---------- */
 var W=1600,H=1000,F=800/Math.tan(35*Math.PI/180),CAM=[0,1.6,1.8],sp=Math.sin(20*Math.PI/180),cp=Math.cos(20*Math.PI/180);
@@ -415,7 +581,6 @@ function box(x0,x1,y0,y1,z0,z1,c){
   return poly([[x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0]],'fill="'+c[2]+'"')+
          poly([[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]],'fill="'+c[0]+'"')+
          poly([[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]],'fill="'+c[1]+'"');}
-/* world label: grey face, small coloured icon, ink text */
 function pill(x,y,icon,iconCol,text){var size=25,w=text.length*size*0.56+72,h=size+20;
   return '<g><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-h/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h+'" rx="16" fill="'+C.surface+'"/>'+
     '<text x="'+(x-w/2+14).toFixed(1)+'" y="'+(y+15).toFixed(1)+'" class="msv" font-size="30" fill="'+iconCol+'">'+icon+'</text>'+
@@ -522,9 +687,16 @@ function render(){
   if(nav==="blocked")alerts.push({id:"route-blocked",level:"warn"});
   alerts.sort(function(a,b){return (b.level==="critical")-(a.level==="critical")});
 
-  /* sync full-viewport edge frame (A) and HUD container */
-  document.body.className="blink-"+S.blink+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"")+(S.fullVisor?" full-visor":"");
+  /* resolve active outermost contour based on device or manual override */
+  var detected=detectDeviceContour();
+  var activeShape=S.deviceMode==="auto"?detected:S.deviceMode;
+  $("c-dev-auto").textContent="Auto ("+(detected==="quest3"?"Quest 3":"Monitor")+")";
+  $("edge").className="edge shape-"+activeShape;
+
+  /* sync perimeter edge frame and HUD container */
+  document.body.className="blink-"+S.blink+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
   document.documentElement.style.setProperty("--period",S.period+"s");
+  syncAlarm(activeShape);
 
   var hud=$("hud");
   hud.className="hud pos-"+S.pos+(crit?" crit":warn?" warn":"")+(S.ack?" acked":"");
@@ -586,11 +758,12 @@ function render(){
 
   /* controls */
   document.querySelectorAll("#controls [data-k]").forEach(function(b){b.setAttribute("aria-pressed",String(S[b.dataset.k])===b.dataset.v);});
-  document.querySelectorAll("[data-tog]").forEach(function(b){b.setAttribute("aria-pressed",!!S[b.dataset.tog]);});
+  document.querySelectorAll("#controls [data-tog]").forEach(function(b){b.setAttribute("aria-pressed",!!S[b.dataset.tog]);});
   $("c-ack").disabled=!(crit||warn);$("c-ack").setAttribute("aria-pressed",S.ack);
 
   /* event log */
   var ts=Date.now(),L=[];
+  L.push("device:contour    "+JSON.stringify({mode:S.deviceMode,detected:detected,activeShape:activeShape}));
   L.push("telemetry:update  "+(linkLost?"(none since link lost; last) ":"")+JSON.stringify({suitTempC:suit,source:"mock",ts:ts}));
   L.push("env:update        "+JSON.stringify({sol:0,localTime:"12:00",pressurePa:0,airTempK:0,radiationUGyPerDay:0}));
   L.push("layer:toggle      "+JSON.stringify({id:S.layer,visible:true}));
@@ -603,15 +776,15 @@ function render(){
 }
 
 document.addEventListener("click",function(e){
+  getAudioCtx();
   var b=e.target.closest("button");if(!b)return;
   if(b.dataset.k){var v=b.dataset.v;S[b.dataset.k]=v==="true"?true:v==="false"?false:v;if(b.dataset.k==="level"||b.dataset.k==="alertId")S.ack=false;render();}
   else if(b.dataset.tog){S[b.dataset.tog]=!S[b.dataset.tog];render();}
   else if(b.dataset.act==="ack"){S.ack=!S.ack;render();}
 });
-document.addEventListener("keydown",function(e){
-  if(e.key==="Escape"&&S.fullVisor){S.fullVisor=false;render();}
-});
-$("c-period").addEventListener("input",function(e){S.period=parseFloat(e.target.value);render();});
+$("c-period").addEventListener("input",function(e){getAudioCtx();S.period=parseFloat(e.target.value);render();});
+window.addEventListener("resize",render);
+document.addEventListener("fullscreenchange",render);
 render();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(render);
 })();
