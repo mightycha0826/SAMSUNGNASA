@@ -82,6 +82,15 @@ export const HUD = {
     pokeDistM: 0.015,
     /** The frozen cursor is the one from this long before the fingers started closing (ms) */
     settleMs: 140,
+    /** Hand-attached menus follow the left hand at this rate (1/s): lower is steadier */
+    followRate: 12,
+    /** A menu stops following and holds still once the right fingertip is this close
+     *  (0 = at hoverDistM, 1 = touching; 0.5 is about 15 cm) */
+    engageNear: 0.5,
+    /** After the gesture or the left hand is lost, the menu stays this long (ms) */
+    lingerMs: 900,
+    /** How far the hand may tip away from the gesture before an open menu closes */
+    gestureSlack: 0.35,
   },
   /** Voice command menu: worn on the back of the left hand like a wrist computer. It lies flat
    *  on the hand, and reads upright when the left forearm is held level across the body:

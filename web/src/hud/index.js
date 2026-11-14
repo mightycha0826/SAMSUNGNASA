@@ -199,6 +199,7 @@ function placeLayersFixed() {
   const L = HUD.layers;
   cards.add(pLayers.mesh);
   place(pLayers, L.fixedLeftDeg, HUD.stage.hDeg - L.fixedBottomDeg - 15.5, L.wDeg, L.hDeg);
+  pLayers.mesh.quaternion.identity(); // it may come back turned from the palm
   layersOnPalm = false;
 }
 
@@ -482,6 +483,44 @@ const wearX = new THREE.Vector3();
 const wearY = new THREE.Vector3();
 const wearZ = new THREE.Vector3();
 const wearBasis = new THREE.Matrix4();
+// Where a hand-attached menu should be this frame (filled before holdMenu is called).
+const aim = new THREE.Object3D();
+// What keeps the menus usable while the right hand reaches for them: when the right hand comes
+// close, the headset often loses or mis-tracks the left hand, and a menu glued to it would
+// jump or vanish under the finger.
+const steady = {
+  layers: { shown: false, lastSeen: 0 },
+  commands: { shown: false, lastSeen: 0 },
+};
+
+/**
+ * Place a hand-attached menu.
+ *  - It follows the hand smoothly instead of copying every tracking jitter.
+ *  - While the right fingertip is close to it (or a pinch is closing), it stays exactly where
+ *    it is: the hand under it may wobble or disappear without moving the buttons.
+ *  - When the gesture or the hand is lost it stays put for a moment before it hides.
+ */
+function holdMenu(panel, st, wanted, touchState, scale, now, dt) {
+  const K = HUD.touch;
+  const engaged = !!touchState.cursor && (touchState.cursor.locked || touchState.cursor.near > K.engageNear);
+  if (wanted) {
+    if (!st.shown) {
+      panel.mesh.position.copy(aim.position);
+      panel.mesh.quaternion.copy(aim.quaternion);
+    } else if (!engaged) {
+      const k = 1 - Math.exp(-K.followRate * dt);
+      panel.mesh.position.lerp(aim.position, k);
+      panel.mesh.quaternion.slerp(aim.quaternion, k);
+    }
+    st.shown = true;
+    st.lastSeen = now;
+  } else if (st.shown && !engaged && now - st.lastSeen > K.lingerMs) {
+    st.shown = false;
+  }
+  panel.mesh.visible = st.shown;
+  panel.mesh.scale.setScalar(scale);
+}
+
 const tipPos = new THREE.Vector3();
 const thumbPos = new THREE.Vector3();
 const v3 = new THREE.Vector3();
@@ -557,26 +596,28 @@ function updateHands(frame) {
     // No hand tracking (PC, controllers): the layer menu sits at its fixed place.
     if (layersOnPalm) placeLayersFixed();
     pLayers.mesh.visible = mode.current !== 'field';
+    pLayers.mesh.scale.setScalar(1);
     pCommands.mesh.visible = false;
+    steady.layers.shown = steady.commands.shown = false;
     mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
   }
 
   const L = HUD.layers;
   const C = HUD.commands;
+  const K = HUD.touch;
   const wrist = left && xrFrame.getJointPose?.(left.get('wrist'), refSpace);
+  // Gestures with hysteresis: once a menu is up, the hand may tip a good way before it goes.
   let palmUp = false;
   let backUp = false;
   if (wrist) {
     const o = wrist.transform.orientation;
     v1.set(0, 1, 0).applyQuaternion(q1.set(o.x, o.y, o.z, o.w)); // back-of-hand direction
-    palmUp = v1.y < L.palmUpDot;
-    backUp = v1.y > C.backUpDot;
+    palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + K.gestureSlack : L.palmUpDot);
+    backUp = v1.y > (steady.commands.shown ? C.backUpDot - K.gestureSlack : C.backUpDot);
   }
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
   palmUp = palmUp && mode.current !== 'field';
-  pLayers.mesh.visible = palmUp;
-  pCommands.mesh.visible = backUp;
   mapInView = palmUp;
 
   ctx.camera.getWorldPosition(v2);
@@ -587,15 +628,16 @@ function updateHands(frame) {
     }
     // To the right of the floating map (core/palm.js), with a gap, facing the wearer.
     if (leftPalm(frame, ctx.camera, palmState)) {
-      pLayers.mesh.position.copy(palmState.anchor).addScaledVector(palmState.right, L.palmOffsetRightM);
-      pLayers.mesh.position.y += L.palmOffsetUpM;
+      aim.position.copy(palmState.anchor).addScaledVector(palmState.right, L.palmOffsetRightM);
+      aim.position.y += L.palmOffsetUpM;
     } else {
       const p = wrist.transform.position;
-      pLayers.mesh.position.set(p.x, p.y + 0.1, p.z);
+      aim.position.set(p.x, p.y + 0.1, p.z);
     }
-    pLayers.mesh.lookAt(v2);
-    pLayers.mesh.scale.setScalar(L.palmScale);
+    aim.lookAt(v2);
   }
+  holdMenu(pLayers, steady.layers, palmUp, touch, L.palmScale, now, frame.dt);
+
   if (backUp) {
     // Worn on the back of the hand: the panel lies in the plane of the hand, a little above
     // the skin. Its reading direction (+x) runs from the wrist toward the fingers and its
@@ -614,10 +656,10 @@ function updateHands(frame) {
     wearX.addScaledVector(wearZ, -wearX.dot(wearZ)).normalize(); // keep it in the hand's plane
     wearY.crossVectors(wearZ, wearX).normalize();
     wearBasis.makeBasis(wearX, wearY, wearZ);
-    pCommands.mesh.quaternion.setFromRotationMatrix(wearBasis);
-    pCommands.mesh.position.set(p.x, p.y, p.z).addScaledVector(wearX, reach * C.along).addScaledVector(wearZ, C.liftM);
-    pCommands.mesh.scale.setScalar(C.scale);
+    aim.quaternion.setFromRotationMatrix(wearBasis);
+    aim.position.set(p.x, p.y, p.z).addScaledVector(wearX, reach * C.along).addScaledVector(wearZ, C.liftM);
   }
+  holdMenu(pCommands, steady.commands, backUp, cmdTouch, C.scale, now, frame.dt);
 
   // Right hand: index fingertip and how far it is from the thumb tip.
   let finger = null;
@@ -628,7 +670,6 @@ function updateHands(frame) {
     let pinchM = Infinity;
     if (thumb) pinchM = thumbPos.set(thumb.transform.position.x, thumb.transform.position.y, thumb.transform.position.z).distanceTo(tipPos);
     finger = { tip: tipPos, pinchM };
-    const K = HUD.touch;
     if (pinchM < K.pinchOnM) pinch.closed = true;
     else if (pinchM > K.pinchOffM) {
       pinch.closed = false;
@@ -637,8 +678,8 @@ function updateHands(frame) {
   } else {
     pinch.closed = false;
   }
-  if (touchMenu(pLayers, L.palmScale, layerHits, touch, palmUp ? finger : null, pressLayerAt, now)) dirty.layers = true;
-  if (touchMenu(pCommands, C.scale, commandHits, cmdTouch, backUp ? finger : null, pressCommandAt, now)) dirty.commands = true;
+  if (touchMenu(pLayers, L.palmScale, layerHits, touch, pLayers.mesh.visible ? finger : null, pressLayerAt, now)) dirty.layers = true;
+  if (touchMenu(pCommands, C.scale, commandHits, cmdTouch, pCommands.mesh.visible ? finger : null, pressCommandAt, now)) dirty.commands = true;
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
