@@ -233,7 +233,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `mode:change` | F | All modules | The display mode changes |
 | `app:mode` | B (core) | All modules | The wearer chose the Mars map or the field map on the start page |
 | `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second) |
-| `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu over the back of the hand |
+| `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu above the back of the hand |
 | `voice:text` | F | B (to the Jetson) | A command was picked from that menu; it runs like a spoken one |
 
 ### Payload formats and mock data
@@ -269,7 +269,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 
 The real scan (`web/src/scan/`) sends a 16 m × 16 m grid (160 × 160 cells) built from the room geometry the headset keeps (WebXR `mesh-detection` and `plane-detection`), with two extra fields: `"source": "room-scan"` and `"stats": { "meshes", "planes", "obstacles", "floor", "depth" }`. It is the room as last scanned by the headset, not live depth.
 
-With `?depth=1` the headset's live depth image is laid over the same cells twice a second: something put down about 1 to 2.3 m from the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
+With live depth the headset's depth image is laid over the same cells twice a second. The field map asks for it by default (`?depth=0` leaves it out); the Mars map only with `?depth=1`. Then something put down about 1 to 2.3 m from the wearer after the room scan becomes obstacle cells within a few seconds, and passable again when it is taken away (not yet checked on the headset). `source` is then `"room-scan+depth"`, and `stats.depth` counts the cells live depth blocks at that moment. Live depth never clears a cell the room scan marked as an obstacle.
 
 **`nav:request`**
 ```json
@@ -337,8 +337,9 @@ The session starts on the `base` waypoint. In Mars mode one real metre moves the
 
 **`voice:commands`**
 ```json
-{ "commands": [{ "say": "Status", "intent": "status.report", "slots": {} }] }
+{ "commands": [{ "say": "Status", "intent": "status.report", "slots": {} }, { "say": "Base", "intent": "nav.home", "slots": {}, "mode": "mars" }] }
 ```
+A command with `mode` is shown only on that map (`mars` or `field`). The menu is a card above the back of the left hand; it is operated by pointing at it with the right hand and pinching (`web/src/hud/pointer.js`).
 
 **`voice:text`**
 ```json

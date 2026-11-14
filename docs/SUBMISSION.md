@@ -33,13 +33,13 @@ The text below the line has no `[TODO]` marks left. It describes the project **a
 |---|---|---|
 | NASA data layers, checks, figures | C | Built. 54 checks pass |
 | Skeleton, event bus, loader, mock mode, radiation alert | B | Built |
-| HUD: status panel, alerts, layer tabs and legend, command menu | B, F | Built |
+| HUD: status panel, alerts, layer tabs and legend, command menu operated by pointing and pinching | B, F | Built. 11 tests on the pointer pass |
 | Palm map with four layers, Curiosity's path, waypoints | D | Built |
 | Route planner on the slope layer, return to base on a critical alert | D | Built. 18 tests pass. The route is drawn on the map |
 | Wearer's position on the map from head tracking | B | Built |
-| Field obstacle scan from the headset's room model (`web/src/scan/`) | A | Built. Uses the room geometry the Quest 3 stores, not live depth |
-| Field map mode: 1 : 1 map, scanned structure on the map, arrows on the floor (`web/src/field/`) | A, B | Built. 6 tests on its path planner pass |
-| Suit hub, temperature alerts, voice assistant, firmware | E | Built. Voice measured with synthetic speech only; no sensor wired yet |
+| Field obstacle scan from the headset's room model (`web/src/scan/`) | A | Built. Uses the room geometry the Quest 3 stores. Live depth is laid over it in field mode: written and tested off the headset, **not yet checked on the headset** |
+| Field map mode: 1 : 1 relief map, scanned structure standing on it, arrows on the floor (`web/src/field/`) | A, B | Built. 6 tests on its path planner pass |
+| Suit hub, temperature alerts, voice assistant, firmware | E | Built. Voice measured with synthetic speech only. The temperature sensor is wired and read by the hub; warming it by hand raises the alerts |
 | Destination photo on the HUD | F | **Not built**. The photos are ready in `pov.json` |
 | Run on the Quest 3 headset | all | **Not recorded anywhere in the repository** |
 
@@ -93,10 +93,10 @@ The start page offers two modes, **Mars map** and **Field map**.
 - **Palm map.** Turning the left palm up brings up a 3D model of the site, 25 cm across, above the hand. The astronaut switches between four layers: elevation, slope, optical image and night thermal image. Curiosity's actual path is drawn on the map in orange, with markers for base and the survey site, and the credit for the layer on display is shown beside it.
 - **Route.** The route from base to the survey site is computed from the slope layer and drawn above the terrain on the map. Ground gets more expensive to cross as it steepens past 15°, and ground steeper than 20° is closed. We took these limits from human experience rather than from the rover: Apollo astronauts walked on slopes below 15°, and planners of the first Artemis moonwalks expect traverses to stay below 20°. Both come from the Moon; we found no equivalent figure for Mars. The planned route is 390 m long, climbs 45 m, and never crosses ground steeper than 14.9°. A panel shows its length, ascent, descent and slopes.
 - **Where you are.** The headset's tracking of the wearer's head moves a marker on the map. On the 2 km map a real step is magnified (one meter walked counts as 100 m) so that crossing a room crosses a visible part of the site.
-- **Field map.** In this mode the astronaut is taken to be standing at base. The palm map shows the 20 m around them at true scale, where the orbital image is only a few dozen pixels. Wherever the helmet has scanned the surroundings, the map is redrawn with what is really there, structure and clear ground, and everywhere else it is still the NASA data. Saying "Mark target" sets a target at the spot where the astronaut stands; after walking away, the way back is planned around the scanned obstacles and shown both as arrows on the ground and as a line on the map.
-- **Safety.** A status panel in the corner of the view shows suit temperature, radiation, air pressure and temperature, the elevation of the survey site and the geologic unit. A suit temperature above the warning level draws an orange frame around the view; above the critical level the frame flashes red, an alarm and a spoken alert play, and the route changes to lead back to base. Radiation raises the same alerts if it climbs well above the values Curiosity measured here, as it would in a solar particle event.
+- **Field map.** In this mode the astronaut is taken to be standing at base. The palm map shows the 20 m around them at true scale, where the orbital image is only a few dozen pixels. Like the 2 km map it is a small relief above the palm: the Mars terrain is its ground, and wherever the helmet has scanned the surroundings, the map is redrawn with what is really there, structure standing on clear ground. Everywhere else it is still the NASA data. Saying "Mark target" sets a target at the spot where the astronaut stands; after walking away, the way back is planned around the scanned obstacles and shown both as arrows on the ground and as a line on the map.
+- **Safety.** A status panel in the corner of the view shows suit temperature, radiation, air pressure and temperature, the elevation of the survey site and the geologic unit. A suit temperature above the warning level brings up an alert card and lights the whole view softly in orange with each alarm beep; above the critical level the light is red, a spoken alert plays, and the route changes to lead back to base. The alert steps back down as the temperature falls. Radiation raises the same alerts if it climbs well above the values Curiosity measured here, as it would in a solar particle event.
 - **Voice.** The astronaut speaks short commands in English: "Take me to the survey site", "Return to base", "Show the thermal map", "Status report", "Mark target", "Acknowledge". Speech is recognized and answered on a small computer carried with the suit (an NVIDIA Jetson), with no internet connection. A spoken status report reads out suit temperature, alerts and route state, and the display shows what was heard so the wearer knows the command was taken.
-- **Command menu.** Turning the back of the left hand up shows the same commands as a menu. The astronaut points with the right index finger and pinches to pick one, so everything still works when speech is not an option.
+- **Command menu.** Turning the back of the left hand up, as when looking at a watch, brings up the main commands as a card of large buttons above the hand. The astronaut points at it with the right hand from where that hand is, as with the headset's own hand pointer, and pinches to pick one: nothing has to be touched, and everything still works when speech is not an option.
 
 Everything is controlled by hand gestures and voice, because gloved hands cannot press buttons.
 
@@ -115,20 +115,21 @@ Everything outside the headset runs on an NVIDIA Jetson, standing in for the sui
 - The data: 54 automated checks, including the cross-checks against Curiosity's record described under "NASA Data". Rebuilding all data files from the NASA sources gives byte-identical results on the same system, and the same content on a second one (Linux on ARM), where the largest difference was 0.0000076° in the slope layer.
 - The route planner: 18 automated tests on the real terrain.
 - The field map's planner: 6 automated tests on synthetic rooms (around a wall, sealed off, target next to a wall).
-- The suit hub: unit tests for alerts and commands. Voice recognition was measured with synthetic speech (18 of 18 commands), not yet with real voices and a real microphone.
+- The hand pointer for the menus: 11 automated tests with a simulated hand (aiming, one press per pinch, a hand that twitches as it pinches).
+- The suit hub: unit tests for alerts and commands. Voice recognition was measured with synthetic speech (18 of 18 test sentences, before the command list was shortened to the seven the demo needs), not yet with real voices and a real microphone.
 - The app: run in desktop browsers with the real data, where the map, the layers, the route, the status panel and the alerts work together, and connected to the suit hub running on a PC, which sent its telemetry, alerts and synthesized speech to the app.
 - The parts that need the headset itself (hand tracking, the scan of the surroundings, the arrows on the ground) do not run in a desktop browser.
 - The temperature alert levels (30 °C and 35 °C) are starting values; they have not been tuned with a sensor on a person.
 
 ### Limits of the field map
 
-- It uses the model of the surroundings the headset stored when the space was set up, not a live depth image. Something moved afterwards is not seen until the headset updates its model.
+- It relies on the model of the surroundings the headset stored when the space was set up. The code that lays the headset's live depth image over it, so that something put down afterwards shows up within a few seconds, is written and passes its tests, but we have not yet checked it on the headset.
 - It shows that something is in the way, not what it is.
 - The scan is laid over the NASA map at an assumed position (base). We do not locate the astronaut on Mars from the scan.
 
 ### Next steps
 
-- **Live obstacles.** Replace the stored model of the surroundings with the headset's live depth, so that a rock that was not there a minute ago reroutes the walk.
+- **Live obstacles.** Check the live depth layer on the headset and tune it, so that a rock that was not there a minute ago reroutes the walk.
 - **Destination preview.** We prepared photos Curiosity took from base and from the survey site, each matched to its position on the map. Showing the photo as the astronaut approaches is not built yet.
 - **A walking-slope limit for Mars.** Our limits come from the Moon. A limit for Mars gravity and a real suit would replace them.
 

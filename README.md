@@ -318,10 +318,10 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 **Mock mode on a PC** — every event flows without the headset, the Jetson or real data.
 
 - Open `https://localhost:5173/?mock=1`. Get past the certificate warning with "Advanced → Proceed".
-- The top-left panel shows the events on the bus and their counts. Keyboard: `N` guide, `H` base, `S` stop, `L` thermal map, `T` temperature spike.
+- The top-left panel shows the events on the bus and their counts. Keyboard: `N` navigate, `H` base, `S` stop, `L` thermal / optical map, `T` temperature spike.
 - HUD text is English by default (as in the mockup); add `?lang=ko` for Korean. HUD size, position and flash period are tuned with the numbers in `web/src/hud/config.js`.
 - Parts can be mocked separately: `?mock=link,hazard` (parts: `data`, `link`, `hazard`). `?mockSpeed=10` runs the timeline ten times faster.
-- `?mock=1&mode=field` opens the PC view in field mode, where the fake obstacle is outlined in red on the floor.
+- `?mock=1&mode=field` opens the PC view in field mode, where the fake obstacle is outlined in red on the floor and stands on the field map.
 
 **From the headset** — put the PC and the headset on the same Wi-Fi.
 
@@ -332,9 +332,20 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 **Two ways in** — the start page has two buttons.
 
 - **Mars map**: the NASA terrain on the left palm, layers, the route between base and survey site. Walking moves your marker on the map (one real metre counts as 100 m by default, `?walkScale=`).
-- **Field map**: the premise is that you stand at the base on Mars. The palm map is the Mars map zoomed to 20 m around you, 1 : 1 with the room; wherever the headset has scanned the room, the map is rewritten with the structure that is really there, and everywhere else it is still the Mars data. Say **"Mark target"** where you stand, walk away, and the way back is drawn as arrows on the floor and as a line on the map. The scanned structure is also outlined in red on the real floor. The scan is the room geometry the Quest 3 keeps (run Space Setup once); it is not live depth. Adding `?depth=1` to the address lays the headset's live depth on top: a chair put down after the room scan shows up within a few seconds when it stands about 1 to 2.3 m from you, and goes away again when it is removed; whatever was in the room scan stays (not yet checked on the headset). `?mock=1` and `?mock=hazard` put a fake chair in place of the scan, so the real room is not outlined and `?depth=1` does nothing: on the headset without a Jetson use `?mock=link`.
+- **Field map**: the premise is that you stand at the base on Mars. The palm map is the Mars map zoomed to 20 m around you, 1 : 1 with the room. It is the same kind of object as the Mars map: a relief over the palm, with the Mars terrain as its ground and its description on the card that goes around the map. Wherever the headset has scanned the room, the map is rewritten with the structure that is really there, standing on the ground, and everywhere else it is still the Mars data. Say **"Mark target"** where you stand, walk away, and the way back is drawn as arrows on the floor and as a line on the map. The scanned structure is also outlined in red on the real floor.
+  - The scan starts from the room geometry the Quest 3 keeps (run Space Setup once; without it the app says "No room scan").
+  - This mode also asks the headset for live depth and lays it on top, so the map follows the room: a chair put down after the room scan shows up within a few seconds when it stands about 1 to 2.3 m from you, and goes away again when it is removed or has been out of sight for 20 s; whatever was in the room scan stays. **Not yet checked on the headset.** If the field map misbehaves, add `?depth=0` to the address: the room scan then works alone.
+  - `?mock=1` and `?mock=hazard` put a fake chair in place of the scan, so the real room is not outlined and live depth does nothing: on the headset without a Jetson use `?mock=link`.
 
-In both, turning the back of the left hand up shows the voice commands as a menu. Point with the right index finger and pinch to pick one.
+**Menus: point and pinch.** The left hand brings a menu up, the right hand operates it from where it is, as with the Quest 3's own hand pointer. Nothing is touched, so the hands never cover each other from the headset's cameras.
+
+- Left palm up: the map, with the layer tabs beside it (Mars map).
+- Back of the left hand up, as when looking at a watch: the command card above the hand (Status, Navigate, Base or Mark target, Stop, Confirm).
+- Point the right hand at a menu: a thin beam and a ring cursor show where you aim, and the button under the cursor lights up. Pinch thumb and index finger to press it. The ring closes as the fingers do.
+- A menu stays where it appeared instead of riding on the left hand; it follows only when the hand has moved about 5 cm away, and it does not move while you point at it.
+- Controllers work the same way (point, pull the trigger). If the beam does not seem to come from where you point, add `?ray=own` to the address.
+
+**Alerts.** Warn and critical alerts bring up the alert card at the bottom, beep, and light the whole view softly in orange or red with each beep (`?wash=0` turns the light off, `?sound=0` the beep). "Confirm" stops both. The suit temperature alert steps back down as the temperature falls: critical above 35 °C, back to warn below 34 °C, cleared below 29 °C.
 
 **Device check page** — open `https://<PC address>:5173/check.html` in the headset browser. Press **Start AR check** (`AR 점검 시작`), look around the room for 10 seconds and raise both hands: a table shows the granted session features and whether hands, depth, mesh and planes were received. The microphone is checked separately with the **Microphone check** (`마이크 점검`) button.
 
@@ -342,6 +353,7 @@ In both, turning the back of the left hand up shows the voice commands as a menu
 
 ```bash
 npm run build      # static files in web/dist/ (served by the Jetson)
+npm test           # unit tests: scan grid, field planner, hand pointer, route planner
 npm run smoke      # with the dev server running, checks the mock-mode event flow (needs Playwright)
 ```
 

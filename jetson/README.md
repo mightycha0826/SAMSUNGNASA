@@ -74,7 +74,7 @@ Edit [`commands.json`](commands.json) and save. The hub reloads it by itself; a 
 - `wake_word` (or `--wake-word helmet`) makes the hub obey only speech that contains the word.
 - Try a sentence without a headset: `.venv/bin/python tools/voice_selftest.py --text "show me the thermal map"`.
 
-Current commands: "Status", "Navigate", "Base", "Stop", "Mark target", "Clear target", "Thermal" / "Optical" / "Slope" / "Elevation", "Thermal off", "Confirm", "Night mode", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
+Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate", "Base", "Mark target", "Stop", "Confirm", "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
 
 - The critical alert sentence is synthesized at startup, so it plays without the 1 s delay.
 - `status.report` is answered by the hub itself: suit temperature, alerts, route state.
@@ -82,7 +82,7 @@ Current commands: "Status", "Navigate", "Base", "Stop", "Mark target", "Clear ta
 
 ### Headset menu and diagnostics
 
-- The hub sends its command list (`voice.commands`) when a headset connects and whenever `commands.json` changes. The headset shows it over the back of the left hand; picking an entry comes back as `voice.text` and runs like speech. `"say"` sets the label, `"menu": false` keeps a command out of the list.
+- The hub sends its command list (`voice.commands`) when a headset connects and whenever `commands.json` changes. The headset shows it as a card above the back of the left hand; pointing at an entry and pinching comes back as `voice.text` and runs like speech. `"say"` sets the label, `"menu": false` keeps a command out of the list, and `"mode": "mars"` or `"field"` shows it only on that map.
 - The headset reports errors, AR session events (start, end, visibility, reference space reset) and its head position every 5 s as `client.log`. They are in `logs/headset.log`; errors also appear in the hub log.
 
 ## Testing without the headset
@@ -133,6 +133,6 @@ The web app's voice link is `web/src/core/voice.js`: it streams the microphone c
 
 ## Not verified yet
 
-- **Real voices and a real microphone.** Accuracy was measured only with synthetic speech (18 of 18 commands through the streaming path). After a session with the headset, read `logs/heard.log` and add what was misheard to `commands.json`.
-- **Real sensor.** The firmware runs on the Mega 2560, but no sensor has been wired yet. Alert thresholds are still the starting values.
+- **Real voices and a real microphone.** Accuracy was measured only with synthetic speech (18 of 18 test sentences through the streaming path, before the command list was shortened; not measured again since). After a session with the headset, read `logs/heard.log` and add what was misheard to `commands.json`.
+- **Real sensor.** A sensor is wired and read by the hub (2026-11-14: warming it by hand raised the alerts). Alert thresholds are still the starting values.
 - `dev.*` messages are development-only and not in INTERFACES.md. The browser never sends them; the hub accepts them only with `--dev`.
