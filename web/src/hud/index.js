@@ -53,6 +53,8 @@ let pStatus, pBanner, pAlert, pLayers, pEdge;
 let layerHits = [];
 let layersOnPalm = false;
 const palmState = makePalmState();
+/** True while the terrain map is in view: palm up in the headset, always on a PC screen. */
+let mapInView = false;
 // Fingertip feedback on the layer menu: which tab is under the finger, how close it is, and
 // which tab was just pressed.
 const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0 };
@@ -380,6 +382,7 @@ function updateHands(frame) {
     // 손 추적이 없으면(PC, 컨트롤러) 화면 고정 자리에 둔다.
     if (layersOnPalm) placeLayersFixed();
     pLayers.mesh.visible = true;
+    mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
   }
 
@@ -392,6 +395,7 @@ function updateHands(frame) {
     palmUp = v1.y < L.palmUpDot;
   }
   pLayers.mesh.visible = palmUp;
+  mapInView = palmUp;
   if (!palmUp) return;
 
   if (!layersOnPalm) {
@@ -492,7 +496,7 @@ export function init(context) {
   });
 
   // 테스트와 콘솔에서 상태를 볼 수 있게 열어 둔다.
-  window.__hud = { state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel };
+  window.__hud = { state, statusVM, bannerVM, layersVM, tabScreenXY, frameLevel, statusOpacity: () => pStatus.mat.opacity };
 }
 
 export function update(frame) {
@@ -542,6 +546,12 @@ export function update(frame) {
     const wave = 0.5 - 0.5 * Math.cos((2 * Math.PI * now) / 1000 / E.periodS);
     pEdge.mat.opacity = state.acked ? E.ackedOpacity : E.minOpacity + (1 - E.minOpacity) * wave;
   }
+
+  // Status card: lighter while the map is in view so the terrain shows through, full when any
+  // alert is active so a warning is never faint.
+  const S_ = HUD.status;
+  const wanted = level ? 1 : mapInView ? S_.mapOpacity : S_.opacity;
+  pStatus.mat.opacity += (wanted - pStatus.mat.opacity) * (1 - Math.exp(-S_.fadeRate * frame.dt));
 
   if (dirty.status) {
     drawStatus(pStatus.g, HUD.pxPerDeg, statusVM(), HUD.suitGauge);

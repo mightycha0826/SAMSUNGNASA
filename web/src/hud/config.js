@@ -18,7 +18,15 @@ export const HUD = {
   // Layout follows mockups/hud-mockup.html, which the UI owner keeps refining: change the mockup
   // first, then these numbers. The status card is 20.5 deg wide at (3.5, 4.5); the panel is 0.3 deg
   // larger on every side for its outline and text glow.
-  status: { leftDeg: 3.2, topDeg: 4.2, wDeg: 21.1, hDeg: 31.6 },
+  status: {
+    leftDeg: 3.2, topDeg: 4.2, wDeg: 21.1, hDeg: 31.6,
+    /** Opacity of the whole status card (0 to 1). Both values are 1, as in the mockup: the card's
+     *  face is already transparent there and its outlines and text are at full strength.
+     *  `mapOpacity` applies while the map is in view (palm up in the headset; always on a PC
+     *  screen); lower it (for example 0.55) to fade the card while looking at the map. Any active
+     *  alert brings the card back to full opacity. `fadeRate` is how fast it changes (1/s). */
+    opacity: 1, mapOpacity: 1, fadeRate: 6,
+  },
   /** Toast strip, top centre */
   banner: { topDeg: 4.5, wDeg: 38, hDeg: 4 },
   /** Alert card, centred in the view (updated mockup: alerts sit in the line of sight) */
@@ -42,6 +50,9 @@ export const HUD = {
     palmOffsetRightM: 0.27,
     palmOffsetUpM: 0.02,
     palmScale: 0.6,
+    /** Opacity of the menu and legend backgrounds (0 to 1). 0.9 is the mockup's `--h-surface`.
+     *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
+    faceOpacity: 0.9,
     /** The fingertip cursor appears within this distance in front of the menu (m) */
     hoverDistM: 0.09,
     /** How long a pressed tab stays lit (ms) */
