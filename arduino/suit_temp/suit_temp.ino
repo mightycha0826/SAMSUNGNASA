@@ -2,86 +2,130 @@
 //
 // Output (docs/INTERFACES.md section 5): 115200 baud, one JSON line per second.
 //   {"temp_c": 24.5}
-//   {"temp_c": null, "error": "read_failed"}
+//   {"temp_c": null, "error": "read_failed"}      (also "no_sensor" while nothing is wired)
+// Lines starting with '#' are information for people; the hub ignores them.
 //
-// Pick the sensor you actually have by setting SENSOR below, then check the pin.
-//   SENSOR_DS18B20     digital 1-Wire probe. Data -> D2, 4.7k pull-up from data to 5V.
-//                      Libraries: OneWire, DallasTemperature.
-//   SENSOR_DHT         DHT11 / DHT22 module. Data -> D2. Library: "DHT sensor library" (Adafruit).
-//   SENSOR_LM35        analog, 10 mV per degC. Out -> A0.
-//   SENSOR_TMP36       analog, 10 mV per degC with a 500 mV offset. Out -> A0.
-//   SENSOR_NTC         10k NTC thermistor (B = 3950) with a 10k series resistor. Midpoint -> A0.
-//                      Wiring: 5V - 10k resistor - A0 - thermistor - GND.
-//                      (KY-013 modules are wired the other way round: set NTC_TO_GND to 0.)
+// Wiring, the same for every supported 3-pin sensor:
+//   sensor VCC -> 5V,  sensor GND -> GND,  sensor signal -> A0
+// The sketch works out which sensor it is and keeps checking, so the sensor can be plugged
+// in or swapped while the board is running:
+//   DS18B20        1-Wire answer on A0. A bare DS18B20 needs a 4.7k resistor from signal to 5V
+//                  (modules such as KY-001 already have it).
+//   DHT11 / DHT22  valid DHT frame on A0 (3-pin modules).
+//   LM35           analog, 10 mV per degC            (0.10 .. 0.50 V at 10 .. 50 degC)
+//   TMP36          analog, 10 mV per degC + 500 mV   (0.55 .. 1.05 V at 5 .. 55 degC)
+//   NTC module     10k thermistor divider, B = 3950  (1.2 .. 4.0 V). KY-013 style wiring;
+//                  if the value falls when warmed, set NTC_TO_GND to 1.
+// To skip detection, set FORCE_SENSOR to one of the S_* values.
+//
+// Libraries: OneWire, DallasTemperature, DHT sensor library (jetson/tools/arduino.sh setup).
 
-#define SENSOR_DS18B20 1
-#define SENSOR_DHT     2
-#define SENSOR_LM35    3
-#define SENSOR_TMP36   4
-#define SENSOR_NTC     5
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <DHT.h>
 
-#define SENSOR SENSOR_DS18B20   // <-- change this
+enum Sensor : uint8_t { S_NONE, S_DS18B20, S_DHT11, S_DHT22, S_LM35, S_TMP36, S_NTC };
+const char *const NAMES[] = {"none", "ds18b20", "dht11", "dht22", "lm35", "tmp36", "ntc"};
 
-const uint8_t  DATA_PIN   = 2;      // DS18B20, DHT
-const uint8_t  ANALOG_PIN = A0;     // LM35, TMP36, NTC
+#define FORCE_SENSOR S_NONE         // S_NONE = detect automatically
+#define NTC_TO_GND   0
+
+const uint8_t  PIN        = A0;
 const float    VREF       = 5.0;    // 3.3 on 3.3 V boards
 const float    ADC_MAX    = 1023.0; // 4095 on 12-bit boards
 const uint32_t PERIOD_MS  = 1000;
+const float    NTC_R0 = 10000.0, NTC_B = 3950.0, NTC_SERIES = 10000.0;
 
-#if SENSOR == SENSOR_DS18B20
-  #include <OneWire.h>
-  #include <DallasTemperature.h>
-  OneWire oneWire(DATA_PIN);
-  DallasTemperature probe(&oneWire);
-#elif SENSOR == SENSOR_DHT
-  #include <DHT.h>
-  #define DHT_TYPE DHT11            // or DHT22
-  DHT dht(DATA_PIN, DHT_TYPE);
-#elif SENSOR == SENSOR_NTC
-  #define NTC_TO_GND 1
-  const float NTC_R0 = 10000.0, NTC_B = 3950.0, NTC_SERIES = 10000.0;
-#endif
+OneWire oneWire(PIN);
+DallasTemperature probe(&oneWire);
+DHT dht11(PIN, DHT11);
+DHT dht22(PIN, DHT22);
+
+Sensor  sensor = S_NONE;
+uint8_t failures = 0;
 
 // Mean of several ADC samples, in volts. Smooths the jitter of the analog sensors.
 float readVolts() {
+  pinMode(PIN, INPUT);
   uint32_t sum = 0;
-  for (uint8_t i = 0; i < 16; i++) { sum += analogRead(ANALOG_PIN); delay(2); }
+  for (uint8_t i = 0; i < 16; i++) { sum += analogRead(PIN); delay(2); }
   return (sum / 16.0) * VREF / ADC_MAX;
+}
+
+// True when nothing drives the pin: the weak internal pull-up then lifts it to the rail.
+bool pinFloating() {
+  pinMode(PIN, INPUT_PULLUP);
+  delay(5);
+  int up = analogRead(PIN);
+  pinMode(PIN, INPUT);
+  delay(5);
+  return up > 0.965 * ADC_MAX;
+}
+
+Sensor detect() {
+  uint8_t addr[8];
+  oneWire.reset_search();
+  if (oneWire.search(addr) && OneWire::crc8(addr, 7) == addr[7]) { probe.begin(); return S_DS18B20; }
+
+  dht11.begin();
+  delay(1100);                                  // a DHT needs a second after power-up
+  float t = dht11.readTemperature(), h = dht11.readHumidity();
+  if (!isnan(t)) {
+    // The frame is the same; a DHT22 decoded as a DHT11 gives impossible values.
+    if (t >= 0 && t <= 50 && h >= 15 && h <= 95) return S_DHT11;
+    dht22.begin();
+    return S_DHT22;
+  }
+
+  if (pinFloating()) return S_NONE;
+  float v = readVolts();
+  if (v >= 0.10 && v < 0.50) return S_LM35;
+  if (v >= 0.55 && v < 1.05) return S_TMP36;
+  if (v >= 1.20 && v < 4.00) return S_NTC;
+  return S_NONE;
 }
 
 // Returns false when the sensor gives no usable value.
 bool readTempC(float &t) {
-#if SENSOR == SENSOR_DS18B20
-  probe.requestTemperatures();
-  t = probe.getTempCByIndex(0);
-  return t != DEVICE_DISCONNECTED_C && t != 85.0;   // 85.0 = power-on value, not a reading
-#elif SENSOR == SENSOR_DHT
-  t = dht.readTemperature();
-  return !isnan(t);
-#elif SENSOR == SENSOR_LM35
-  t = readVolts() * 100.0;
-  return true;
-#elif SENSOR == SENSOR_TMP36
-  t = (readVolts() - 0.5) * 100.0;
-  return true;
-#elif SENSOR == SENSOR_NTC
-  float v = readVolts();
-  if (v <= 0.01 || v >= VREF - 0.01) return false;   // open or shorted
-  float r = NTC_TO_GND ? NTC_SERIES * v / (VREF - v) : NTC_SERIES * (VREF - v) / v;
-  t = 1.0 / (log(r / NTC_R0) / NTC_B + 1.0 / 298.15) - 273.15;
-  return true;
-#else
-  #error "Set SENSOR to one of the SENSOR_* values"
-#endif
+  switch (sensor) {
+    case S_DS18B20:
+      probe.requestTemperatures();
+      t = probe.getTempCByIndex(0);
+      return t != DEVICE_DISCONNECTED_C && t != 85.0;   // 85.0 = power-on value, not a reading
+    case S_DHT11: t = dht11.readTemperature(); return !isnan(t);
+    case S_DHT22: t = dht22.readTemperature(); return !isnan(t);
+    case S_LM35:
+      if (pinFloating()) return false;
+      t = readVolts() * 100.0;
+      return true;
+    case S_TMP36:
+      if (pinFloating()) return false;
+      t = (readVolts() - 0.5) * 100.0;
+      return true;
+    case S_NTC: {
+      if (pinFloating()) return false;
+      float v = readVolts();
+      if (v <= 0.01 || v >= VREF - 0.01) return false;  // open or shorted
+      float r = NTC_TO_GND ? NTC_SERIES * v / (VREF - v) : NTC_SERIES * (VREF - v) / v;
+      t = 1.0 / (log(r / NTC_R0) / NTC_B + 1.0 / 298.15) - 273.15;
+      return true;
+    }
+    default: return false;
+  }
+}
+
+void announce() {
+  Serial.print(F("# sensor: "));
+  Serial.println(NAMES[sensor]);
 }
 
 void setup() {
   Serial.begin(115200);
-#if SENSOR == SENSOR_DS18B20
-  probe.begin();
-#elif SENSOR == SENSOR_DHT
-  dht.begin();
-#endif
+  sensor = (FORCE_SENSOR != S_NONE) ? (Sensor)FORCE_SENSOR : detect();
+  if (sensor == S_DS18B20) probe.begin();
+  if (sensor == S_DHT11) dht11.begin();
+  if (sensor == S_DHT22) dht22.begin();
+  announce();
 }
 
 void loop() {
@@ -90,12 +134,27 @@ void loop() {
   if ((int32_t)(now - next) < 0) return;
   next = now + PERIOD_MS;
 
+  if (sensor == S_NONE && FORCE_SENSOR == S_NONE) {
+    sensor = detect();
+    if (sensor != S_NONE) announce();
+  }
+
   float t;
-  if (readTempC(t) && t > -60.0 && t < 130.0) {
+  if (sensor != S_NONE && readTempC(t) && t > -40.0 && t < 125.0) {
+    failures = 0;
     Serial.print(F("{\"temp_c\": "));
     Serial.print(t, 1);
     Serial.println(F("}"));
-  } else {
-    Serial.println(F("{\"temp_c\": null, \"error\": \"read_failed\"}"));
+    return;
+  }
+  if (sensor == S_NONE) {
+    Serial.println(F("{\"temp_c\": null, \"error\": \"no_sensor\"}"));
+    return;
+  }
+  Serial.println(F("{\"temp_c\": null, \"error\": \"read_failed\"}"));
+  if (++failures >= 3 && FORCE_SENSOR == S_NONE) {   // unplugged or swapped: detect again
+    failures = 0;
+    sensor = S_NONE;
+    announce();
   }
 }

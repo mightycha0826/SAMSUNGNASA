@@ -106,10 +106,10 @@ journalctl -u marswalk-hub -f
 
 With `web/dist` built, the hub serves B's app and `link.js` connects to it (`http://localhost:8080/?jetson=ws://localhost:8080/ws&mock=data,hazard` on the Jetson itself): telemetry reaches the status panel, a critical temperature puts the HUD in emergency mode, and spoken "Take me to the survey site" / "Show the thermal map" arrive as `nav:request` / `layer:toggle`.
 
-Microphone capture and TTS playback are not in the web app yet. `marswalk/static/index.html` has a working example of both (hold-to-talk to 16 kHz PCM, and `tts.begin` → PCM → `tts.end` playback) that can be lifted into `link.js`.
+The web app's voice link is `web/src/core/voice.js`: a hands-free microphone (an energy detector sends each stretch of speech as `mic.begin` → PCM → `mic.end`, and ignores the microphone while the hub is speaking) and TTS playback (`urgent` cuts what is playing). Audio starts on the first tap or key press. `?voice=0` turns it off; `?voice=ptt` is hold-`V`-to-talk for PC testing. Checked in a PC browser with recorded speech fed in as the microphone; not yet with a real microphone or the headset.
 
 ## Not verified yet
 
 - **Real voices and a real microphone.** STT accuracy was measured only with synthetic speech (11–12 of 12 commands). Record the team's voices through the headset or the test page and add the misrecognitions to `intents.py`.
-- **Real sensor.** The firmware compiles for every supported sensor but has not run on a board. Alert thresholds are still the starting values.
+- **Real sensor.** The firmware runs on the Mega 2560, but no sensor has been wired yet. Alert thresholds are still the starting values.
 - `dev.*` messages are development-only and not in INTERFACES.md. The browser never sends them; the hub accepts them only with `--dev`.

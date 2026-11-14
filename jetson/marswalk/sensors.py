@@ -2,7 +2,7 @@
 
 Serial format (docs/INTERFACES.md section 5): 115200 baud, one JSON line per second,
 {"temp_c": 24.5} or {"temp_c": null, "error": "read_failed"}.
-If no line arrives for 5 s, source becomes "mock" and a log line is written.
+If no reading arrives for 5 s, source becomes "mock" and a log line is written.
 """
 import asyncio
 import glob
@@ -22,6 +22,7 @@ class SuitTemp:
         self.source = "mock"
         self.mock_c = mock_base_c        # dev.temp can change this
         self._last_line = 0.0
+        self._last_error = None
 
     def reading(self) -> dict:
         if self.source == "arduino" and time.monotonic() - self._last_line > STALE_S:
@@ -68,14 +69,20 @@ class SuitTemp:
             data = json.loads(line.decode("utf-8", "replace").strip())
         except json.JSONDecodeError:
             return  # boot noise
+        t = data.get("temp_c")
+        if t is None:
+            # Keep the last good value. Only readings count as "alive", so a board with
+            # no sensor wired ("no_sensor") falls back to mock after STALE_S like a silent one.
+            err = data.get("error")
+            if err != self._last_error:
+                log.warning("arduino: %s", err)
+                self._last_error = err
+            return
+        self._last_error = None
         self._last_line = time.monotonic()
         if self.source != "arduino":
             log.info("arduino data, source=arduino")
         self.source = "arduino"
-        t = data.get("temp_c")
-        if t is None:
-            log.warning("arduino read error: %s", data.get("error"))
-            return  # keep last good value
         self.temp_c = float(t)
 
 
