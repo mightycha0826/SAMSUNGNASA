@@ -2,16 +2,28 @@
 // 모든 길이는 d(1도에 해당하는 픽셀 수)의 배수이고, 값은 mockups/hud-mockup.html의 CSS에서 가져왔다.
 // 여기 함수들은 상태를 갖지 않는다. index.js가 만든 표시용 값(vm)을 받아 그리기만 한다.
 
-import { T, FONT_FAMILY, RAMPS } from './tokens.js';
+import { T, O, FONT_FAMILY, RAMPS } from './tokens.js';
 
 const font = (weight, px) => `${weight} ${px}px ${FONT_FAMILY}`;
 
-function text(g, str, x, y, { weight = 500, size, color = T.ink, align = 'left', tight = false }) {
+function text(g, str, x, y, { weight = 500, size, color = T.ink, align = 'left', tight = false, halo = false }) {
   g.font = font(weight, size);
-  g.fillStyle = color;
   g.textAlign = align;
   g.textBaseline = 'middle';
   g.letterSpacing = tight ? '-0.02em' : '-0.01em';
+  if (halo) {
+    // Text with no card behind it: a dark edge and a soft dark glow keep it readable over
+    // whatever the room looks like (the mockup's text-shadow).
+    g.save();
+    g.lineJoin = 'round';
+    g.shadowColor = O.halo;
+    g.shadowBlur = size * 0.45;
+    g.strokeStyle = O.halo;
+    g.lineWidth = Math.max(2, size * 0.16);
+    g.strokeText(str, x, y);
+    g.restore();
+  }
+  g.fillStyle = color;
   g.fillText(str, x, y);
   return g.measureText(str).width;
 }
@@ -45,15 +57,37 @@ function ring(g, x, y, w, h, r) {
   g.stroke();
 }
 
-/** 알약 모양 꼬리표. 왼쪽 가운데 기준 (x, y). 폭을 돌려준다. */
-function tag(g, str, x, y, d, alignRight = false) {
+/** Pill tag. (x, y) is its left centre. Returns the width. `outlined` is the status-card look. */
+function tag(g, str, x, y, d, alignRight = false, outlined = false) {
   const size = 0.95 * d;
-  const w = measure(g, str, 600, size) + 1.0 * d;
+  const weight = outlined ? 700 : 600;
+  const w = measure(g, str, weight, size) + 1.0 * d;
   const h = 1.4 * d;
   const left = alignRight ? x - w : x;
-  box(g, left, y - h / 2, w, h, h / 2, T.badge);
-  text(g, str, left + w / 2, y + 0.02 * d, { weight: 600, size, color: T.muted, align: 'center' });
+  box(g, left, y - h / 2, w, h, h / 2, outlined ? O.tagBg : T.badge);
+  if (outlined) {
+    g.beginPath();
+    g.roundRect(left + 0.5, y - h / 2 + 0.5, w - 1, h - 1, h / 2);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.88)';
+    g.lineWidth = 1;
+    g.stroke();
+  }
+  text(g, str, left + w / 2, y + 0.02 * d, { weight, size, color: outlined ? O.ink : T.muted, align: 'center' });
   return w;
+}
+
+/** Transparent frame: a light line with a thin dark line on each side of it. */
+function frame(g, x, y, w, h, r, lineW, color, outerW, innerW) {
+  const stroke = (inset, width, style) => {
+    g.beginPath();
+    g.roundRect(x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(0, r - inset));
+    g.strokeStyle = style;
+    g.lineWidth = width;
+    g.stroke();
+  };
+  stroke(outerW / 2, outerW, O.outer);
+  stroke(outerW + lineW + innerW / 2, innerW, O.inner);
+  stroke(outerW + lineW / 2, lineW, color);
 }
 
 // ---- 아이콘 ----
@@ -157,15 +191,26 @@ function icon(g, name, cx, cy, s, color, cut = T.row) {
   g.restore();
 }
 
-const STATE_COLOR = { warn: () => T.point, crit: () => T.danger };
+const STATE_COLOR = { warn: () => O.warn, crit: () => O.crit };
 
-// ---- 상태창 ----
+/** An icon with no card behind it gets the same dark glow as the text. */
+function haloIcon(g, name, cx, cy, s, color) {
+  g.save();
+  g.shadowColor = O.halo;
+  g.shadowBlur = s * 0.22;
+  icon(g, name, cx, cy, s, color, O.cut);
+  g.restore();
+}
+
+// ---- status card ----
 // vm: { suit: { value, word, state, tag, fill }, dist: { label, value, unit, word, state },
 //       env: [{ k, v, unit, tag, state }], foot: { layer, sol, tag } }
 // state: '' | 'warn' | 'crit' | 'stale'
+// Look (updated mockup): transparent face, white-and-black double outlines, bold haloed text.
 export function drawStatus(g, d, vm, gauge) {
   const W = g.canvas.width;
   g.clearRect(0, 0, W, g.canvas.height);
+  const m = 0.3 * d; // room for the outer outline and the text glow
   const pad = 0.8 * d;
   const gap = 0.6 * d;
   const suitH = 7.75 * d;
@@ -175,119 +220,139 @@ export function drawStatus(g, d, vm, gauge) {
   const footH = 1.5 * d;
   const total = pad + suitH + gap + distH + gap + (vm.env.length ? envH + gap : 0) + footH + 0.4 * d;
 
-  box(g, 0, 0, W, total, 1.6 * d, T.surface);
-  ring(g, 0, 0, W, total, 1.6 * d);
+  frame(g, m, m, W - 2 * m, total, 1.6 * d, 0.18 * d, O.ink, 0.12 * d, 0.1 * d);
 
-  const x0 = pad;
-  const w = W - pad * 2;
-  let y = pad;
+  const x0 = m + pad;
+  const w = W - 2 * m - pad * 2;
+  let y = m + pad;
+  const rowFrame = (h, state) => {
+    const color = state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : O.line;
+    frame(g, x0, y, w, h, 1.25 * d, 0.13 * d, color, 0.09 * d, 0.08 * d);
+  };
 
-  // 큰 줄: 아이콘 + 이름(+꼬리표) + 값 + 상태 낱말
-  const mainRow = (h, ico, r) => {
-    box(g, x0, y, w, h, 1.25 * d, T.row);
-    const accent = STATE_COLOR[r.state]?.() ?? T.muted;
-    icon(g, ico, x0 + 0.9 * d + 1.0 * d, y + h / 2, 2.0 * d, accent);
+  // Big row: icon + label (+tag) + value + state word
+  const mainRow = (h, ico, r, okWord = false) => {
+    rowFrame(h, r.state);
+    const accent = STATE_COLOR[r.state]?.() ?? O.ink;
+    haloIcon(g, ico, x0 + 0.9 * d + 1.0 * d, y + h / 2, 2.0 * d, accent);
     const tx = x0 + 0.9 * d + 2.0 * d + 0.7 * d;
     let ly = y + 0.7 * d + 0.72 * d;
-    const lw = text(g, r.label, tx, ly, { weight: 600, size: 1.1 * d, color: T.muted });
-    if (r.tag) tag(g, r.tag, tx + lw + 0.5 * d, ly, d);
+    const lw = text(g, r.label, tx, ly, { weight: 700, size: 1.1 * d, color: O.label, halo: true });
+    if (r.tag) tag(g, r.tag, tx + lw + 0.5 * d, ly, d, false, true);
     ly += 0.72 * d + 1.38 * d;
     let vx = tx;
-    vx += text(g, r.value, vx, ly, { weight: 650, size: 2.4 * d, color: r.state === 'stale' ? T.muted : T.ink, tight: true });
-    if (r.unit) vx += 0.35 * d + text(g, r.unit, vx + 0.35 * d, ly + 0.35 * d, { size: 1.3 * d, color: T.muted });
-    if (r.word) text(g, r.word, vx + 0.85 * d, ly + 0.4 * d, { weight: 600, size: 1.2 * d, color: STATE_COLOR[r.state]?.() ?? T.ink });
+    vx += text(g, r.value, vx, ly, { weight: 700, size: 2.4 * d, color: r.state === 'stale' ? O.stale : O.ink, tight: true, halo: true });
+    if (r.unit) vx += 0.35 * d + text(g, r.unit, vx + 0.35 * d, ly + 0.35 * d, { weight: 700, size: 1.3 * d, color: O.label, halo: true });
+    if (r.word) {
+      const wordColor = STATE_COLOR[r.state]?.() ?? (okWord ? O.ok : O.ink);
+      text(g, r.word, vx + 0.85 * d, ly + 0.4 * d, { weight: 700, size: 1.2 * d, color: wordColor, halo: true });
+    }
     return { tx, bottom: ly + 1.38 * d };
   };
 
-  // 슈트 온도
+  // Suit temperature
   const suitIcon = { crit: 'error', warn: 'warning', stale: 'link_off' }[vm.suit.state] ?? 'check_circle';
-  const s = mainRow(suitH, suitIcon, { ...vm.suit, unit: '°C' });
+  const s = mainRow(suitH, suitIcon, { ...vm.suit, unit: '°C' }, true);
   const gx = s.tx;
   const gw = x0 + w - 0.9 * d - gx;
   const gy = s.bottom + 0.45 * d;
-  box(g, gx, gy, gw, 0.45 * d, 0.225 * d, T.track);
+  const gh = 0.48 * d;
+  box(g, gx - 1, gy - 1, gw + 2, gh + 2, gh / 2 + 1, O.outer);
+  box(g, gx, gy, gw, gh, gh / 2, 'rgba(120, 124, 130, 1)');
   if (vm.suit.fill > 0) {
-    const fillColor = vm.suit.state === 'crit' ? T.dangerLine : vm.suit.state === 'warn' ? T.point : T.primary;
-    box(g, gx, gy, Math.max(0.45 * d, gw * vm.suit.fill), 0.45 * d, 0.225 * d, fillColor);
+    const fillColor = vm.suit.state === 'crit' ? T.dangerLine : vm.suit.state === 'warn' ? T.point : O.fill;
+    box(g, gx, gy, Math.max(gh, gw * vm.suit.fill), gh, gh / 2, fillColor);
   }
   for (const mark of [gauge.warn, gauge.crit]) {
     const mx = gx + (gw * (mark - gauge.min)) / (gauge.max - gauge.min);
-    g.fillStyle = T.ink;
-    g.fillRect(mx - 0.07 * d, gy - 0.25 * d, 0.14 * d, 0.95 * d);
-    text(g, String(mark), mx, gy + 1.25 * d, { size: 0.95 * d, color: T.muted, align: 'center' });
+    g.fillStyle = O.outer;
+    g.fillRect(mx - 0.08 * d - 1, gy - 0.25 * d - 1, 0.16 * d + 2, 0.98 * d + 2);
+    g.fillStyle = O.ink;
+    g.fillRect(mx - 0.08 * d, gy - 0.25 * d, 0.16 * d, 0.98 * d);
+    text(g, String(mark), mx, gy + 1.28 * d, { weight: 700, size: 0.95 * d, color: O.ink, align: 'center', halo: true });
   }
   y += suitH + gap;
 
-  // 남은 거리
+  // Remaining distance
   mainRow(distH, vm.dist.state === 'warn' ? 'warning' : 'navigation', vm.dist);
   y += distH + gap;
 
-  // 환경 값
+  // Environment values
   if (vm.env.length) {
-    box(g, x0, y, w, envH, 1.25 * d, T.row);
+    rowFrame(envH, '');
     let ey = y + 0.6 * d + envLine / 2;
     for (const row of vm.env) {
-      text(g, row.k, x0 + 0.9 * d, ey, { size: 1.2 * d, color: T.muted });
+      text(g, row.k, x0 + 0.9 * d, ey, { weight: 700, size: 1.2 * d, color: O.label, halo: true });
       let rx = x0 + w - 0.9 * d;
-      if (row.tag) rx -= tag(g, row.tag, rx, ey, d, true) + 0.6 * d;
-      if (row.unit) rx -= text(g, row.unit, rx, ey + 0.1 * d, { size: 1.05 * d, color: T.muted, align: 'right' }) + 0.35 * d;
-      rx -= text(g, row.v, rx, ey, { weight: 600, size: 1.4 * d, align: 'right' });
+      if (row.tag) rx -= tag(g, row.tag, rx, ey, d, true, true) + 0.6 * d;
+      if (row.unit) rx -= text(g, row.unit, rx, ey + 0.1 * d, { weight: 700, size: 1.05 * d, color: O.label, align: 'right', halo: true }) + 0.35 * d;
+      rx -= text(g, row.v, rx, ey, { weight: 700, size: 1.4 * d, color: O.ink, align: 'right', halo: true });
       if (row.state === 'warn' || row.state === 'crit') {
-        icon(g, row.state === 'crit' ? 'error' : 'warning', rx - 1.1 * d, ey, 1.4 * d, STATE_COLOR[row.state]());
+        haloIcon(g, row.state === 'crit' ? 'error' : 'warning', rx - 1.1 * d, ey, 1.4 * d, STATE_COLOR[row.state]());
       }
       ey += envLine + 0.3 * d;
     }
     y += envH + gap;
   }
 
-  // 아랫줄: 레이어 이름, sol·시각
+  // Foot: layer name, sol and local time
   const fy = y + footH / 2 - 0.1 * d;
-  const lw = text(g, vm.foot.layerLabel + ' ', x0 + 0.9 * d, fy, { size: 1.05 * d, color: T.muted });
-  text(g, vm.foot.layer, x0 + 0.9 * d + lw, fy, { weight: 600, size: 1.05 * d });
-  text(g, vm.foot.sol, x0 + w - 0.9 * d, fy, { size: 1.05 * d, color: T.muted, align: 'right' });
+  const lw = text(g, vm.foot.layerLabel + ' ', x0 + 0.9 * d, fy, { weight: 700, size: 1.05 * d, color: O.label, halo: true });
+  text(g, vm.foot.layer, x0 + 0.9 * d + lw, fy, { weight: 700, size: 1.05 * d, color: O.ink, halo: true });
+  text(g, vm.foot.sol, x0 + w - 0.9 * d, fy, { weight: 700, size: 1.05 * d, color: O.label, align: 'right', halo: true });
   return total;
 }
 
-// ---- 경보 카드 + 경로 알림 ----
-// vm: { alert: { level, title, sub, more } | null, toast: string | null }
+// ---- alert card (centre of view) ----
+// vm: { alert: { level, title, sub, more } | null }
+// Warn and critical alerts sit dead centre, in the wearer's line of sight (updated mockup).
+export function drawAlert(g, d, vm) {
+  const W = g.canvas.width;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  if (!vm.alert) return;
+  const crit = vm.alert.level === 'critical';
+  const icoS = (crit ? 3.4 : 2.6) * d;
+  const titleS = (crit ? 1.9 : 1.6) * d;
+  const subS = 1.2 * d;
+  const padX = 1.5 * d;
+  const padY = 1.0 * d;
+  const tw = Math.max(measure(g, vm.alert.title, 700, titleS), vm.alert.sub ? measure(g, vm.alert.sub, 500, subS) : 0);
+  const moreW = vm.alert.more ? measure(g, vm.alert.more, 600, 0.95 * d) + 1.0 * d + 1.3 * d : 0;
+  const w = Math.min(W - 2, padX * 2 + icoS + 0.9 * d + tw + moreW);
+  const textH = titleS * 1.3 + (vm.alert.sub ? subS * 1.3 : 0);
+  const h = padY * 2 + Math.max(icoS, textH);
+  const x = (W - w) / 2;
+  const y = (H - h) / 2;
+  box(g, x, y, w, h, 1.6 * d, T.surface);
+  g.beginPath();
+  g.roundRect(x + 1, y + 1, w - 2, h - 2, 1.6 * d);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+  g.lineWidth = 1.5;
+  g.stroke();
+  icon(g, crit ? 'error' : 'warning', x + padX + icoS / 2, y + h / 2, icoS, crit ? T.danger : T.point, '#262626');
+  const tx = x + padX + icoS + 0.9 * d;
+  const ty = y + (h - textH) / 2;
+  text(g, vm.alert.title, tx, ty + (titleS * 1.3) / 2, { weight: 700, size: titleS, tight: crit });
+  if (vm.alert.sub) text(g, vm.alert.sub, tx, ty + titleS * 1.3 + (subS * 1.3) / 2, { size: subS, color: T.muted });
+  if (vm.alert.more) tag(g, vm.alert.more, x + w - padX, y + h / 2, d, true);
+}
+
+// ---- route / voice toast (top centre) ----
+// vm: { toast: string | null }
 export function drawBanner(g, d, vm) {
   const W = g.canvas.width;
   g.clearRect(0, 0, W, g.canvas.height);
-  let y = 0;
-  if (vm.alert) {
-    const crit = vm.alert.level === 'critical';
-    const icoS = (crit ? 3.4 : 2.4) * d;
-    const titleS = (crit ? 1.9 : 1.5) * d;
-    const subS = 1.2 * d;
-    const padX = 1.3 * d;
-    const padY = 0.8 * d;
-    const tw = Math.max(measure(g, vm.alert.title, crit ? 650 : 600, titleS), vm.alert.sub ? measure(g, vm.alert.sub, 500, subS) : 0);
-    const moreW = vm.alert.more ? measure(g, vm.alert.more, 600, 0.95 * d) + 1.0 * d + 1.3 * d : 0;
-    const w = Math.min(W, padX * 2 + icoS + 0.9 * d + tw + moreW);
-    const textH = titleS * 1.3 + (vm.alert.sub ? subS * 1.3 : 0);
-    const h = padY * 2 + Math.max(icoS, textH);
-    const x = (W - w) / 2;
-    box(g, x, y, w, h, 1.6 * d, T.surface);
-    ring(g, x, y, w, h, 1.6 * d);
-    icon(g, crit ? 'error' : 'warning', x + padX + icoS / 2, y + h / 2, icoS, crit ? T.danger : T.point, '#262626');
-    const tx = x + padX + icoS + 0.9 * d;
-    const ty = y + (h - textH) / 2;
-    text(g, vm.alert.title, tx, ty + (titleS * 1.3) / 2, { weight: crit ? 650 : 600, size: titleS, tight: crit });
-    if (vm.alert.sub) text(g, vm.alert.sub, tx, ty + titleS * 1.3 + (subS * 1.3) / 2, { size: subS, color: T.muted });
-    if (vm.alert.more) tag(g, vm.alert.more, x + w - padX, y + h / 2, d, true);
-    y += h + 0.7 * d;
-  }
-  if (vm.toast) {
-    const size = 1.3 * d;
-    const tw = measure(g, vm.toast, 500, size);
-    const w = Math.min(W, 2.4 * d + 1.6 * d + 0.5 * d + tw);
-    const h = 2.8 * d;
-    const x = (W - w) / 2;
-    box(g, x, y, w, h, 1.25 * d, T.toast);
-    ring(g, x, y, w, h, 1.25 * d);
-    icon(g, 'navigation', x + 1.2 * d + 0.8 * d, y + h / 2, 1.6 * d, T.primaryIcon);
-    text(g, vm.toast, x + 1.2 * d + 1.6 * d + 0.5 * d, y + h / 2, { size });
-  }
+  if (!vm.toast) return;
+  const size = 1.3 * d;
+  const tw = measure(g, vm.toast, 700, size);
+  const w = Math.min(W, 2.4 * d + 1.6 * d + 0.5 * d + tw);
+  const h = 2.8 * d;
+  const x = (W - w) / 2;
+  box(g, x, 0, w, h, 1.25 * d, T.toast);
+  ring(g, x, 0, w, h, 1.25 * d);
+  icon(g, 'navigation', x + 1.2 * d + 0.8 * d, h / 2, 1.6 * d, T.primaryIcon);
+  text(g, vm.toast, x + 1.2 * d + 1.6 * d + 0.5 * d, h / 2, { weight: 700, size });
 }
 
 // ---- 레이어 탭 + 범례 ----

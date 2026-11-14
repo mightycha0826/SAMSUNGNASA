@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
 import { T, loadFont } from './tokens.js';
-import { drawStatus, drawBanner, drawLayers, drawEdge } from './draw.js';
+import { drawStatus, drawBanner, drawAlert, drawLayers, drawEdge } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
 
 const S = STRINGS[HUD.lang];
@@ -49,7 +49,7 @@ const dirty = { status: true, banner: true, layers: true };
 // ---- 패널 ----
 let rigid; // 카메라에 붙는 묶음 (비상 테두리, 그리고 followRate가 0이면 카드도)
 let cards; // 상태창·경보 카드 묶음
-let pStatus, pBanner, pLayers, pEdge;
+let pStatus, pBanner, pAlert, pLayers, pEdge;
 let layerHits = [];
 let layersOnPalm = false;
 const palmState = makePalmState();
@@ -470,7 +470,10 @@ export function init(context) {
   pBanner = makePanel(HUD.banner.wDeg, HUD.banner.hDeg);
   place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
   pLayers = makePanel(HUD.layers.wDeg, HUD.layers.hDeg);
-  cards.add(pStatus.mesh, pBanner.mesh);
+  // Alert card: dead centre of the view.
+  pAlert = makePanel(HUD.alert.wDeg, HUD.alert.hDeg);
+  place(pAlert, (HUD.stage.wDeg - HUD.alert.wDeg) / 2, (HUD.stage.hDeg - HUD.alert.hDeg) / 2, HUD.alert.wDeg, HUD.alert.hDeg);
+  cards.add(pStatus.mesh, pBanner.mesh, pAlert.mesh);
   placeLayersFixed();
 
   const E = HUD.edge;
@@ -539,8 +542,12 @@ export function update(frame) {
     dirty.status = false;
   }
   if (dirty.banner) {
-    drawBanner(pBanner.g, HUD.pxPerDeg, bannerVM());
+    const vm = bannerVM();
+    drawBanner(pBanner.g, HUD.pxPerDeg, vm);
     pBanner.tex.needsUpdate = true;
+    drawAlert(pAlert.g, HUD.pxPerDeg, vm);
+    pAlert.tex.needsUpdate = true;
+    pAlert.mesh.visible = !!vm.alert; // an empty panel in the centre would still cost a draw
     dirty.banner = false;
   }
   if (dirty.layers) {
