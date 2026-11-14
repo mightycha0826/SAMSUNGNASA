@@ -71,8 +71,15 @@ function makeLabel() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-  sprite.name = 'map-caption'; sprite.scale.set(0.28, 0.07, 1); sprite.position.set(0, 0.06, ctx.xr.presenting ? 0.17 : -0.19);
+  sprite.name = 'map-caption'; sprite.renderOrder = 8;
+  if (ctx.xr.presenting) placeCaptionUnderMap(sprite);
+  else { sprite.scale.set(0.28, 0.07, 1); sprite.position.set(0, 0.06, -0.19); }
   sprite.userData = { canvas, texture }; root.add(sprite); return sprite;
+}
+// In the headset the caption floats under the map, in the gap between the palm and the map,
+// a little smaller than on a PC screen.
+function placeCaptionUnderMap(sprite) {
+  sprite.scale.set(0.17, 0.0425, 1); sprite.position.set(0, -PALM.liftM * 0.5, 0);
 }
 function caption(note = '') {
   if (!label || !data) return;
@@ -99,7 +106,9 @@ function lineForCells(cells, color, name) {
     previous = p;
   }
   const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
+  // The terrain is drawn in the transparent pass, so anything meant to lie on top of it must be
+  // transparent too and come later in the order; otherwise the terrain paints over it.
+  const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   line.name = name; line.renderOrder = 4; root.add(line); return line;
 }
 function drawRoute() {
@@ -111,7 +120,16 @@ function drawRoute() {
     const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
     for (let k = 0; k <= steps; k++) cells.push([a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps]);
   }
-  routeLine = lineForCells(cells, 0x8e9dff, 'map-planned-route');
+  // A tube instead of a one-pixel line: readable on a 25 cm map in the headset.
+  const points = [];
+  for (const cell of cells) {
+    const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.0025);
+    if (p && (!points.length || points[points.length - 1].distanceToSquared(normal.fromArray(p)) > 1e-9)) points.push(new THREE.Vector3().fromArray(p));
+  }
+  if (points.length < 2) return;
+  const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false, 'centripetal'), Math.min(400, points.length * 2), 0.0013, 6, false);
+  routeLine = new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0x8e9dff, depthTest: false, transparent: true }));
+  routeLine.name = 'map-planned-route'; routeLine.renderOrder = 5; root.add(routeLine);
 }
 function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
@@ -192,11 +210,11 @@ function load(payload) {
     for (const wp of data.layerSet.waypoints ?? []) {
       const p = mapPoint(data.grids.topo, data.layerSet.grid, wp.cell, arrays.min, MAP.widthM, 0.002);
       if (!p) continue;
-      const marker = new THREE.Mesh(new THREE.ConeGeometry(0.003, 0.01, 8), new THREE.MeshBasicMaterial({ color: wp.id === 'base' ? 0xf27a0a : 0xffffff }));
-      marker.position.fromArray(p); marker.position.y += 0.005; marker.name = `map-waypoint-${wp.id}`; root.add(marker);
+      const marker = new THREE.Mesh(new THREE.ConeGeometry(0.003, 0.01, 8), new THREE.MeshBasicMaterial({ color: wp.id === 'base' ? 0xf27a0a : 0xffffff, depthTest: false, transparent: true }));
+      marker.position.fromArray(p); marker.position.y += 0.005; marker.name = `map-waypoint-${wp.id}`; marker.renderOrder = 6; root.add(marker);
     }
-    currentMarker = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba, depthTest: false }));
-    currentMarker.name = 'map-explorer'; root.add(currentMarker);
+    currentMarker = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba, depthTest: false, transparent: true }));
+    currentMarker.name = 'map-explorer'; currentMarker.renderOrder = 7; root.add(currentMarker);
     const base = data.layerSet.waypoints?.find(w => w.id === 'base');
     if (base) setCurrent(cellToWorld(transform, base.cell)); else currentMarker.visible = false;
     label = makeLabel(); caption();
@@ -212,7 +230,7 @@ export function init(context) {
     }));
   off.push(ctx.xr.onSessionStart(session => {
     shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
-    if (label) label.position.z = 0.17;
+    if (label) placeCaptionUnderMap(label);
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
     session.addEventListener('select', select);
     const cleanup = () => session.removeEventListener('select', select);
@@ -220,7 +238,7 @@ export function init(context) {
   }), ctx.xr.onSessionEnd(() => {
     if (beam) beam.visible = false;
     root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.rotation.x = MAP.desktopTiltRad;
-    root.scale.setScalar(MAP.desktopScale); shownSince = null; if (label) label.position.z = -0.19;
+    root.scale.setScalar(MAP.desktopScale); shownSince = null; if (label) { label.scale.set(0.28, 0.07, 1); label.position.set(0, 0.06, -0.19); }
   }));
 }
 export function update(frame) {
