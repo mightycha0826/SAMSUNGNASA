@@ -30,8 +30,12 @@
 //   ?simO2=12, ?simPressure=24, ?simHeart=160 and ?simBody=38.5 set values from the address,
 //   window.__hud.suit.set({ o2, pressureKpa, heart, bodyC, battery, headC, armsC, legsC }) from the console.
 //
-// The figure is built here from smooth solids (a turned profile for the trunk, tapered limbs
-// with round joints), not loaded from a file: the app has to work without any download.
+// The figure is a scanned human body: artifacts/hud-male/hud_male_blue.glb (role D), made from
+// Blender Studio's Human Base Meshes, "Body Male - Realistic", CC0. It is one mesh, so the parts
+// that change colour are told apart by where a point of it lies (MODEL below): head above the
+// neck, legs below the hips, arms outside a line from the shoulder down along the torso, and
+// the torso is the rest. The file comes with the app (the hub serves it); until it has loaded,
+// and if it cannot be, a stand-in built here from smooth solids is shown.
 //
 // Receives: telemetry:update
 
@@ -42,6 +46,8 @@ import { suitStates, worst } from './suit-limits.js';
 import { makePalmState } from '../core/palm.js';
 import { makeBeam, floatOverPalm } from '../core/hologram.js';
 import { drawVitalChip } from './draw.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import modelUrl from '../../../artifacts/hud-male/hud_male_blue.glb?url';
 
 const HOLO = '#7fd4ff'; // the figure when all is well
 const Y = new THREE.Vector3(0, 1, 0);
@@ -74,6 +80,52 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
+// Where the parts of the scanned body lie, in its own metres (1.80 m tall, feet at 0, arms
+// held a little away from the sides). Measured on the mesh: the neck is narrowest at 1.52 m;
+// below 1.23 m there is a gap between torso and arm whose middle runs from x = 0.20 at 1.23 m
+// to 0.32 at 0.78 m; the hands end at 0.78 m and the legs part at about 0.86 m.
+const MODEL = { heightM: 1.8, neckM: 1.52, hipM: 0.86, armX: 0.2, armFromM: 1.23, armSlope: 0.27, blendM: 0.025 };
+
+// The same hologram skin for the scanned body, one mesh: each part has its own colour and
+// strength, mixed over a couple of centimetres where two parts meet.
+const BODY_VERTEX = `
+uniform vec4 where; // neck height, hip height, arm line x, arm line start height (m)
+uniform vec2 line; // arm line slope, blend width (m)
+varying vec3 vNormal;
+varying vec3 vToEye;
+varying float vHeight;
+varying vec4 vPart; // how much of head, torso, arms, legs this point is
+void main() {
+  vec4 view = modelViewMatrix * vec4(position, 1.0);
+  vNormal = normalize(normalMatrix * normal);
+  vToEye = normalize(-view.xyz);
+  vHeight = (modelMatrix * vec4(position, 1.0)).y;
+  float w = line.y;
+  float head = smoothstep(where.x - w, where.x + w, position.y);
+  float armLine = where.z + max(0.0, where.w - position.y) * line.x;
+  float arm = smoothstep(armLine - w, armLine + w, abs(position.x)) * (1.0 - head);
+  float leg = (1.0 - smoothstep(where.y - w, where.y + w, position.y)) * (1.0 - arm);
+  vPart = vec4(head, max(0.0, 1.0 - head - arm - leg), arm, leg);
+  gl_Position = projectionMatrix * view;
+}`;
+const BODY_FRAGMENT = `
+uniform vec3 colours[4];
+uniform vec4 levels;
+uniform float time;
+varying vec3 vNormal;
+varying vec3 vToEye;
+varying float vHeight;
+varying vec4 vPart;
+void main() {
+  vec3 colour = colours[0] * vPart.x + colours[1] * vPart.y + colours[2] * vPart.z + colours[3] * vPart.w;
+  float level = dot(levels, vPart);
+  float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vToEye))), 2.0);
+  float lines = 0.86 + 0.14 * sin(vHeight * 1100.0 - time * 5.0);
+  float alpha = (0.14 + 0.86 * rim) * level * lines;
+  gl_FragColor = vec4(colour * (0.6 + 0.8 * rim), alpha);
+  #include <colorspace_fragment>
+}`;
+
 /**
  * The figure: a standing person, feet at 0 and the top of the head at 1, facing +z.
  * One material per part that can change colour: head, torso, arms, legs, pack.
@@ -97,9 +149,10 @@ function makeFigure() {
       depthTest: true, // against the figure's own depth (below): only its outer skin is drawn
       depthWrite: false,
     });
-    parts[name] = { material, state: '' };
+    parts[name] = { material, state: '', meshes: [] };
     const add = (geometry) => {
       const mesh = new THREE.Mesh(geometry, material);
+      parts[name].meshes.push(mesh);
       mesh.renderOrder = 9;
       mesh.frustumCulled = false;
       // The solids overlap at every joint. Drawn as they are, each overlap would glow twice as
@@ -169,7 +222,60 @@ function makeFigure() {
     legs.limb(knee, ankle, 0.038, 0.027);
     legs.blob(0.03, 0.022, 0.062, side * 0.064, 0.022, 0.032); // foot
   }
-  return { root, spinner, parts };
+  /**
+   * Put the scanned body in place of the stand-in's head, torso, arms and legs (the pack on
+   * the back stays as it is). `meshes`: the body's meshes as loaded, in metres.
+   */
+  function useModel(meshes) {
+    const colours = ['head', 'torso', 'arms', 'legs'].map((name) => parts[name].material.uniforms.colour.value.clone());
+    const levels = new THREE.Vector4(1, 1, 1, 1);
+    const time = { value: 0 };
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        colours: { value: colours },
+        levels: { value: levels },
+        time,
+        where: { value: new THREE.Vector4(MODEL.neckM, MODEL.hipM, MODEL.armX, MODEL.armFromM) },
+        line: { value: new THREE.Vector2(MODEL.armSlope, MODEL.blendM) },
+      },
+      vertexShader: BODY_VERTEX,
+      fragmentShader: BODY_FRAGMENT,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const body = new THREE.Group();
+    body.name = 'suit-body';
+    body.scale.setScalar(1 / MODEL.heightM); // the figure's own unit is its height
+    for (const source of meshes) {
+      const mesh = new THREE.Mesh(source.geometry, material);
+      const depth = new THREE.Mesh(source.geometry, depthOnly); // the nearest surface only, as for the stand-in
+      mesh.renderOrder = 9;
+      depth.renderOrder = 8.5;
+      mesh.frustumCulled = depth.frustumCulled = false;
+      mesh.add(depth);
+      body.add(mesh);
+    }
+    spinner.add(body);
+    ['head', 'torso', 'arms', 'legs'].forEach((name, i) => {
+      for (const mesh of parts[name].meshes) spinner.remove(mesh);
+      parts[name].material.dispose();
+      // The same handles the stand-in's parts had, now onto one entry each of the body's material.
+      parts[name].material = {
+        uniforms: {
+          colour: { value: colours[i] },
+          level: { get value() { return levels.getComponent(i); }, set value(v) { levels.setComponent(i, v); } },
+          time,
+        },
+      };
+      parts[name].meshes = [];
+    });
+    // The pack sits on the stand-in's back; the scanned back is a little further out.
+    for (const mesh of parts.pack.meshes) mesh.position.z = -0.115;
+  }
+
+  return { root, spinner, parts, useModel };
 }
 
 /** The plate the figure stands on: two rings, the top face of the hologram's cylinder. */
@@ -246,6 +352,27 @@ export function createSuit(ctx) {
   const figure = makeFigure();
   figure.root.scale.setScalar(K.figureM);
   root.add(figure.root, makePlate(K.plateM));
+  // The scanned body takes the stand-in's place as soon as it has loaded.
+  let modelNote = 'loading';
+  new GLTFLoader().load(
+    modelUrl,
+    (gltf) => {
+      const meshes = [];
+      gltf.scene.traverse((o) => o.isMesh && meshes.push(o));
+      if (!meshes.length) {
+        modelNote = 'no mesh in the file: stand-in kept';
+        return;
+      }
+      figure.useModel(meshes);
+      modelNote = `scanned body, ${meshes.reduce((n, m) => n + (m.geometry.index?.count ?? 0) / 3, 0)} triangles`;
+      dirty = true;
+    },
+    undefined,
+    (err) => {
+      modelNote = `not loaded (${err?.message ?? err}): stand-in kept`;
+      console.error('[suit] the body model could not be loaded:', err);
+    },
+  );
   // ---- the readings: chips beside the cylinder ----
   // side: -1 to the wearer's left of the cylinder, +1 to the right. partY: the height on the
   // figure (0 feet, 1 top of the head) its line goes to, or null for a reading that belongs to
@@ -479,6 +606,6 @@ export function createSuit(ctx) {
       reading.heart = base.heart;
       dirty = true;
     },
-    state: () => ({ reading: { ...reading }, ...describe(), shown: root.visible }),
+    state: () => ({ reading: { ...reading }, ...describe(), shown: root.visible, model: modelNote }),
   };
 }

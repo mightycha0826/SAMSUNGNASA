@@ -181,6 +181,38 @@ function clickSound() {
   }
 }
 
+/** Arrived: four rising notes and a held last one, the sound of a mission accomplished. */
+function successSound() {
+  if (!HUD.alarm.enabled) return; // ?sound=0 silences this with the alarms
+  try {
+    audioCtx();
+    const t0 = audio.currentTime + 0.02;
+    // C5, E5, G5, C6: a major chord climbing an octave; the last note rings out.
+    [523.25, 659.25, 783.99, 1046.5].forEach((hz, k) => {
+      const t = t0 + k * 0.11;
+      const last = k === 3;
+      const gain = audio.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(HUD.alarm.gain * (last ? 1 : 0.8), t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t + (last ? 0.75 : 0.22));
+      gain.connect(audio.destination);
+      // A soft tone with a quieter octave above it, so it sounds like a chime and not a beep.
+      for (const [mult, share] of [[1, 1], [2, 0.28]]) {
+        const osc = audio.createOscillator();
+        const part = audio.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(hz * mult, t);
+        part.gain.value = share;
+        osc.connect(part).connect(gain);
+        osc.start(t);
+        osc.stop(t + (last ? 0.8 : 0.26));
+      }
+    });
+  } catch {
+    /* no audio: the toast and the spoken message say it */
+  }
+}
+
 function hitAt(hits, x, y) {
   return hits.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) ?? null;
 }
@@ -590,7 +622,10 @@ function wire(bus) {
   });
   bus.on('nav:route', ({ status, targetId, distanceM, frame }) => {
     const prev = state.nav;
-    if (status === 'arrived' && prev.status !== 'arrived') showToast(S.arrivedAt(waypointLabel(targetId ?? prev.targetId)));
+    if (status === 'arrived' && prev.status !== 'arrived') {
+      showToast(S.arrivedAt(waypointLabel(targetId ?? prev.targetId)));
+      successSound();
+    }
     else if (status === 'cancelled' && prev.status !== 'cancelled') showToast(S.guidanceEnded);
     // 같은 목적지로 가는 길이 눈에 띄게 길어졌으면 돌아가는 길로 바뀐 것이다.
     // (Not for the field map: there the distance grows simply because the wearer walks away.)

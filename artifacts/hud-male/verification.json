@@ -1,0 +1,24 @@
+{
+  "glb_round_trip_import": "passed",
+  "file_bytes": 3184816,
+  "mesh_objects": 3,
+  "triangles": 86856,
+  "dimensions_m": [
+    0.9401274919509888,
+    0.3100442588329315,
+    1.8000746965408325
+  ],
+  "bounding_min_m": [
+    -0.47015073895454407,
+    -0.15500260889530182,
+    -7.468511466868222e-05
+  ],
+  "bounding_max_m": [
+    0.4699767827987671,
+    0.1550416499376297,
+    1.7999999523162842
+  ],
+  "finite_geometry": true,
+  "rigged": false,
+  "camera_or_light_in_asset": false
+}

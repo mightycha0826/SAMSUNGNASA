@@ -1,0 +1,26 @@
+{
+  "source": "https://www.blender.org/download/demo-files/",
+  "source_asset": "Human Base Meshes v1.4.1 / Body Male - Realistic",
+  "license": "CC0-1.0",
+  "height_m": 1.8,
+  "proportions": "Original realistic base proportions; no independent head or limb scaling",
+  "rigged": false,
+  "meshes": [
+    {
+      "name": "HUD_Male_Body",
+      "vertices": 42342,
+      "triangles": 84680
+    },
+    {
+      "name": "HUD_Male_Eye_L",
+      "vertices": 546,
+      "triangles": 1088
+    },
+    {
+      "name": "HUD_Male_Eye_R",
+      "vertices": 546,
+      "triangles": 1088
+    }
+  ],
+  "total_triangles": 86856
+}
