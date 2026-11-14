@@ -2,8 +2,8 @@
 // room scan in index.js. Pure arithmetic, no three.js and no WebXR: node --test src/scan/grid.test.js
 //
 // The room scan only ever adds structure. This layer can also take it away again: a cell turns
-// into an obstacle once something has been seen standing in it setScans times, and back into
-// floor once the sensor has seen nothing but floor there clearScans times.
+// into an obstacle once something has been seen standing in it in setScans reads in a row, and
+// back into floor once the sensor has seen nothing but floor there clearScans times.
 //
 // Matrices come as WebXR gives them: Float32Array(16), column-major.
 //   P = projectionMatrix,  M = transform.matrix (eye -> room coordinates)
@@ -12,7 +12,7 @@ export const PASSABLE = 0;
 export const OBSTACLE = 1;
 export const UNKNOWN = 255;
 
-/** cfg: floorBandM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans (SCAN in index.js). */
+/** cfg: thingMinM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans (SCAN in index.js). */
 export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const n = cols * rows;
   const cells = new Uint8Array(n).fill(UNKNOWN);
@@ -31,8 +31,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       const row = Math.floor((z - originXZ[1]) / cellM);
       if (!(col >= 0 && row >= 0 && col < cols && row < rows)) return; // also drops NaN
       const i = row * cols + col;
-      if (y > cfg.floorBandM && y < cfg.headM) obstacle[i]++;
-      // Between floorNoiseM and floorBandM a noisy depth point could be either: it counts as neither.
+      if (y > cfg.thingMinM && y < cfg.headM) obstacle[i]++;
+      // Between floorNoiseM and thingMinM a noisy depth point could be either: it counts as neither.
       else if (Math.abs(y) <= cfg.floorNoiseM) floor[i]++;
     },
 
@@ -48,7 +48,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       for (let i = 0; i < n; i++) {
         let next = cells[i];
         if (obstacle[i] >= cfg.minPoints) {
-          // Seen setScans times before it counts: someone walking past and stray depth do not.
+          // Seen in setScans reads in a row before it counts: someone walking past and stray depth do not.
           if (sightings[i] < cfg.setScans) sightings[i]++;
           if (sightings[i] === cfg.setScans) {
             hold[i] = cfg.clearScans;
@@ -58,6 +58,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
           sightings[i] = 0;
           if (hold[i]) hold[i]--;
           next = hold[i] ? OBSTACLE : PASSABLE;
+        } else if (next !== OBSTACLE) {
+          sightings[i] = 0; // not seen as a thing in this read: the count starts over
         }
         if (obstacle[i] || floor[i]) unseen[i] = 0;
         else if (unseen[i] < cfg.forgetScans && ++unseen[i] === cfg.forgetScans) {
@@ -101,7 +103,7 @@ export function mergeLayers(room, live) {
  * Add one eye's depth image to the grid.
  * @param depthAt (u, v) -> distance from the camera plane in metres; u, v in 0..1 with (0, 0) at
  *                the bottom left of the image; 0 when unknown
- * @param cfg depthSamples, depthRangeM, bodyM, cellM, floorBandM
+ * @param cfg depthSamples, depthRangeM, bodyM, cellM, thingMinM
  */
 export function addDepthView(grid, depthAt, P, M, cfg) {
   const s = cfg.depthSamples;
@@ -129,7 +131,7 @@ export function addDepthView(grid, depthAt, P, M, cfg) {
       const wy = M[1] * x + M[5] * y - M[9] * d + M[13];
       // Things count two cells inside those limits only. A cell the limit cuts through would be
       // marked from the strip that is in range, and that strip of floor is too thin to clear it.
-      if (wy > cfg.floorBandM && !(along >= nearestThing && along <= farthestThing)) continue;
+      if (wy > cfg.thingMinM && !(along >= nearestThing && along <= farthestThing)) continue;
       grid.add(wx, wy, wz);
     }
   }

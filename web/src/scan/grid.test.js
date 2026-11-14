@@ -147,6 +147,34 @@ test('something seen once and then gone (a passer-by, stray depth) never becomes
   }
 });
 
+test('sightings have to come in a row: two that are a read apart do not add up', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  for (let round = 0; round < 5; round++) {
+    for (let i = 1; i < SCAN.setScans; i++) assert.notEqual(readCell(grid, many, 0), OBSTACLE);
+    assert.notEqual(readCell(grid, 0, 0), OBSTACLE); // a read that does not see it: out of view, or nothing there
+  }
+  for (let i = 1; i < SCAN.setScans; i++) assert.notEqual(readCell(grid, many, 0), OBSTACLE);
+  assert.equal(readCell(grid, many, 0), OBSTACLE);
+});
+
+test('a floor point lifted by depth error is not a thing: only points above thingMinM are', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const cell = () => grid.cells[cellOf(0.05, 0.05)];
+  const readAt = (y) => {
+    for (let k = 0; k < many; k++) grid.add(0.05, y, 0.05);
+    grid.commit();
+  };
+  // 4 % depth error at a 1.7 m eye lifts a floor point by 7 cm; with the floor 5 cm high that is 12 cm.
+  for (let i = 0; i < SCAN.setScans + 2; i++) readAt(0.12);
+  assert.equal(cell(), PASSABLE);
+  for (let i = 0; i < SCAN.setScans + 2; i++) readAt(SCAN.thingMinM - 0.03); // neither floor nor thing
+  assert.equal(cell(), PASSABLE);
+  for (let i = 0; i < SCAN.setScans; i++) readAt(SCAN.thingMinM + 0.05);
+  assert.equal(cell(), OBSTACLE);
+});
+
 test('an unclear read changes nothing: too few points, or floor with a little of something else', () => {
   const grid = newGrid();
   const many = SCAN.minPoints * 3;
