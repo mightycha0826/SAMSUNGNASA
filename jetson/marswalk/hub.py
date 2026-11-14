@@ -289,7 +289,7 @@ class Hub:
                 elif type_ == "state":
                     self.state.update(p)
                 elif type_ == "map.store":
-                    # The field map as the headset has it now: onto the disk (maps.py).
+                    # The tiles of the field map that changed on the headset: onto the disk (maps.py).
                     try:
                         path = await asyncio.to_thread(self.maps.save, p)
                     except (ValueError, OSError) as err:
@@ -300,8 +300,9 @@ class Hub:
                 elif type_ == "rescue.signal":
                     await self.handle_rescue(ws, peer, p)
                 elif type_ == "map.request":
-                    if self.maps.latest:
-                        await ws.send_str(envelope("map.stored", self.maps.latest))
+                    stored = self.maps.stored()   # the newest run, every tile of it
+                    if stored:
+                        await ws.send_str(envelope("map.stored", stored))
                 elif type_.startswith("dev.") and self.args.dev:
                     await self.handle_dev(type_, p)
                 else:

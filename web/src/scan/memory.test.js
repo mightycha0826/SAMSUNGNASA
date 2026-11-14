@@ -1,7 +1,7 @@
 // node --test src/scan/memory.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeRuns, decodeRuns, compare, linesUp, fillUnknown } from './memory.js';
+import { encodeRuns, decodeRuns, decodeTiles, compare, linesUp, fillUnknown } from './memory.js';
 
 const N = 60;
 // A room: unknown everywhere, a square of walls with floor inside, shifted by (dx, dz) cells.
@@ -31,6 +31,24 @@ test('runs: anything that is not a whole grid of 0, 1, 255 is refused', () => {
   assert.equal(decodeRuns([7, N * N], N * N), null); // not a cell value
   assert.equal(decodeRuns([0, -1, 0, N * N + 1], N * N), null);
   assert.equal(decodeRuns('x', N * N), null);
+});
+
+test('stored tiles come back by their key; what is not a whole tile is left out', () => {
+  const tile = new Uint8Array(16).fill(255).fill(1, 3, 7);
+  const tiles = decodeTiles(
+    [
+      { x: -2, z: 5, runs: encodeRuns(tile) },
+      { x: 0, z: 0, runs: [0, 16] },
+      { x: 1, z: 0, runs: [0, 15] }, // a cell short
+      { x: 1.5, z: 0, runs: [0, 16] }, // not a tile
+      { z: 0, runs: [0, 16] },
+      null,
+    ],
+    4,
+  );
+  assert.deepEqual([...tiles.keys()], ['-2,5', '0,0']);
+  assert.deepEqual(tiles.get('-2,5'), tile);
+  assert.equal(decodeTiles('x', 4).size, 0);
 });
 
 test('the same room lines up, also one cell off', () => {

@@ -8,6 +8,8 @@
 // Matrices come as WebXR gives them: Float32Array(16), column-major.
 //   P = projectionMatrix,  M = transform.matrix (eye -> room coordinates)
 
+import { shiftCells } from './tiles.js';
+
 export const PASSABLE = 0;
 export const OBSTACLE = 1;
 export const UNKNOWN = 255;
@@ -24,9 +26,14 @@ export const UNKNOWN = 255;
  * A settled cell is opened again when the wearer comes back after having been more than leaveM
  * away from it. A given-up one is also opened as soon as the wearer looks from somewhere else
  * or in another direction (view.sig changes): it may be in the picture now.
+ *
+ * The grid is a window on a floor without an edge (tiles.js): `shift` moves it by whole cells
+ * with everything it knows about the cells that stay, and `restore` lays back cells that were
+ * in it before.
  */
 export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const n = cols * rows;
+  let origin = [originXZ[0], originXZ[1]]; // room coordinates of cell [0, 0]; moves with shift
   const cells = new Uint8Array(n).fill(UNKNOWN);
   const sightings = new Uint8Array(n); // reads so far that saw an obstacle here, up to setScans
   const hold = new Uint8Array(n); // floor-only reads still needed before the obstacle is cleared
@@ -46,8 +53,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
   // range along the floor and within viewHalfDeg of where the wearer faces. (dirX, dirZ) is the
   // facing direction on the floor, unit length, or 0, 0 when looking straight down or up.
   function inView(i, view) {
-    const dx = originXZ[0] + ((i % cols) + 0.5) * cellM - view.x;
-    const dz = originXZ[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
+    const dx = origin[0] + ((i % cols) + 0.5) * cellM - view.x;
+    const dz = origin[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < cfg.bodyM ** 2 || d2 > cfg.depthRangeM ** 2) return false;
     if (!view.dirX && !view.dirZ) return true;
@@ -57,8 +64,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
   // Rows and columns that hold every cell within depthRangeM of the wearer.
   function reach(view) {
     const k = Math.ceil(cfg.depthRangeM / cellM) + 1;
-    const c = Math.floor((view.x - originXZ[0]) / cellM);
-    const r = Math.floor((view.z - originXZ[1]) / cellM);
+    const c = Math.floor((view.x - origin[0]) / cellM);
+    const r = Math.floor((view.z - origin[1]) / cellM);
     return [Math.max(0, c - k), Math.min(cols - 1, c + k), Math.max(0, r - k), Math.min(rows - 1, r + k)];
   }
 
@@ -74,8 +81,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
 
     /** Add one point in room coordinates to the current read. */
     add(x, y, z) {
-      const col = Math.floor((x - originXZ[0]) / cellM);
-      const row = Math.floor((z - originXZ[1]) / cellM);
+      const col = Math.floor((x - origin[0]) / cellM);
+      const row = Math.floor((z - origin[1]) / cellM);
       if (!(col >= 0 && row >= 0 && col < cols && row < rows)) return; // also drops NaN
       const i = row * cols + col;
       if (settled[i]) return; // read often enough: nothing more to learn here for now
@@ -151,8 +158,8 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       const range2 = cfg.depthRangeM ** 2;
       for (let i = 0; i < n; i++) {
         if (!settled[i]) continue;
-        const dx = originXZ[0] + ((i % cols) + 0.5) * cellM - view.x;
-        const dz = originXZ[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
+        const dx = origin[0] + ((i % cols) + 0.5) * cellM - view.x;
+        const dz = origin[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
         const d2 = dx * dx + dz * dz;
         if (d2 > leave2) away[i] = 1;
         else if (d2 <= range2 && (away[i] || (gaveUp[i] && gaveUp[i] !== (view.sig || 1)))) {
@@ -177,8 +184,50 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       return false;
     },
 
+    /**
+     * Move the window: what was at column c + dCols, row r + dRows is at (c, r) afterwards, and
+     * cell [0, 0] stands at `nextOriginXZ`. A cell that stays keeps its state and every counter.
+     * A cell that comes in is unknown and open, with nothing counted.
+     */
+    shift(dCols, dRows, nextOriginXZ) {
+      shiftCells(cells, cols, rows, dCols, dRows, UNKNOWN);
+      for (const a of [sightings, hold, unseen, obstacle, floor, settled, same, idle, away, gaveUp]) shiftCells(a, cols, rows, dCols, dRows, 0);
+      origin = [nextOriginXZ[0], nextOriginXZ[1]];
+      settledCount = 0;
+      for (let i = 0; i < n; i++) settledCount += settled[i];
+    },
+
+    /**
+     * Lay back a square of cells that were in the window before (`values`, side x side, at
+     * column col, row row). What is known comes back settled and marked as left behind: it
+     * is not read from where the wearer stands now, and is opened like any cell the wearer
+     * returns to once it is within depth range again (reopen). An obstacle comes back as one
+     * that was confirmed, so it still takes clearScans reads of bare floor to remove it.
+     */
+    restore(col, row, side, values) {
+      for (let r = 0; r < side; r++) {
+        for (let c = 0; c < side; c++) {
+          if (!(col + c >= 0 && row + r >= 0 && col + c < cols && row + r < rows)) continue;
+          const i = (row + r) * cols + col + c;
+          const value = values[r * side + c];
+          if (settled[i]) settledCount--;
+          cells[i] = value;
+          sightings[i] = value === OBSTACLE ? cfg.setScans : 0;
+          hold[i] = value === OBSTACLE ? cfg.clearScans : 0;
+          unseen[i] = obstacle[i] = floor[i] = same[i] = idle[i] = gaveUp[i] = 0;
+          settled[i] = away[i] = value === UNKNOWN ? 0 : 1;
+          if (settled[i]) settledCount++;
+        }
+      }
+    },
+
     get settledCount() {
       return settledCount;
+    },
+
+    /** Room coordinates of cell [0, 0]. */
+    get originXZ() {
+      return [origin[0], origin[1]];
     },
   };
 }

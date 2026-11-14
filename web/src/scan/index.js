@@ -21,10 +21,16 @@
 // obstacle is only taken off again once the sensor sees clear floor where it stood. It never
 // clears structure that came from the room scan. Not yet checked on the headset.
 //
-// The map is kept on the Jetson (memory.js): every change goes to the hub as `map:store`
-// (at most every storeMs) and the hub writes it to disk. When a session starts the hub hands
-// back the map it stored last (`map:stored`); once the new scan lines up with it, it fills in
-// what this session has not seen yet. ?remember=0 turns the handing back off.
+// The map has no edge (tiles.js). The floor is cut into tiles of 6.4 m, and the grid that is
+// worked on and sent is a window of 4 x 4 tiles (25.6 m) around the wearer. When the wearer has
+// walked about a tile from its centre, the window is moved by whole tiles; the tiles that fall
+// out of it are kept (the archive) and come back when the wearer returns. `hazard:update` is
+// always the window, so its originXZ changes when the window moves. Not yet checked on the headset.
+//
+// The map is kept on the Jetson (memory.js): the tiles that changed go to the hub as
+// `map:store` (at most every storeMs) and the hub writes them to disk. When a session starts
+// the hub hands back the map it stored last (`map:stored`); once the new scan lines up with
+// it, it fills in what this session has not seen yet. ?remember=0 turns the handing back off.
 //
 // Known gap: Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid.
 //
@@ -37,11 +43,12 @@ import { startMockHazard } from '../mock/hazard.js';
 import { createGrid, mergeLayers, viewOf } from './grid.js';
 import { readDepth } from './depth.js';
 import { initOverlay } from './overlay.js';
-import { encodeRuns, decodeRuns, linesUp, fillUnknown } from './memory.js';
+import { encodeRuns, decodeTiles, linesUp, fillUnknown } from './memory.js';
+import { TILES, tileKey, parseKey, inTiles, follow, cutTile, assemble, moveWindow } from './tiles.js';
 
 export const SCAN = {
-  sizeM: 16, // the grid covers sizeM x sizeM, centred where the session started
-  cellM: 0.1,
+  cellM: 0.1, // the window is TILES.window x TILES.cells of these per side (tiles.js): 25.6 m
+  followMs: 250, // how often the window is checked against where the wearer stands
   floorBandM: 0.15, // surfaces below this height are floor
   headM: 1.9, // surfaces above this height do not block walking
   sampleM: 0.07, // spacing of the points sampled on each triangle
@@ -77,9 +84,12 @@ export const SCAN = {
 };
 
 let ctx;
-let cells;
-let cols;
-let origin;
+let cells; // the room scan, on the window
+let cols; // cells per side of the window
+let origin; // room coordinates of the window's cell [0, 0]
+let originTile; // the same in tiles: the window's first tile
+const archive = new Map(); // tiles outside the window: tileKey -> { room, live }, each Uint8Array(tile)
+let lastFollow = 0; // time the window was last checked against the head
 let dirty = false;
 let lastEmit = 0;
 const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when rasterised, at: when that was }
@@ -101,15 +111,29 @@ let space = null; // the reference space whose 'reset' is being listened to
 const page = Date.now().toString(36);
 let runNo = 0;
 let run = `${page}-0`;
-let stored = null; // the hub's last map, when it fits this grid: Uint8Array
+let stored = null; // the hub's last map from another run, when it has these tiles: tileKey -> Uint8Array(tile)
+let storedWin = null; // the part of it under the window, as one grid; null when none of it is
 let trusted = false; // the stored map lines up with this session's scan and is being used
 let toStore = false; // the map changed since it last went to the hub
 let lastStore = 0;
+// Only tiles that changed are sent, so this side keeps count of what the hub has of this run.
+const hubHas = new Map(); // tileKey -> the tile's runs as text, as last sent (or as the hub said it has)
+const outbox = new Map(); // tileKey -> runs: tiles the hub does not have like this yet; they go with the next map:store
+let restDue = false; // every tile outside the window has to be compared with what the hub has
+
+const tileM = () => SCAN.cellM * TILES.cells;
+const originOf = (tile) => [tile[0] * tileM(), tile[1] * tileM()];
+const storedUnder = (tile) => stored && assemble((key) => stored.get(key), tile);
 
 function reset() {
-  cols = Math.round(SCAN.sizeM / SCAN.cellM);
+  cols = TILES.cells * TILES.window;
   cells = new Uint8Array(cols * cols).fill(255);
-  origin = [-SCAN.sizeM / 2, -SCAN.sizeM / 2];
+  // Around the room origin, where a session starts. If the wearer is somewhere else (a space
+  // that kept its origin from before), the first look at the head moves the window there.
+  originTile = [follow(null, 0), follow(null, 0)];
+  origin = originOf(originTile);
+  archive.clear();
+  lastFollow = 0;
   seen.clear();
   jobs.length = 0;
   dirty = true;
@@ -124,33 +148,124 @@ function reset() {
   run = `${page}-${runNo++}`;
   trusted = false;
   toStore = false;
+  hubHas.clear();
+  outbox.clear();
+  restDue = false;
+  storedWin = storedUnder(originTile);
   if (SCAN.remember) ctx.bus.emit('map:request', {});
 }
 
-/** The hub's stored map, if it is this grid: same cells, same size, same origin. */
-function takeStored(m) {
-  if (!SCAN.remember || !m || m.cols !== cols || m.rows !== cols || Math.abs(m.cellSizeM - SCAN.cellM) > 1e-6) return;
-  if (Math.abs(m.originXZ?.[0] - origin[0]) > 1e-6 || Math.abs(m.originXZ?.[1] - origin[1]) > 1e-6) return;
-  if (m.run === run) return; // what this run stored itself: nothing new in it
-  const cellsBack = decodeRuns(m.runs, cols * cols);
-  if (!cellsBack) return console.warn('[scan] the stored map from the hub is not a grid');
-  stored = cellsBack;
-  trusted = false;
+/**
+ * Move the window when the wearer has walked out of its two middle tiles (tiles.js: follow).
+ * Both layers move; the tiles that leave go to the archive and to the hub.
+ */
+function followHead(x, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+  const next = [follow(originTile[0], inTiles(x, SCAN.cellM)), follow(originTile[1], inTiles(z, SCAN.cellM))];
+  if (next[0] === originTile[0] && next[1] === originTile[1]) return;
+  const nextOrigin = originOf(next);
+  const { left } = moveWindow({ room: cells, live: live.cells }, originTile, next, archive, {
+    live: {
+      shift: (dCols, dRows) => live.shift(dCols, dRows, nextOrigin),
+      paste: (col, row, tile) => live.restore(col, row, TILES.cells, tile),
+    },
+  });
+  originTile = next;
+  origin = nextOrigin;
+  storedWin = storedUnder(originTile);
+  for (const key of left) offer(key, restTile(key));
+  if (outbox.size) toStore = true;
+  // mark() drops what falls outside the window, so the room scan of the ground that just came
+  // in was never rasterised (or only as far as the archive has it). Forgetting what has been
+  // rasterised queues every mesh and plane again. shortcut: that is the whole room model on
+  // every move, trianglesPerFrame a frame, and no hazard:update goes out until the queue is
+  // empty. If that shows as a pause when walking, queue only what reaches into the new tiles.
+  seen.clear();
+  sent = null; // the next hazard:update is a window somewhere else: nothing to compare it with
   dirty = true;
-  console.info('[scan] stored map from the hub:', m.run, m.savedAt ?? '');
+  console.info('[scan] window moved to', origin, 'tiles kept outside it:', archive.size);
 }
 
-/** Send the map to the hub (link.js forwards map:store). */
+/** The hub's answer to map:request: the newest map it has stored (link.js forwards map.stored). */
+function takeStored(m) {
+  if (!m || m.tileCells !== TILES.cells || Math.abs(m.cellSizeM - SCAN.cellM) > 1e-6 || !Array.isArray(m.tiles)) return;
+  if (m.run === run) {
+    // This run's own map: the answer to the request the link makes when it comes back. It says
+    // what really arrived, so tiles sent while the link was down are sent again.
+    hubHas.clear();
+    for (const t of m.tiles) if (Array.isArray(t?.runs)) hubHas.set(tileKey(t.x, t.z), t.runs.join());
+    restDue = toStore = true;
+    return;
+  }
+  if (hubHas.size) {
+    // The hub's newest map is not this run, though tiles of it were sent: send them all again.
+    // (When the hub has no map at all it does not answer, and tiles lost before the first
+    // connection are then sent only when they next change.)
+    hubHas.clear();
+    restDue = toStore = true;
+  }
+  if (!SCAN.remember) return;
+  const tiles = decodeTiles(m.tiles, TILES.cells);
+  if (!tiles.size) return console.warn('[scan] the stored map from the hub has no tiles');
+  stored = tiles;
+  storedWin = storedUnder(originTile);
+  trusted = false;
+  dirty = true;
+  console.info('[scan] stored map from the hub:', m.run, m.savedAt ?? '', tiles.size, 'tiles');
+}
+
+/**
+ * What the hub should have of a tile outside the window: this run's layers from the archive,
+ * and under them the stored map once it is trusted. Null when nothing is known there.
+ */
+function restTile(key) {
+  const entry = archive.get(key);
+  const under = trusted ? stored?.get(key) : null;
+  if (!entry) return under ?? null;
+  const { cells: tile } = mergeLayers(entry.room, entry.live);
+  if (under) fillUnknown(tile, under);
+  return tile;
+}
+
+/** Put a tile in the outbox if the hub does not have it like this. */
+function offer(key, tile) {
+  const runs = tile ? encodeRuns(tile) : [255, TILES.cells * TILES.cells];
+  // A tile the hub has never heard of is, to the hub, a tile nothing is known about.
+  if (runs.join() === (hubHas.get(key) ?? `255,${TILES.cells * TILES.cells}`)) outbox.delete(key);
+  else outbox.set(key, runs);
+}
+
+const inWindow = ([tx, tz]) => tx >= originTile[0] && tz >= originTile[1] && tx < originTile[0] + TILES.window && tz < originTile[1] + TILES.window;
+
+/** Send the tiles that changed to the hub (link.js forwards map:store). */
 function store(time) {
   toStore = false;
   lastStore = time;
+  if (restDue) {
+    restDue = false;
+    for (const key of new Set([...archive.keys(), ...(trusted && stored ? stored.keys() : [])])) {
+      if (!inWindow(parseKey(key))) offer(key, restTile(key));
+    }
+  }
+  // The window as it was last sent to the app: it has the stored map under it where that is trusted.
+  if (sent) {
+    for (let j = 0; j < TILES.window; j++) {
+      for (let i = 0; i < TILES.window; i++) offer(tileKey(originTile[0] + i, originTile[1] + j), cutTile(sent, cols, i, j));
+    }
+  }
+  if (!outbox.size) return;
+  const tiles = [];
+  for (const [key, runs] of outbox) {
+    const [x, z] = parseKey(key);
+    tiles.push({ x, z, runs });
+    hubHas.set(key, runs.join());
+  }
+  outbox.clear();
   ctx.bus.emit('map:store', {
     run,
-    originXZ: [...origin],
     cellSizeM: SCAN.cellM,
-    cols,
-    rows: cols,
-    runs: encodeRuns(sent),
+    tileCells: TILES.cells,
+    tiles,
     source: depthSeen ? 'room-scan+depth' : 'room-scan',
     stats,
   });
@@ -181,8 +296,8 @@ function markLocal(m, x, y, z) {
 function rasterTriangle(m, ax, ay, az, bx, by, bz, cx, cy, cz) {
   const ab = Math.hypot(bx - ax, by - ay, bz - az);
   const ac = Math.hypot(cx - ax, cy - ay, cz - az);
-  // At most 400 steps (28 m, more than the grid's diagonal): one vertex at infinity must not hang the frame.
-  const n = Math.min(400, Math.max(1, Math.ceil(Math.max(ab, ac) / SCAN.sampleM)));
+  // At most 550 steps (38 m, more than the window's diagonal): one vertex at infinity must not hang the frame.
+  const n = Math.min(550,Math.max(1, Math.ceil(Math.max(ab, ac) / SCAN.sampleM)));
   for (let i = 0; i <= n; i++) {
     for (let j = 0; j <= n - i; j++) {
       const u = i / n;
@@ -257,7 +372,7 @@ export function init(context) {
   // Mock mode: the fake obstacle grid stands in for the scan.
   if (ctx.mock.hazard) startMockHazard(ctx.bus, { speed: ctx.mock.speed });
   ctx.xr.onSessionStart(() => reset());
-  ctx.xr.onSessionEnd(() => { if (toStore && sent) store(0); }); // the last changes, before the wearer takes the headset off
+  ctx.xr.onSessionEnd(() => { if (toStore) store(0); }); // the last changes, before the wearer takes the headset off
   ctx.bus.on('map:stored', takeStored);
   // With depth-sensing three.js would draw a mesh that hides every virtual object behind real
   // surfaces (the reason depth is off by default, core/xr.js), and would leave clearing the
@@ -265,7 +380,9 @@ export function init(context) {
   ctx.renderer.xr.getDepthSensingMesh = () => null;
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
-  window.__scan = { stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0 }) };
+  window.__scan = {
+    stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0, archived: archive.size, windowXZ: [...origin] }),
+  };
 }
 
 export function update(frame) {
@@ -277,6 +394,14 @@ export function update(frame) {
   if (space !== refSpace) {
     space = refSpace;
     space.addEventListener('reset', reset);
+  }
+
+  // Keep the window around the wearer. Not every frame: a step is far less than the tile of
+  // margin the window has on every side.
+  if (time - lastFollow >= SCAN.followMs) {
+    lastFollow = time;
+    const at = xrFrame.getViewerPose(refSpace)?.transform.position;
+    if (at) followHead(at.x, at.z);
   }
 
   const meshes = xrFrame.detectedMeshes;
@@ -355,14 +480,17 @@ export function update(frame) {
     const { cells: merged, ...counts } = mergeLayers(cells, live.cells);
     // The map the hub kept from before: used once this session's scan has found enough of the
     // same obstacles in the same places, and only where this session has seen nothing yet.
+    // Both are judged on the window: the part of the stored map that lies under it (storedWin,
+    // laid together again whenever the window moves, so ground that comes in later is filled too).
     let kept = 0;
-    if (stored) {
-      if (!trusted && linesUp(stored, merged, cols, cols)) {
+    if (storedWin) {
+      if (!trusted && linesUp(storedWin, merged, cols, cols)) {
         trusted = true;
+        restDue = toStore = true; // its tiles outside the window belong to this run's map on the hub as well
         console.info('[scan] the stored map lines up with this room: using it for what is not seen yet');
       }
       if (trusted) {
-        kept = fillUnknown(merged, stored);
+        kept = fillUnknown(merged, storedWin);
         counts.obstacles = counts.floor = 0;
         for (const cell of merged) {
           if (cell === 1) counts.obstacles++;
@@ -376,7 +504,8 @@ export function update(frame) {
     sent = merged;
     lastEmit = time;
     toStore = true;
-    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept, settled: live.settledCount, reads, skips };
+    // archived, windowXZ: how many tiles are kept outside the window and where the window is, for diagnosis.
+    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept, settled: live.settledCount, reads, skips, archived: archive.size, windowXZ: [...origin] };
     ctx.bus.emit('hazard:update', {
       originXZ: [...origin],
       cellSizeM: SCAN.cellM,
@@ -389,5 +518,5 @@ export function update(frame) {
     });
   }
 
-  if (toStore && sent && time - lastStore >= SCAN.storeMs) store(time);
+  if (toStore && time - lastStore >= SCAN.storeMs) store(time);
 }

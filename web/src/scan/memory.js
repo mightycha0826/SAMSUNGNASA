@@ -1,14 +1,17 @@
 // What the hub keeps of the field map, and when a stored map may be laid back under a new scan.
 // Pure arithmetic: node --test src/scan/memory.test.js
 //
-// The scan (index.js) sends every change of the obstacle grid to the Jetson hub, which writes
+// The scan (index.js) sends every change of the obstacle map to the Jetson hub, which writes
 // it to disk (jetson/maps/). When a session starts, the hub hands back the map it stored last.
+// The map travels in tiles (tiles.js), each as runs: only the tiles that changed go to the hub,
+// and the stored map comes back as the list of its tiles.
 // Room coordinates are only the same as before if the headset kept its origin, and nothing
 // says whether it did. So the stored map is used only once the new scan has seen enough of the
 // same obstacles in the same places (linesUp), and then only for cells the new scan knows
 // nothing about (fillUnknown): what the headset sees now always wins.
 
 import { OBSTACLE, PASSABLE, UNKNOWN } from './grid.js';
+import { tileKey } from './tiles.js';
 
 export const MEMORY = {
   minHits: 100, // obstacle cells that must be found again before a stored map is trusted (1 m2 of wall line)
@@ -40,6 +43,21 @@ export function decodeRuns(runs, n) {
     at += count;
   }
   return at === n ? cells : null;
+}
+
+/**
+ * The tiles of a stored map ([{ x, z, runs }], as `map:stored` carries them) as a Map of
+ * tileKey -> cells. A tile that is not tileCells x tileCells cells of 0, 1 and 255 is left out.
+ */
+export function decodeTiles(tiles, tileCells) {
+  const map = new Map();
+  if (!Array.isArray(tiles)) return map;
+  for (const t of tiles) {
+    if (!Number.isInteger(t?.x) || !Number.isInteger(t?.z)) continue;
+    const cells = decodeRuns(t.runs, tileCells * tileCells);
+    if (cells) map.set(tileKey(t.x, t.z), cells);
+  }
+  return map;
 }
 
 /** True when the 3 x 3 cells around (c, r) hold an obstacle: tracking can sit a cell off. */
