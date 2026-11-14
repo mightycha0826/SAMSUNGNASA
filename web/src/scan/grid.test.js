@@ -141,6 +141,66 @@ test('with a headset eye: a chair near the end of the range is marked and cleare
   assert.ok(!grid.cells.includes(OBSTACLE), 'out of range for marking, as it is for clearing');
 });
 
+// A floor that ends at z = edgeZ: beyond it (toward -z) the ground lies `depth` metres lower.
+function ledgeSensor(camera, edgeZ, depth) {
+  const ray = new THREE.Ray();
+  const hit = new THREE.Vector3();
+  const lower = new THREE.Plane(new THREE.Vector3(0, 1, 0), depth);
+  return (u, v) => {
+    ray.origin.setFromMatrixPosition(camera.matrixWorld);
+    ray.direction.set(2 * u - 1, 2 * v - 1, 0.5).unproject(camera).sub(ray.origin).normalize();
+    let found = ray.intersectPlane(FLOOR, hit);
+    if (found && hit.z < edgeZ) found = ray.intersectPlane(lower, hit); // through where the floor is missing, down to the lower ground
+    return found ? -hit.applyMatrix4(camera.matrixWorldInverse).z : 0;
+  };
+}
+
+test('a drop is marked like an obstacle: from the edge of the floor on, with no unknown strip behind the edge', () => {
+  const grid = newGrid();
+  const camera = questEye(1.6);
+  const sensor = ledgeSensor(camera, -1.5, 0.6); // the floor ends 1.5 m ahead, 0.6 m down
+  for (let k = 0; k < SCAN.setScans; k++) {
+    addDepthView(grid, sensor, camera.projectionMatrix.elements, camera.matrixWorld.elements, SCAN);
+    grid.commit();
+  }
+  for (const z of [-1.05, -1.25, -1.4]) assert.equal(grid.cells[cellOf(0.05, z)], PASSABLE, `floor before the edge, z ${z}`);
+  // Every cell past the edge, as far as things are marked at all: the ground the sensor sees lies
+  // farther out (hidden behind the edge up to there), and the cells between are marked with it.
+  for (const z of [-1.65, -1.85, -2.05, -2.2]) assert.equal(grid.cells[cellOf(0.05, z)], OBSTACLE, `past the edge, z ${z}`);
+});
+
+test('a low step down is not a drop, and a drop that turns out to be floor is cleared', () => {
+  const grid = newGrid();
+  const camera = questEye(1.6);
+  const step = ledgeSensor(camera, -1.5, 0.2); // 20 cm: under dropMinM
+  for (let k = 0; k < SCAN.setScans + 1; k++) {
+    addDepthView(grid, step, camera.projectionMatrix.elements, camera.matrixWorld.elements, SCAN);
+    grid.commit();
+  }
+  assert.ok(!grid.cells.includes(OBSTACLE), 'a 20 cm step is not marked');
+
+  const pit = ledgeSensor(camera, -1.5, 0.6);
+  for (let k = 0; k < SCAN.setScans; k++) {
+    addDepthView(grid, pit, camera.projectionMatrix.elements, camera.matrixWorld.elements, SCAN);
+    grid.commit();
+  }
+  assert.equal(grid.cells[cellOf(0.05, -1.85)], OBSTACLE);
+  for (let k = 0; k < SCAN.clearScans; k++) read(grid, camera, null); // the floor is there after all (a cover put over the pit, or a bad read)
+  assert.equal(grid.cells[cellOf(0.05, -1.85)], PASSABLE);
+});
+
+test('with dropMinM 0 ground below the floor says nothing, as before', () => {
+  const cfg = { ...SCAN, dropMinM: 0 };
+  const grid = createGrid(COLS, COLS, SCAN.cellM, ORIGIN, cfg);
+  const camera = questEye(1.6);
+  const sensor = ledgeSensor(camera, -1.5, 0.6);
+  for (let k = 0; k < SCAN.setScans + 1; k++) {
+    addDepthView(grid, sensor, camera.projectionMatrix.elements, camera.matrixWorld.elements, cfg);
+    grid.commit();
+  }
+  assert.ok(!grid.cells.includes(OBSTACLE));
+});
+
 test('something seen once and then gone (a passer-by, stray depth) never becomes an obstacle', () => {
   const grid = newGrid();
   const many = SCAN.minPoints * 3;

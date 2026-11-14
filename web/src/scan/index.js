@@ -71,6 +71,10 @@ export const SCAN = {
   bodyM: 0.8, // cells this close to the headset, along the floor, are the wearer's own hands and body
   floorNoiseM: 0.15, // a depth point within this height of y = 0 counts as floor (the real floor can sit a few cm off)
   thingMinM: 0.25, // a depth point counts as a thing from this height: a 4 % depth error lifts a floor point 7 cm
+  // Ground this far below the floor is a drop, and is marked like an obstacle: a stair going down, a kerb, a pit.
+  // 0.3 m: a single low step (under 0.3 m) can be walked down; depth error puts a floor point 7 cm low at most.
+  // ?drops=0 turns it off (a mirror-like floor may read as deeper than it is).
+  dropMinM: new URLSearchParams(globalThis.location?.search ?? '').get('drops') === '0' ? 0 : 0.3,
   minPoints: 3, // samples needed in a cell before a read says anything about it
   setScans: 2, // reads in a row that must see an obstacle before it counts (2 = 1 s): not someone walking past
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)

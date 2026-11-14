@@ -5,6 +5,11 @@
 // into an obstacle once something has been seen standing in it in setScans reads in a row, and
 // back into floor once the sensor has seen nothing but floor there clearScans times.
 //
+// A drop is in the way like a thing is: where the ground lies more than dropMinM below the
+// floor the wearer stands on (a stair going down, a kerb, a pit), the cells are marked as an
+// obstacle, by the same counting. There is one floor level, y = 0: other storeys are not
+// mapped, only where the floor ends.
+//
 // Matrices come as WebXR gives them: Float32Array(16), column-major.
 //   P = projectionMatrix,  M = transform.matrix (eye -> room coordinates)
 
@@ -15,7 +20,7 @@ export const OBSTACLE = 1;
 export const UNKNOWN = 255;
 
 /**
- * cfg: thingMinM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans, and for
+ * cfg: thingMinM, headM, floorNoiseM, dropMinM (0 or absent: drops are not marked), minPoints, setScans, clearScans, forgetScans, and for
  * settling: settleScans, resettleScans, giveUpScans, leaveM, vantageM, depthRangeM, bodyM, viewHalfDeg (SCAN in index.js).
  *
  * Settling (cfg.settleScans > 0): a cell that has been read settleScans times in a row with the
@@ -50,6 +55,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const settling = cfg.settleScans > 0;
   let settledCount = 0;
   const cosHalf = Math.cos(((cfg.viewHalfDeg ?? 40) * Math.PI) / 180);
+  const dropBelow = cfg.dropMinM > 0 ? -cfg.dropMinM : -Infinity; // ground lower than this is a drop
 
   // Whether cell i is where the depth image can see it from `view` { x, z, dirX, dirZ }: within
   // range along the floor and within viewHalfDeg of where the wearer faces. (dirX, dirZ) is the
@@ -89,8 +95,9 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       if (!(col >= 0 && row >= 0 && col < cols && row < rows)) return; // also drops NaN
       const i = row * cols + col;
       if (settled[i]) return; // read often enough: nothing more to learn here for now
-      if (y > cfg.thingMinM && y < cfg.headM) obstacle[i]++;
-      // Between floorNoiseM and thingMinM a noisy depth point could be either: it counts as neither.
+      // A thing standing here, or ground far enough below the floor that stepping here is a fall.
+      if ((y > cfg.thingMinM && y < cfg.headM) || y < dropBelow) obstacle[i]++;
+      // Between floorNoiseM and thingMinM (and as far below the floor) a noisy depth point could be either: it counts as neither.
       else if (Math.abs(y) <= cfg.floorNoiseM) floor[i]++;
     },
 
@@ -339,7 +346,7 @@ export function mergeLayers(room, live) {
  * Add one eye's depth image to the grid.
  * @param depthAt (u, v) -> distance from the camera plane in metres; u, v in 0..1 with (0, 0) at
  *                the bottom left of the image; 0 when unknown
- * @param cfg depthSamples, depthRangeM, bodyM, cellM, thingMinM
+ * @param cfg depthSamples, depthRangeM, bodyM, cellM, thingMinM, dropMinM
  */
 export function addDepthView(grid, depthAt, P, M, cfg) {
   const s = cfg.depthSamples;
@@ -363,8 +370,30 @@ export function addDepthView(grid, depthAt, P, M, cfg) {
       // the things standing in it and for the floor under them alike. Measured from the eye, a
       // chair would be marked farther out than the floor that later has to clear it.
       const along = (wx - M[12]) ** 2 + (wz - M[14]) ** 2;
-      if (!(along >= nearest && along <= farthest)) continue; // the wearer's own body, or too far to trust
       const wy = M[1] * x + M[5] * y - M[9] * d + M[13];
+      if (cfg.dropMinM > 0 && wy < -cfg.dropMinM && Number.isFinite(wy) && M[13] > 0) {
+        // The ray went through where the floor should be and met ground lower down: the floor
+        // ends here. It is missing from where the ray crossed floor level to where it landed,
+        // and that whole stretch is marked: the near part of the lower ground is hidden behind
+        // the edge, and would otherwise stay unknown, which the route may cross.
+        // Limits as for things, measured where the floor is missing, not where the ray landed:
+        // the bottom of a deep drop is far away while its edge is at the wearer's feet.
+        const t = M[13] / (M[13] - wy); // the part of the way from the eye to the point at which the ray is at floor level
+        const ex = (wx - M[12]) * t;
+        const ez = (wz - M[14]) * t;
+        const stretch = Math.hypot(wx - M[12] - ex, wz - M[14] - ez);
+        const steps = Math.min(40, Math.ceil(stretch / (cfg.cellM * 0.5)));
+        for (let k = 0; k <= steps; k++) {
+          const f = steps ? k / steps : 0;
+          const px = ex + (wx - M[12] - ex) * f;
+          const pz = ez + (wz - M[14] - ez) * f;
+          const a = px * px + pz * pz;
+          if (a > farthestThing) break;
+          if (a >= nearestThing) grid.add(M[12] + px, wy, M[14] + pz);
+        }
+        continue;
+      }
+      if (!(along >= nearest && along <= farthest)) continue; // the wearer's own body, or too far to trust
       // Things count two cells inside those limits only. A cell the limit cuts through would be
       // marked from the strip that is in range, and that strip of floor is too thin to clear it.
       if (wy > cfg.thingMinM && !(along >= nearestThing && along <= farthestThing)) continue;
