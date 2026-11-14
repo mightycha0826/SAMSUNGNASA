@@ -318,7 +318,7 @@ export function drawLayers(g, d, vm) {
     if (tab.hover || tab.pressed) {
       g.beginPath();
       g.roundRect(x + 0.1 * d, y + 0.1 * d, tabW - 0.2 * d, tabH - 0.2 * d, 0.7 * d);
-      g.strokeStyle = T.primary;
+      g.strokeStyle = tab.pressed ? T.ink : 'rgba(255, 255, 255, 0.85)';
       g.lineWidth = 0.2 * d;
       g.stroke();
     }
