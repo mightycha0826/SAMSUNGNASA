@@ -272,5 +272,5 @@ export function createXR({ container, button }) {
     });
   }
 
-  return { renderer, scene, camera, xr, addModule, run };
+  return { renderer, scene, camera, xr, controls, addModule, run };
 }

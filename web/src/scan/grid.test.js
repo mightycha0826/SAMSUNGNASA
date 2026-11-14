@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SCAN } from './index.js';
-import { createGrid, addDepthView, depthBufferToMeters, mergeLayers, PASSABLE, OBSTACLE, UNKNOWN } from './grid.js';
+import { createGrid, viewOf, addDepthView, depthBufferToMeters, mergeLayers, PASSABLE, OBSTACLE, UNKNOWN } from './grid.js';
 
 const COLS = Math.round(SCAN.sizeM / SCAN.cellM);
 const ORIGIN = [-SCAN.sizeM / 2, -SCAN.sizeM / 2];
@@ -252,4 +252,110 @@ test('depth-buffer values convert to metres like the projection that wrote them'
     assert.equal(depthBufferToMeters(b, 0.1, 50), 0);
     assert.equal(depthBufferToMeters(b, 0.1, Infinity), 0);
   }
+});
+
+// ---- settling: what has been read often enough is left alone ----
+
+// A head at (x, z), eyes level, facing -z (the default) or the direction given.
+function headAt(x, z, lookX = 0, lookZ = -1, lookY = 0) {
+  const o = new THREE.Object3D();
+  o.position.set(x, 1.6, z);
+  o.lookAt(x - lookX, 1.6 - lookY, z - lookZ); // an Object3D's -z points away from its lookAt target
+  o.updateMatrixWorld();
+  return viewOf(o.matrixWorld.elements, SCAN.vantageM);
+}
+// One read of the cell at (x, z) as seen from `view`.
+function readAt(grid, view, x, z, obstaclePoints, floorPoints) {
+  grid.reopen(view);
+  for (let k = 0; k < obstaclePoints; k++) grid.add(x, 0.5, z);
+  for (let k = 0; k < floorPoints; k++) grid.add(x, 0, z);
+  grid.commit(view);
+  return grid.cells[cellOf(x, z)];
+}
+
+test('viewOf: where the head is and faces; sig changes with a step, a turn or a tilt', () => {
+  const v = headAt(1, 2);
+  assert.deepEqual([v.x, v.z], [1, 2]);
+  assert.ok(Math.abs(v.dirX) < 1e-6 && Math.abs(v.dirZ + 1) < 1e-6, 'faces -z');
+  assert.equal(headAt(1.1, 2.1).sig, v.sig, 'a small step is the same view');
+  assert.notEqual(headAt(2.2, 2).sig, v.sig);
+  assert.notEqual(headAt(1, 2, 1, 0).sig, v.sig, 'turned 90 degrees');
+  assert.notEqual(headAt(1, 2, 0, -1, -0.8).sig, v.sig, 'looking down');
+  const down = headAt(0, 0, 0, -0.01, -1);
+  assert.deepEqual([down.dirX, down.dirZ], [0, 0], 'straight down: no facing direction');
+});
+
+test('a cell read settleScans times with the same answer is settled: later points are ignored', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const view = headAt(0, 0);
+  const [x, z] = [0.05, -1.55];
+  for (let i = 0; i < SCAN.setScans; i++) readAt(grid, view, x, z, many, 0);
+  assert.equal(grid.settledCount, 0);
+  for (let i = 0; i < SCAN.settleScans; i++) assert.equal(readAt(grid, view, x, z, many, 0), OBSTACLE);
+  assert.equal(grid.settledCount, 1);
+  // The chair is carried off while the wearer stays near: the settled cell does not look again.
+  for (let i = 0; i < SCAN.clearScans * 3; i++) assert.equal(readAt(grid, view, x, z, 0, many), OBSTACLE);
+});
+
+test('a settled cell is read again after the wearer has been leaveM away and come back', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const near = headAt(0, 0);
+  const [x, z] = [0.05, -1.55];
+  for (let i = 0; i < SCAN.setScans + SCAN.settleScans; i++) readAt(grid, near, x, z, many, 0);
+  assert.equal(grid.settledCount, 1);
+  grid.reopen(headAt(0, 2)); // 3.5 m from the cell: not far enough
+  grid.reopen(near);
+  assert.equal(grid.settledCount, 1);
+  grid.reopen(headAt(0, SCAN.leaveM)); // more than leaveM from the cell
+  assert.equal(grid.settledCount, 1, 'still settled while away');
+  assert.equal(grid.reopen(near), 1);
+  assert.equal(grid.settledCount, 0);
+  // Now the missing chair is noticed.
+  for (let i = 1; i < SCAN.clearScans; i++) assert.equal(readAt(grid, near, x, z, 0, many), OBSTACLE);
+  assert.equal(readAt(grid, near, x, z, 0, many), PASSABLE);
+});
+
+test('a cell still changing does not settle', () => {
+  const grid = newGrid();
+  const many = SCAN.minPoints * 3;
+  const view = headAt(0, 0);
+  const [x, z] = [0.05, -1.55];
+  for (let round = 0; round < 4; round++) {
+    for (let i = 0; i < SCAN.settleScans - 1; i++) readAt(grid, view, x, z, 0, many);
+    for (let i = 0; i < SCAN.setScans; i++) readAt(grid, view, x, z, many, 0);
+    assert.equal(grid.cells[cellOf(x, z)], OBSTACLE, `round ${round}: the cell still follows what is seen`);
+  }
+  // Still open: the floor is seen again and the obstacle clears.
+  for (let i = 0; i < SCAN.clearScans; i++) readAt(grid, view, x, z, 0, many);
+  assert.equal(grid.cells[cellOf(x, z)], PASSABLE);
+});
+
+test('nothing left to read in view: unsettledInView turns false, and true again for a new view', () => {
+  const grid = newGrid();
+  const view = headAt(0, 0);
+  assert.equal(grid.unsettledInView(view), true); // nothing has been read yet
+  // Reads that never give an answer anywhere (a blank wall beyond range, the ceiling).
+  for (let i = 0; i < SCAN.giveUpScans; i++) {
+    grid.reopen(view);
+    grid.commit(view);
+  }
+  assert.equal(grid.unsettledInView(view), false, 'everything in view was given up on');
+  assert.ok(grid.settledCount > 100);
+  // Turn around: other cells, still open.
+  const back = headAt(0, 0, 0, 1);
+  assert.equal(grid.unsettledInView(back), true);
+  // Same place, same heading, looking down now: the given-up cells are tried again.
+  const down = headAt(0, 0, 0, -1, -0.9);
+  assert.ok(grid.reopen(down) > 100);
+  assert.equal(grid.unsettledInView(down), true);
+});
+
+test('with settleScans 0 nothing ever settles', () => {
+  const grid = createGrid(COLS, COLS, SCAN.cellM, ORIGIN, { ...SCAN, settleScans: 0 });
+  const view = headAt(0, 0);
+  for (let i = 0; i < 40; i++) readAt(grid, view, 0.05, -1.55, SCAN.minPoints * 3, 0);
+  assert.equal(grid.settledCount, 0);
+  assert.equal(grid.unsettledInView(view), true);
 });

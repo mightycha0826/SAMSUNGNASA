@@ -21,7 +21,10 @@ export const HUD = {
     // from the right edge and 7 deg from the bottom, pulled inward for the Quest 3's narrower
     // field of view. The panel is 0.3 deg larger on every side for its outline and text glow,
     // and the card is drawn against the panel's bottom edge.
-    leftDeg: 54.96, topDeg: 11.86, wDeg: 20.1, hDeg: 31.6,
+    // On the headset the card was too far out to read comfortably, so it sits 6 deg further in
+    // than the mockup (leftDeg 54.96 there): its far edge is 29 deg from the middle, not 35.
+    // The alert card and the toast move 4 deg the other way to stay clear of it (centreShiftDeg).
+    leftDeg: 48.96, topDeg: 11.86, wDeg: 20.1, hDeg: 31.6,
     /** Opacity of the whole status card (0 to 1). Both values are 1, as in the mockup: the card's
      *  face is already clear and only its outlines and text are drawn.
      *  `mapOpacity` applies while the map is in view (palm up in the headset; always on a PC
@@ -29,8 +32,12 @@ export const HUD = {
      *  alert brings the card back to full opacity. `fadeRate` is how fast it changes (1/s). */
     opacity: 1, mapOpacity: 1, fadeRate: 6,
   },
-  /** Toast strip, top centre */
-  banner: { topDeg: 6, wDeg: 38, hDeg: 4 },
+  /** The alert card and the toast are centred this far from the middle of the view (deg,
+   *  negative = left), so that they end where the status card begins. */
+  centreShiftDeg: -4,
+  /** Toast strip ("what was heard", a layer change): just below the line of sight, where it is
+   *  seen without looking up. It used to sit 19 deg above it and was easy to miss. */
+  banner: { topDeg: 28.5, wDeg: 26, hDeg: 4 },
   /** Alert card: bottom centre, its bottom edge bottomDeg above the bottom of the stage, at
    *  most 26 deg wide. The panel is glowDeg larger on every side for the light around it. */
   alert: { wDeg: 31, hDeg: 12, bottomDeg: 7, glowDeg: 2.5, maxCardDeg: 26 },
@@ -53,15 +60,15 @@ export const HUD = {
     hDeg: 21,
     /** 손 추적이 없을 때(PC 포함) 화면에 고정하는 자리 */
     // Left of the bottom-centre alert card, so the two never overlap (PC screen, controllers).
-    fixedLeftDeg: 11.5,
+    fixedLeftDeg: 7.5,
     fixedBottomDeg: 6.5,
     /** Beside the palm map: distance of the menu centre to the right of the map centre and
-     *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.19 m
-     *  (0.75 of its HUD size, so its tabs are easy targets for the pointer), so 0.29 leaves a
-     *  gap of about 7 cm between them. */
-    palmOffsetRightM: 0.29,
+     *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.165 m
+     *  (0.65 of its HUD size: a tab is still 9 cm wide, an easy target for the pointer), so
+     *  0.28 leaves a gap of about 7 cm between them. */
+    palmOffsetRightM: 0.28,
     palmOffsetUpM: 0.02,
-    palmScale: 0.75,
+    palmScale: 0.65,
     /** Opacity of the menu and legend backgrounds (0 to 1). 0.92 is the mockup's `--h-surface`.
      *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
     faceOpacity: 0.92,
@@ -116,8 +123,12 @@ export const HUD = {
     /** then glides after it at this rate (1/s) until it is within settleM */
     rate: 9,
     settleM: 0.006,
-    /** After the gesture or the left hand is lost, the menu stays this long (ms) */
+    /** After the left hand is lost from view, the menu stays this long (ms) */
     lingerMs: 900,
+    /** When the hand is in view and has turned out of the gesture, the menu goes after this
+     *  long (ms): long enough to ride out one bad tracking frame, short enough to look instant.
+     *  Turning the hand into the other gesture (map <-> commands) closes it at once. */
+    turnedMs: 120,
     /** How far the hand may tip away from the gesture before an open menu closes */
     gestureSlack: 0.35,
     /** Wrists closer than this: the left hand's pose is not trusted and the menus hold still (m) */

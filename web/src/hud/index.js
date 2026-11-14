@@ -518,11 +518,14 @@ const steady = {
  *    trusted): it does not move at all, and it does not close.
  *  - Otherwise it stays where it is until the hand is more than a dead zone away, then glides
  *    after it and stops again.
- *  - When the gesture ends it stays for a moment before it hides.
+ *  - When the hand turns out of the gesture the menu goes almost at once (turnedMs), and at
+ *    once when the hand turns into the other menu's gesture (`other`). When the hand is lost
+ *    from view instead, it stays for lingerMs: tracking drops out for moments all the time.
  */
-function followMenu(panel, st, wanted, held, scale, now, dt) {
+function followMenu(panel, st, wanted, held, scale, now, dt, { handSeen = false, other = false } = {}) {
   const F = HUD.follow;
-  if (held && st.shown) st.lastSeen = now;
+  if (other && !wanted) st.shown = false; // the hand now shows the other menu: this one goes at once
+  else if (held && st.shown) st.lastSeen = now;
   else if (wanted) {
     if (!st.shown) {
       panel.mesh.position.copy(aim.position);
@@ -541,8 +544,8 @@ function followMenu(panel, st, wanted, held, scale, now, dt) {
     }
     st.shown = true;
     st.lastSeen = now;
-  } else if (st.shown && now - st.lastSeen > F.lingerMs) {
-    st.shown = false;
+  } else if (st.shown && now - st.lastSeen > (handSeen ? F.turnedMs : F.lingerMs)) {
+    st.shown = false; // quickly when the hand has turned away, slowly when it was only lost from view
   }
   panel.mesh.visible = st.shown;
   panel.mesh.scale.setScalar(scale);
@@ -601,9 +604,12 @@ function updateHands(frame) {
     palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
     backUp = v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
   }
+  // Palm up shows the map in both modes, so in both it sends the command card away at once.
+  const mapUp = palmUp;
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
   palmUp = palmUp && mode.current !== 'field';
   mapInView = palmUp;
+  const seen = !!wrist && !crowded;
 
   ctx.camera.getWorldPosition(v2);
   if (palmUp && !crowded) {
@@ -621,7 +627,7 @@ function updateHands(frame) {
     }
     aim.lookAt(v2);
   }
-  followMenu(pLayers, steady.layers, palmUp, engaged.layers || (crowded && steady.layers.shown), L.palmScale, now, frame.dt);
+  followMenu(pLayers, steady.layers, palmUp, engaged.layers || (crowded && steady.layers.shown), L.palmScale, now, frame.dt, { handSeen: seen, other: seen && backUp });
 
   if (backUp && !crowded) {
     // Above the back of the hand, facing the eyes: a card standing over the hand, clear of it, so
@@ -641,7 +647,7 @@ function updateHands(frame) {
     if (v3.lengthSq() > 1e-6) aim.position.addScaledVector(v3.normalize(), C.awayM);
     aim.lookAt(v2);
   }
-  followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt);
+  followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt, { handSeen: seen, other: seen && mapUp });
 }
 
 /** Pointing and pinching, after the menus have been placed for this frame. */
@@ -685,7 +691,7 @@ export function init(context) {
   pStatus = makePanel(HUD.status.wDeg, HUD.status.hDeg);
   place(pStatus, HUD.status.leftDeg, HUD.status.topDeg, HUD.status.wDeg, HUD.status.hDeg);
   pBanner = makePanel(HUD.banner.wDeg, HUD.banner.hDeg);
-  place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
+  place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2 + HUD.centreShiftDeg, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
   pLayers = makePanel(HUD.layers.wDeg, HUD.layers.hDeg);
   // Voice command menu: lives in the room (over the back of the left hand), hidden until then.
   pCommands = makePanel(HUD.commands.wDeg, HUD.commands.hDeg);
@@ -696,11 +702,11 @@ export function init(context) {
   const A = HUD.alert;
   const alertTop = HUD.stage.hDeg - A.bottomDeg + A.glowDeg - A.hDeg;
   pEdge = makePanel(A.wDeg, A.hDeg);
-  place(pEdge, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
+  place(pEdge, (HUD.stage.wDeg - A.wDeg) / 2 + HUD.centreShiftDeg, alertTop, A.wDeg, A.hDeg);
   pEdge.mesh.renderOrder = 999;
   pEdge.mesh.visible = false;
   pAlert = makePanel(A.wDeg, A.hDeg);
-  place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
+  place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2 + HUD.centreShiftDeg, alertTop, A.wDeg, A.hDeg);
   cards.add(pStatus.mesh, pBanner.mesh, pEdge.mesh, pAlert.mesh);
   wash = makeWash();
   camera.add(wash);

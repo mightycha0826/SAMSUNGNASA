@@ -54,6 +54,8 @@ async function main() {
   core.xr.onSessionEnd(syncFieldButton);
   new MutationObserver(syncFieldButton).observe(marsButton, { attributes: true, childList: true });
   core.addModule('diag', { update: (frame) => diagFrame(frame, core.camera) });
+  // For tests and for looking around from the console (window.__marswalk is made by initDebug).
+  if (window.__marswalk) Object.assign(window.__marswalk, { scene: core.scene, camera: core.camera, controls: core.controls });
 
   const ctx = {
     bus,

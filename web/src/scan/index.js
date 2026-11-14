@@ -28,13 +28,13 @@
 //
 // Known gap: Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid.
 //
-// The obstacles are also outlined in red on the real floor in field mode (overlay.js).
+// The obstacles also glow red on the real floor in field mode (overlay.js).
 //
 // ctx and frame: see the comment in map/index.js.
 
 import { mode } from '../core/mode.js';
 import { startMockHazard } from '../mock/hazard.js';
-import { createGrid, mergeLayers } from './grid.js';
+import { createGrid, mergeLayers, viewOf } from './grid.js';
 import { readDepth } from './depth.js';
 import { initOverlay } from './overlay.js';
 import { encodeRuns, decodeRuns, linesUp, fillUnknown } from './memory.js';
@@ -50,7 +50,7 @@ export const SCAN = {
   emitMs: 600,
 
   // Live depth. Starting values: tune them on the headset.
-  depthMs: 500, // read the depth image this often
+  depthMs: 350, // read the depth image this often, while there is something new to see (see settleScans)
   depthSamples: 192, // samples per side taken from it (the image is about 320 x 320); fewer and far floor cells get too few
   depthRangeM: 2.5, // cells farther than this from the headset, along the floor, are left alone (floor there is 3 m from the eye)
   bodyM: 0.8, // cells this close to the headset, along the floor, are the wearer's own hands and body
@@ -59,15 +59,21 @@ export const SCAN = {
   minPoints: 3, // samples needed in a cell before a read says anything about it
   setScans: 2, // reads in a row that must see an obstacle before it counts (2 = 1 s): not someone walking past
   clearScans: 3, // floor-only reads before a live obstacle is cleared (3 = 1.5 s)
+  // Settling (grid.js): what has been read often enough is left alone, so the reads go to what is new.
+  settleScans: new URLSearchParams(globalThis.location?.search ?? '').get('settle') === '0' ? 0 : 6, // same answer this many reads in a row (6 = 2 s): settled. ?settle=0 turns settling off
+  giveUpScans: 12, // in view this many reads without an answer (behind something): settled too
+  leaveM: 4, // a settled cell is read again when the wearer returns after being this far from it
+  vantageM: 1, // a cell that gave no answer is read again when the wearer has moved about this far (or turned, or tilted the head)
+  viewHalfDeg: 40, // half the width of what the depth image sees, for deciding what was in view
   forgetScans: 0, // reads out of sight before a live obstacle is forgotten; 0 = never: the map keeps what it has seen
 
   // The map on the Jetson.
   storeMs: 2000, // a changed map goes to the hub at most this often
   remember: new URLSearchParams(globalThis.location?.search ?? '').get('remember') !== '0', // take the stored map back
 
-  // Outline on the floor, [r, g, b, a] 0-255.
-  edgeRGBA: [255, 48, 48, 230], // cells on the rim of an obstacle
-  fillRGBA: [255, 48, 48, 70], // cells inside it
+  // Highlight on the floor (overlay.js), [r, g, b] 0-255.
+  glowRGB: [255, 48, 48], // the fill, the outline and the halo
+  glintRGB: [255, 214, 208], // where the travelling light and the sparks are brightest
 };
 
 let ctx;
@@ -79,6 +85,8 @@ let lastEmit = 0;
 const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when rasterised, at: when that was }
 const jobs = []; // triangles waiting to be rasterised: { m: Float32Array(16), v, idx, at }
 let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0, depth: 0 };
+let reads = 0; // depth reads made
+let skips = 0; // depth reads not made because everything in view was settled
 let live; // what live depth sees, on the same cells
 let depthOn = false; // this session has depth-sensing and reading it has not failed
 let depthSeen = false; // the live layer holds what a recent read saw
@@ -192,6 +200,25 @@ function due(thing, time) {
   return !last || (last.changed !== thing.lastChangedTime && time - last.at >= SCAN.rescanMs);
 }
 
+// The browser may say a mesh or plane changed when its shape is what it was (the Quest moves
+// lastChangedTime for a room that stands still). A cheap fingerprint of the shape and of where
+// it stands tells: the same one is not rasterised again.
+function fingerprint(pose, values) {
+  let sum = values.length;
+  const step = Math.max(1, Math.floor(values.length / 64));
+  for (let i = 0; i < values.length; i += step) sum = (sum * 31 + Math.round(values[i] * 1000)) | 0;
+  for (const v of pose.transform.matrix) sum = (sum * 31 + Math.round(v * 1000)) | 0;
+  return sum;
+}
+
+/** True when this mesh or plane has to be rasterised: new, or really different from last time. */
+function changed(thing, pose, values, time) {
+  const print = fingerprint(pose, values);
+  const same = seen.get(thing)?.print === print;
+  seen.set(thing, { changed: thing.lastChangedTime, at: time, print });
+  return !same;
+}
+
 function queueMesh(pose, vertices, indices) {
   jobs.push({ m: Float32Array.from(pose.transform.matrix), v: vertices, idx: indices, at: 0 });
 }
@@ -238,7 +265,7 @@ export function init(context) {
   ctx.renderer.xr.getDepthSensingMesh = () => null;
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
-  window.__scan = { stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted }) };
+  window.__scan = { stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0 }) };
 }
 
 export function update(frame) {
@@ -259,8 +286,7 @@ export function update(frame) {
       if (!due(mesh, time)) continue;
       const pose = xrFrame.getPose(mesh.meshSpace, refSpace);
       if (!pose) continue;
-      seen.set(mesh, { changed: mesh.lastChangedTime, at: time });
-      queueMesh(pose, mesh.vertices, mesh.indices);
+      if (changed(mesh, pose, mesh.vertices, time)) queueMesh(pose, mesh.vertices, mesh.indices);
     }
   }
   if (planes) {
@@ -268,8 +294,7 @@ export function update(frame) {
       if (!due(plane, time)) continue;
       const pose = xrFrame.getPose(plane.planeSpace, refSpace);
       if (!pose) continue;
-      seen.set(plane, { changed: plane.lastChangedTime, at: time });
-      queuePlane(pose, plane.polygon);
+      if (changed(plane, pose, plane.polygon.flatMap((p) => [p.x, p.y, p.z]), time)) queuePlane(pose, plane.polygon);
     }
   }
   work();
@@ -288,12 +313,29 @@ export function update(frame) {
   let read = false;
   if (depthOn && time - lastDepth >= SCAN.depthMs) {
     try {
-      read = readDepth(ctx.renderer, frame, live, SCAN);
+      // Where the wearer is and faces, on the floor: decides what is in view (grid.js).
+      const head = xrFrame.getViewerPose(refSpace)?.transform.matrix;
+      let view = null;
+      if (head) {
+        view = viewOf(head, SCAN.vantageM);
+        live.reopen(view);
+        // Everything the image could show has been read often enough: no read, the frame is free.
+        if (!live.unsettledInView(view)) {
+          skips++;
+          lastDepth = time;
+          waitFrom = 0;
+          view = null;
+        }
+      }
+      read = !!view && readDepth(ctx.renderer, frame, live, SCAN);
       if (read) {
+        reads++;
         lastDepth = time;
         waitFrom = 0;
         depthSeen = true;
-        if (live.commit()) dirty = true;
+        if (live.commit(view)) dirty = true;
+      } else if (!view) {
+        // nothing to read this time (all settled), or no head pose yet
       } else if (!waitFrom) {
         waitFrom = time; // no image on this frame (the sensor is slower than the display): try the next
       } else if (time - waitFrom > 5000) {
@@ -334,7 +376,7 @@ export function update(frame) {
     sent = merged;
     lastEmit = time;
     toStore = true;
-    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept };
+    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept, settled: live.settledCount, reads, skips };
     ctx.bus.emit('hazard:update', {
       originXZ: [...origin],
       cellSizeM: SCAN.cellM,
