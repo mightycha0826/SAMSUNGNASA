@@ -1,0 +1,102 @@
+{
+  "site": {
+    "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
+    "scienceGoal": "황이 든 돌 조사",
+    "lat": -4.78681191,
+    "lon": 137.4075342,
+    "bounds": {
+      "west": 137.39026,
+      "east": 137.42481,
+      "south": -4.80409,
+      "north": -4.76954
+    },
+    "geologicUnit": {
+      "code": "Htu",
+      "name": "Hesperian transition undivided unit",
+      "source": "USGS SIM 3292"
+    }
+  },
+  "grid": {
+    "cols": 512,
+    "rows": 512,
+    "cellSizeM": 4.0
+  },
+  "layers": [
+    {
+      "id": "topo",
+      "kind": "topographic",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m",
+      "file": "topo.bin",
+      "format": "float32",
+      "unit": "m",
+      "min": -3846.56,
+      "max": -3412.1,
+      "label": "지형 높이"
+    },
+    {
+      "id": "slope",
+      "kind": "derived",
+      "mission": "MRO, Mars Express, MGS",
+      "instrument": "HiRISE, CTX, HRSC, MOLA",
+      "sourceUrl": "https://astrogeology.usgs.gov/search/map/mars_msl_gale_merged_dem_1m",
+      "file": "slope.bin",
+      "format": "float32",
+      "unit": "deg",
+      "min": 0.03,
+      "max": 71.07,
+      "label": "경사도"
+    },
+    {
+      "id": "optical",
+      "kind": "optical",
+      "mission": "MRO",
+      "instrument": "HiRISE",
+      "file": "optical.png",
+      "format": "image",
+      "label": "광학 영상",
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
+    },
+    {
+      "id": "thermal",
+      "kind": "thermal",
+      "mission": "Mars Odyssey",
+      "instrument": "THEMIS",
+      "file": "thermal.png",
+      "format": "image",
+      "label": "열 영상 (야간)",
+      "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
+    }
+  ],
+  "waypoints": [
+    {
+      "id": "base",
+      "label": "기지",
+      "cell": [
+        247,
+        357
+      ]
+    },
+    {
+      "id": "site1",
+      "label": "황 암석 지대",
+      "cell": [
+        255,
+        256
+      ]
+    }
+  ],
+  "demo": {
+    "regionCells": [
+      246,
+      246,
+      266,
+      266
+    ],
+    "roomSizeM": [
+      4,
+      4
+    ]
+  }
+}

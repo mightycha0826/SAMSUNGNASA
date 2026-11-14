@@ -1,0 +1,13 @@
+{
+ "photos": [
+  {
+   "waypointId": "site1",
+   "rmc": "109_120",
+   "sol": 4312,
+   "instrument": "NAV_LEFT_B",
+   "file": "pov/site1.jpg",
+   "caption": "Curiosity Sol 4312: Left Navigation Camera (2024-09-22)",
+   "sourceUrl": "https://mars.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/04312/opgs/edr/ncam/NLB_780301173EDR_F1090120NCAM00271M_.JPG"
+  }
+ ]
+}
