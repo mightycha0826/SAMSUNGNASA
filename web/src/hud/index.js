@@ -34,6 +34,7 @@ import { createRescue } from './rescue.js';
 import { handOpen } from '../core/palm.js';
 import { walkableNear, reachableFrom } from '../core/waypoints.js';
 import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
+import { pickOnFieldMap, fieldPlaceOnMap, showFieldPick } from '../field/index.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -91,7 +92,7 @@ let rescue = null; // the emergency button on the command card (rescue.js)
 let leftOpen = false; // the left hand is held open: only then does it bring a menu up
 // A place picked on the palm map with the pointer: a pin on the map and a small card over it
 // with "Navigate" and "Cancel". Saying "Navigate" or "Cancel" does the same as pressing them.
-let pick = null; // { cell: [col, row] } while the card is up
+let pick = null; // while the card is up: { cell: [col, row], note } on the Mars map, { room: [x, z] } on the field map
 let pPick = null;
 let pickHits = [];
 const pickTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
@@ -197,7 +198,10 @@ function pickVM() {
   const pressedId = performance.now() < pickTouch.pressedUntil ? pickTouch.pressedId : null;
   const ls = state.layerSet;
   let hint = '';
-  if (pick && ls) {
+  if (pick?.room) {
+    const eye = ctx.camera.getWorldPosition(v1);
+    hint = `${Math.hypot(pick.room[0] - eye.x, pick.room[1] - eye.z).toFixed(1)} m from you`;
+  } else if (pick && ls) {
     const at = Math.round(pick.cell[1]) * ls.grid.cols + Math.round(pick.cell[0]);
     const h = state.grids.topo?.[at];
     const slope = state.grids.slope?.[at];
@@ -231,10 +235,20 @@ function selectPoint(cell) {
   ctx.bus.emit('map:pick', { cell: pick.cell });
 }
 
+/** A place picked on the field map: `room` is where it is in the room. */
+function selectPlace(room) {
+  pick = { room: [room[0], room[1]] };
+  dirty.pick = true;
+  clickSound();
+  ctx.bus.emit('map:pick', { room: pick.room });
+}
+
 function clearPick(keepPin = false) {
   if (!pick) return;
+  const wasField = !!pick.room;
   pick = null;
-  if (!keepPin) showPick(null);
+  if (wasField) showFieldPick(null);
+  else if (!keepPin) showPick(null);
   pPick.mesh.visible = false;
   ctx.bus.emit('map:pick', null);
 }
@@ -242,6 +256,12 @@ function clearPick(keepPin = false) {
 /** Go to the picked place: it becomes the destination `pick`, and the route is requested. */
 function navigatePick() {
   if (!pick) return;
+  if (pick.room) {
+    // Field map: the picked place becomes the target, as "Mark target" makes the place underfoot.
+    ctx.bus.emit('field:target', { point: pick.room });
+    clearPick();
+    return;
+  }
   ctx.bus.emit('nav:waypoint', { id: 'pick', cell: pick.cell, label: 'Selected point' });
   ctx.bus.emit('nav:request', { targetId: 'pick' });
   clearPick(true); // the card goes, the pin stays where the route leads
@@ -534,6 +554,7 @@ function wire(bus) {
   });
   // "Base" is a Mars-map command and "Mark target" a field-map one: the menu follows the mode.
   bus.on('app:mode', () => {
+    clearPick(); // a place picked on one map means nothing on the other
     dirty.commands = true;
   });
 }
@@ -591,8 +612,14 @@ function initInput() {
     }
     // Not on a menu: a place on the map, if the click was not the end of a drag.
     if (downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
-    const hit = mode.current === 'mars' ? pickOnMap(raycaster.ray.origin, raycaster.ray.direction, 40) : null;
-    if (hit) selectPoint(hit.cell);
+    const { origin, direction } = raycaster.ray;
+    if (mode.current === 'mars') {
+      const hit = pickOnMap(origin, direction, 40);
+      if (hit) selectPoint(hit.cell);
+    } else {
+      const hit = pickOnFieldMap(origin, direction, 40);
+      if (hit) selectPlace(hit.room);
+    }
   });
 }
 
@@ -776,19 +803,23 @@ function updatePointer(frame, now) {
   // A pointer that is on no menu may be on the map: a cursor on the terrain, and a pinch picks
   // the place under it. The same hands that press the left hand's menus (and controllers).
   mapPointed = false;
-  if (mode.current === 'mars') {
-    for (const ray of pointer.free()) {
-      if (ray.hand && !HUD.pointer.hands.includes(ray.hand)) continue;
-      const hit = pickOnMap(ray.origin, ray.dir, HUD.pointer.maxM);
-      if (!hit) continue;
-      ray.show(hit.point, UP);
-      if (ray.hand === 'right') mapPointed = true;
-      if (ray.pressed) selectPoint(hit.cell);
-      break;
+  const onMars = mode.current === 'mars';
+  for (const ray of pointer.free()) {
+    if (ray.hand && !HUD.pointer.hands.includes(ray.hand)) continue;
+    const hit = onMars ? pickOnMap(ray.origin, ray.dir, HUD.pointer.maxM) : pickOnFieldMap(ray.origin, ray.dir, HUD.pointer.maxM);
+    if (!hit) continue;
+    ray.show(hit.point, UP);
+    if (ray.hand === 'right') mapPointed = true;
+    if (ray.pressed) {
+      if (onMars) selectPoint(hit.cell);
+      else selectPlace(hit.room);
     }
+    break;
   }
   // The card stands over the picked place and goes where the map goes; it hides with the map.
-  const over = pick && mapCellInRoom(pick.cell);
+  // (The field map scrolls under the wearer, so its pin is put in place again every frame.)
+  if (pick?.room) showFieldPick(pick.room);
+  const over = pick && (pick.room ? fieldPlaceOnMap(pick.room) : mapCellInRoom(pick.cell));
   pPick.mesh.visible = !!over;
   if (over) {
     pPick.mesh.position.copy(over);

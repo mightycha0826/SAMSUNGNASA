@@ -25,7 +25,8 @@
 //     on the real floor and as a line on the map. "Navigate" / "Stop" turn the guidance on and
 //     off; saying "Mark target" again moves the target.
 //
-// Receives: layers:ready, hazard:update, voice:command, app:mode
+// Receives: layers:ready, hazard:update, voice:command, app:mode,
+//           field:target { point: [x, z] room metres } (a place picked on the map with the pointer)
 // Sends:    nav:position { point: [x, 0, z] in map metres, source: 'headset' }
 //           nav:route (field mode only; targetId 'mark', points in room coordinates), voice:say
 
@@ -353,6 +354,7 @@ function updateRelief() {
   const pos = surface.geometry.attributes.position;
   const col = surface.geometry.attributes.color;
   const terrain = !!(topo && frameT && anchorMap && layerSet?.grid);
+  palmMap.centre = [head.x, head.z]; // the place in the room that the middle of the map stands for
   // The ground is drawn relative to where the wearer stands: the map's centre is at height 0.
   const here = terrain ? terrainHeight(head.x, head.z) : NaN;
   const ground = (x, z) => {
@@ -430,6 +432,117 @@ function markTarget() {
   beacon.visible = true;
   lastPlan = 0;
   say('Target marked.');
+}
+
+/** The target at a place picked on the map (hud): like "Mark target", but there instead of here. */
+function setTargetAt(x, z) {
+  target = new THREE.Vector3(x, 0, z);
+  guiding = true;
+  beacon.position.copy(target);
+  beacon.visible = true;
+  lastPlan = 0;
+  say('Target set.');
+}
+
+// ---- picking a place on the field map (hud/index.js points a hand's ray at it) ----
+const rayFrom = new THREE.Vector3();
+const rayStep = new THREE.Vector3();
+const probe = new THREE.Vector3();
+const toLocal = new THREE.Matrix4();
+let pin = null;
+
+/** Height of the map's surface at a point of its own frame (from its vertices), or NaN off the map. */
+function surfaceY(x, z) {
+  const N = FIELD.segments;
+  const c = (x / FIELD.mapM + 0.5) * N;
+  const r = (z / FIELD.mapM + 0.5) * N;
+  if (!(c >= 0 && r >= 0 && c <= N && r <= N)) return NaN;
+  const pos = palmMap.surface.geometry.attributes.position;
+  const c0 = Math.min(N - 1, Math.floor(c));
+  const r0 = Math.min(N - 1, Math.floor(r));
+  const tx = c - c0;
+  const tz = r - r0;
+  const at = (cc, rr) => pos.getY(rr * (N + 1) + cc);
+  return (at(c0, r0) * (1 - tx) + at(c0 + 1, r0) * tx) * (1 - tz) + (at(c0, r0 + 1) * (1 - tx) + at(c0 + 1, r0 + 1) * tx) * tz;
+}
+
+/**
+ * Where a ray meets the field map: { room: [x, z] (the place in the room it stands for),
+ * point: Vector3 where the ray meets the map, t: metres along the ray }, or null when the map
+ * is not shown or the ray misses. The surface is a height field: the ray is walked in small
+ * steps until it goes under it, and the crossing is narrowed down (as map/index.js does).
+ */
+export function pickOnFieldMap(origin, direction, maxM = 3) {
+  if (mode.current !== 'field' || !palmMap?.root.visible || !palmMap.centre) return null;
+  const { root } = palmMap;
+  root.updateWorldMatrix(true, false);
+  toLocal.copy(root.matrixWorld).invert();
+  rayFrom.copy(origin).applyMatrix4(toLocal);
+  rayStep.copy(origin).add(direction).applyMatrix4(toLocal).sub(rayFrom);
+  const over = (t) => {
+    probe.copy(rayFrom).addScaledVector(rayStep, t);
+    return probe.y - surfaceY(probe.x, probe.z);
+  };
+  const STEPS = 160;
+  let before = NaN;
+  let tBefore = 0;
+  for (let i = 0; i <= STEPS; i++) {
+    const t = (maxM * i) / STEPS;
+    const gap = over(t);
+    if (before > 0 && gap <= 0) {
+      let a = tBefore;
+      let b = t;
+      for (let k = 0; k < 8; k++) {
+        const mid = (a + b) / 2;
+        if (over(mid) > 0) a = mid;
+        else b = mid;
+      }
+      probe.copy(rayFrom).addScaledVector(rayStep, b);
+      const y = surfaceY(probe.x, probe.z);
+      if (!Number.isFinite(y)) return null;
+      const perRoomM = FIELD.mapM / FIELD.spanM;
+      return {
+        room: [palmMap.centre[0] + probe.x / perRoomM, palmMap.centre[1] + probe.z / perRoomM],
+        point: root.localToWorld(new THREE.Vector3(probe.x, y, probe.z)),
+        t: b,
+      };
+    }
+    before = gap;
+    tBefore = t;
+  }
+  return null;
+}
+
+/** Where a place of the room is on the field map right now (for a card that stands over it), or null. */
+export function fieldPlaceOnMap(room) {
+  if (mode.current !== 'field' || !palmMap?.root.visible || !palmMap.centre) return null;
+  const perRoomM = FIELD.mapM / FIELD.spanM;
+  const x = (room[0] - palmMap.centre[0]) * perRoomM;
+  const z = (room[1] - palmMap.centre[1]) * perRoomM;
+  const y = surfaceY(x, z);
+  return Number.isFinite(y) ? palmMap.root.localToWorld(new THREE.Vector3(x, y, z)) : null;
+}
+
+/** Put the pin on a place of the room as the map shows it, or take it away (null). Call every frame: the map scrolls under the wearer. */
+export function showFieldPick(room) {
+  if (!palmMap) return;
+  if (!pin) {
+    pin = new THREE.Group();
+    pin.name = 'field-map-pick';
+    const material = new THREE.MeshBasicMaterial({ color: 0xb9c3ff, depthTest: false, transparent: true });
+    const head_ = new THREE.Mesh(new THREE.SphereGeometry(0.004, 12, 8), material);
+    head_.position.y = 0.016;
+    const stem = new THREE.Mesh(new THREE.ConeGeometry(0.0026, 0.014, 8).rotateX(Math.PI), material);
+    stem.position.y = 0.007;
+    for (const m of [head_, stem]) {
+      m.renderOrder = 22;
+      pin.add(m);
+    }
+    palmMap.root.add(pin);
+  }
+  const at = room && fieldPlaceOnMap(room);
+  pin.visible = !!at;
+  if (at) pin.position.copy(palmMap.root.worldToLocal(at));
 }
 
 function clearTarget() {
@@ -606,6 +719,7 @@ export function init(context) {
     lastPlan = 0; // the structure changed: plan again
   });
   ctx.bus.on('voice:command', onVoice);
+  ctx.bus.on('field:target', ({ point }) => mode.current === 'field' && setTargetAt(point[0], point[1]));
   ctx.bus.on('app:mode', () => {
     if (mode.current !== 'field') clearTarget();
   });
@@ -618,6 +732,8 @@ export function init(context) {
 
   // PC testing without a headset: __field.walk(x, z, headingDeg), __field.mark(), __field.state()
   window.__field = {
+    /** Where a ray meets the map: pick([ox, oy, oz], [dx, dy, dz]) (for tests). */
+    pick: (o, d, maxM = 40) => pickOnFieldMap(new THREE.Vector3(...o), new THREE.Vector3(...d).normalize(), maxM),
     walk(x, z, headingDeg = 0) {
       simulated = { x, z, heading: THREE.MathUtils.degToRad(headingDeg) };
     },

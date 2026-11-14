@@ -240,7 +240,8 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `map:stored` | B (from the Jetson) | A | The hub's last stored map, same fields as `map:store` plus `savedAt` |
 | `rescue:signal` | F (`hud/rescue.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
 | `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
-| `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }`; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
+| `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }` on the Mars map, `{ room: [x, z] }` on the field map; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
+| `field:target` | F | field (B) | A place picked on the field map becomes the target: `{ point: [x, z] }` in room metres |
 | `nav:waypoint` | F | D | A destination added or moved while running: `{ id: "pick", cell: [col, row], label }`. It joins `layerSet.waypoints`; request it with `nav:request` |
 
 ### Payload formats and mock data

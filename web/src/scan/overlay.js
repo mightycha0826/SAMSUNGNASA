@@ -1,8 +1,9 @@
-// Obstacle highlight on the real floor (field mode): each obstacle's footprint glows red, the
-// way a phone shows what it has picked out of a photo before erasing it. A soft translucent
-// fill, a bright smooth outline with a light that travels along it, a faint halo outside and a
-// few sparks inside. Nothing blocky: the outline is drawn from a distance field, so it follows
-// the shape and not the 10 cm cells.
+// Obstacle highlight on the real floor (field mode): each obstacle's footprint is filled with a
+// soft translucent red, the way a phone shades what it has picked out of a photo before
+// erasing it, with a light that travels across it and a few sparks. There is no outline and no
+// halo: on the headset a bright line around every obstacle was more than the room needed.
+// Nothing blocky: the edge of the fill is drawn from a distance field, so it follows the shape
+// and not the 10 cm cells, and fades out over a few centimetres.
 //
 // It draws whatever arrives on the bus, so the mock grid (?mock=hazard) shows the same way.
 
@@ -84,21 +85,19 @@ varying vec2 vFloor;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
 void main() {
-  float f = texture2D(field, vUv).r; // 0.5 on the outline, more inside, less outside
-  if (f < 0.03) discard;
-  float inside = smoothstep(0.44, 0.56, f);
-  float rim = 1.0 - smoothstep(0.0, 0.11, abs(f - 0.5));
-  float halo = smoothstep(0.03, 0.5, f) * (1.0 - inside);
-  // A band of light that crosses the floor every few seconds and lights the outline as it passes.
+  float f = texture2D(field, vUv).r; // 0.5 on the edge of an obstacle, more inside, less outside
+  float inside = smoothstep(0.42, 0.58, f); // the fill, fading out across the edge
+  if (inside < 0.01) discard;
+  // A band of light that crosses the floor every few seconds.
   float sweep = pow(0.5 + 0.5 * sin(dot(vFloor, vec2(0.8, 0.6)) * 2.4 - time * 1.7), 6.0);
   // Sparks inside the shape: 2.5 cm squares, a few of them lit, each twinkling at its own pace.
   float seed = hash(floor(vFloor / 0.025));
   float spark = step(0.94, seed) * (0.5 + 0.5 * sin(time * 3.2 + seed * 50.0));
-  float breathe = 0.86 + 0.14 * sin(time * 2.1);
+  float breathe = 0.9 + 0.1 * sin(time * 2.1);
 
-  float alpha = inside * (0.20 + 0.10 * sweep + 0.40 * spark) + rim * (0.72 + 0.28 * sweep) * breathe + halo * 0.26;
-  vec3 rgb = mix(colour, glint, clamp(rim * sweep * 0.85 + inside * spark * 0.6, 0.0, 1.0));
-  gl_FragColor = vec4(rgb, clamp(alpha, 0.0, 0.95));
+  float alpha = inside * (0.34 * breathe + 0.14 * sweep + 0.36 * spark);
+  vec3 rgb = mix(colour, glint, clamp(sweep * 0.35 + spark * 0.6, 0.0, 1.0));
+  gl_FragColor = vec4(rgb, clamp(alpha, 0.0, 0.9));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
