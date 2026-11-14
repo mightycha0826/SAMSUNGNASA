@@ -24,6 +24,7 @@ let browser;
   await page.locator('#route-plan').click();
   await page.waitForFunction(() => window.__marswalk.last['nav:route']?.status === 'ok', null, { timeout: 30000 });
   const first = await page.evaluate(() => window.__marswalk.last['nav:route']);
+  assert.equal(first.frame, 'map'); assert.equal(first.source, 'planetary-navigation'); assert.ok(first.routeId);
   assert.ok(first.distanceM > 380 && first.distanceM < 405, String(first.distanceM)); assert.equal(first.reason, '');
   assert.match(await page.locator('#route-analysis').textContent(), /389\.7 m/);
   for (let i = 2; i < first.points.length; i++) {
@@ -70,9 +71,52 @@ let browser;
   await page.waitForFunction(() => { const r = window.__marswalk.last['nav:route']; return r?.targetId === 'base' && r.status === 'ok'; }, null, { timeout: 30000 });
   await page.locator('#route-stop').click();
   await page.waitForFunction(() => window.__marswalk.last['nav:route']?.status === 'cancelled');
+
+  // Live input must expire even though desktop planning positions do not.
+  await page.evaluate(() => window.__marswalk.bus.emit('alert:clear', { id: 'test-emergency' }));
+  await page.selectOption('#route-start', 'base'); await page.selectOption('#route-target', 'site1');
+  await page.locator('#route-plan').click();
+  await page.waitForFunction(() => window.__marswalk.last['nav:route']?.status === 'ok');
+  const locationBefore = await page.evaluate(() => window.__marswalk.last['nav:location']);
+  await page.evaluate(() => {
+    const bus = window.__marswalk.bus;
+    bus.emit('nav:position', { point: [1, 0, 1], frame: 'room' });
+    bus.emit('nav:position', { point: [1, 0, 1], frame: 'map', frameId: 'wrong-map' });
+  });
+  assert.deepEqual(await page.evaluate(() => window.__marswalk.last['nav:location']), locationBefore);
+  const sendLivePosition = () => page.evaluate(({ point, frameId }) => window.__marswalk.bus.emit('nav:position', {
+    point, frame: 'map', frameId, source: 'headset', ts: Date.now(),
+  }), { point: first.points[0], frameId });
+  await sendLivePosition();
+  await page.waitForFunction(() => window.__marswalk.last['nav:route']?.reason === 'tracking-lost', null, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.__marswalk.last['nav:location'].point), null);
+  await sendLivePosition();
+  await page.waitForFunction(() => window.__marswalk.last['nav:route']?.status === 'ok');
+  await page.evaluate(() => window.__marswalk.bus.emit('nav:position', { tracked: false, point: null }));
+  assert.equal(await page.evaluate(() => window.__marswalk.last['nav:route'].reason), 'tracking-lost');
+
+  // Core/field may still send requests: D must not overwrite the field guide.
+  const beforeFieldRequests = await page.evaluate(async () => {
+    window.__planetaryRoutes = [];
+    window.__marswalk.bus.on('nav:route', r => { if (r.source === 'planetary-navigation') window.__planetaryRoutes.push(r); });
+    const { setMode } = await import('/src/core/mode.js');
+    setMode('field');
+    const count = window.__planetaryRoutes.length;
+    window.__marswalk.bus.emit('nav:request', { targetId: 'site1' });
+    window.__marswalk.bus.emit('alert:raise', { id: 'field-emergency', level: 'critical', message: 'test', ts: Date.now() });
+    window.__marswalk.bus.emit('voice:command', { intent: 'nav.stop' });
+    return count;
+  });
+  await page.waitForTimeout(350);
+  assert.equal(await page.evaluate(() => window.__planetaryRoutes.length), beforeFieldRequests);
+  await page.evaluate(async () => { const { setMode } = await import('/src/core/mode.js'); setMode('mars'); });
+  const resumed = await page.evaluate(() => window.__planetaryRoutes.at(-1));
+  assert.equal(resumed.targetId, 'base'); assert.equal(resumed.reason, 'tracking-lost');
+
   assert.ok(loaded.has('/data/topo.bin')); assert.ok(loaded.has('/data/slope.bin')); assert.ok(loaded.has('/data/optical.png')); assert.ok(loaded.has('/data/thermal.png'));
   await browser.close(); if (errors.length) throw Error(errors.join('\n'));
   console.log(JSON.stringify({ data: 'C real terrain', firstDistanceM: first.distanceM, detourDistanceM: detour.distanceM,
     replanMs, unregisteredInputIgnored: true, offRouteChangePreserved: true, emergencyReturn: true,
+    livePositionExpiryAndRecovery: true, foreignPositionIgnored: true, fieldModeIsolation: true,
     screenshot: path.join(os.tmpdir(), 'marswalk-c-map-test.png') }, null, 2));
 })().catch(async err => { console.error(err); await browser?.close(); process.exitCode = 1; });

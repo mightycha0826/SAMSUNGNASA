@@ -30,6 +30,8 @@ import { MAP, rampColor } from './config.js';
 import { mapPoint, range, terrainArrays } from './terrain.js';
 import { PALM, leftPalm, makePalmState } from '../core/palm.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
+import { acceptsMapEvent, isMapPoint, NAV_SOURCE } from '../nav/events.js';
+import { RouteCurve } from './route-curve.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
 let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
@@ -146,15 +148,17 @@ function drawRoute() {
   const points = [];
   for (const cell of cells) {
     const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.0025);
-    if (p && (!points.length || points[points.length - 1].distanceToSquared(normal.fromArray(p)) > 1e-9)) points.push(new THREE.Vector3().fromArray(p));
+    if (!p) return; // Do not bridge missing terrain with a visible path.
+    if (!points.length || points[points.length - 1].distanceToSquared(normal.fromArray(p)) > 1e-18) points.push(new THREE.Vector3().fromArray(p));
   }
   if (points.length < 2) return;
-  const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false, 'centripetal'), Math.min(400, points.length * 2), 0.0013, 6, false);
+  const tube = new THREE.TubeGeometry(new RouteCurve(points), points.length - 1, 0.0013, 6, false);
   routeLine = new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0x8e9dff, depthTest: false, transparent: true }));
   routeLine.name = 'map-planned-route'; routeLine.renderOrder = 5; root.add(routeLine);
 }
 function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
+  if (!isMapPoint(point)) { currentMarker.visible = false; return; }
   const p = mapPoint(data.grids.topo, data.layerSet.grid, worldToCell(transform, point), arrays.min, MAP.widthM, 0.003);
   currentMarker.visible = !!p; if (p) currentMarker.position.fromArray(p);
 }
@@ -246,10 +250,12 @@ export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
   root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
   off.push(ctx.bus.on('layers:ready', load), ctx.bus.on('layer:toggle', ({ id, visible }) => { void selectLayer(id, visible); }),
-    ctx.bus.on('nav:position', ({ point }) => setCurrent(point)), ctx.bus.on('nav:route', event => {
-      if (event.frame === 'room') return; // field-mode routes are in room coordinates, not map metres
-      if (event.points?.length) setCurrent(event.points[0]);
-      routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
+    ctx.bus.on('nav:location', event => {
+      if (event.source === NAV_SOURCE && acceptsMapEvent(event, transform)) setCurrent(event.point);
+    }), ctx.bus.on('nav:route', event => {
+      if (!acceptsMapEvent(event, transform) || (event.source !== undefined && event.source !== NAV_SOURCE)) return;
+      routePoints = event.status === 'ok' && Array.isArray(event.points) && event.points.every(isMapPoint) ? event.points : [];
+      drawRoute(); caption();
     }));
   off.push(ctx.xr.onSessionStart(session => {
     shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();

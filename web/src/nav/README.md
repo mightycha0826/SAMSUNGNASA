@@ -29,7 +29,19 @@ The exact choice of route can change after a new destination request or a regist
 
 A hazard cell is conservatively expanded by the configurable 0.2 m clearance before intersecting the terrain cells. The effective raster exclusion can be larger than that clearance because a whole intersected terrain cell is excluded. The update event is a snapshot/change contract, so silence does not expire it; older timestamps are rejected.
 
-`nav:route` retains its event name and payload fields, with `points` in this map's metric frame and `distanceM` in actual map metres. This supersedes the old demo-scaled meaning in the shared interface examples, following the user's latest direction. Consumers requiring physical registration must supply it explicitly. Head tracking is used for positioning the handheld display only. The old room floor-arrow projection has been removed; planned routes remain drawn over the terrain.
+`nav:route` retains its existing fields and adds `frame: 'map'`, `frameId`, `source: 'planetary-navigation'`, `routeId` and the hazard/data `version`. The route ID stays the same through repairs and changes with a new destination request. Cancellation carries the old destination and route ID. Points and distances use physical map metres. The map draws a piecewise-linear tube through the checked route, preserving its corners instead of rounding them into neighbouring cells.
+
+### Position and guidance ownership
+
+`nav:position` is a live stream of already registered map-metre positions. It accepts `{ point: [x, y, z], frame: 'map', frameId, ts, tracked }`; `ts` is optional Unix milliseconds and `tracked: false` immediately invalidates the position. For compatibility with B's current producer, omitted `frame`/`frameId` still means map metres as documented in INTERFACES.md. Explicit local/foreign frames and older or duplicate timestamps are rejected. Position events time out after `NAV.positionTimeoutMs` (1.5 s, compared with the current 200 ms sending interval), measured from the supplied sample timestamp or receipt time if omitted. Guidance and the explorer marker clear on expiry; a late Worker result cannot announce arrival. A valid new position permits replanning. A start selected in the desktop panel is static and does not expire.
+
+The controller publishes accepted positions and loss as `nav:location` with `point` or `null`, the map frame metadata and the planetary source. The D map uses this event rather than raw device input or the first point of a route. Starting/ending an XR session clears the previous selected position. The provider must retain/relocalize its map anchor after tracking loss; D cannot infer that anchor from a headset pose.
+
+In `app:mode: field`, D cancels its active guidance and does not process route requests, live positions or publish emergency routes over the field guide. Critical alerts remain recorded; returning to Mars mode requests base if a critical alert is still active, and waits for a valid map position. `nav/index.js` initializes this state from the existing core mode. The desktop planning panel is available in Mars mode.
+
+### Integration boundary
+
+The D changes are confined to `map/` and `nav/`. A/B still own sensor-to-map registration and tracking-anchor recovery; unregistered scans remain rejected. Field-planner unknown cost, outside-coverage handling, and weighted-cost-preserving simplification are in `field/` and are not changed here. Its local guide and HUD still need their own integration tests. B's field module may project the planetary route for a demonstration; that projection does not set the planner's metres or costs. This module does not claim physical localization accuracy or headset validation.
 
 ## Checks and measured example
 
@@ -46,4 +58,4 @@ Node v24.22.1, Intel Core 3 100U, three runs: two destination trees took 69–87
 
 `browser.test.cjs` checks real C loading, physical route distance, rejection of unregistered scans, registered obstacle replanning, layers, emergency return and cancellation. Run a local Vite server first, provide Playwright through Node resolution, and optionally set `CHROME_PATH` and `TEST_URL`.
 
-All 18 Node checks pass. The real-data Chrome/SwiftShader browser check passed too; the registered obstacle experiment replanned in 421–732 ms in two runs including UI/Worker scheduling and test waits. Those are PC observations, not latency guarantees or Quest measurements.
+The original 18 Node checks and nine additional regressions cover position expiry/recovery, frame rejection, field-mode ownership, route identity, rendered route corners, stale Worker errors and delayed samples. On 2026-11-14, all 46 tests across nav/field/scan passed. The extended real-data Chrome/SwiftShader browser test passed, including expiry/recovery and mode isolation; registered-obstacle replanning took 380 ms in that run including UI/Worker scheduling and test waits. Those are PC observations, not latency guarantees or Quest measurements. See [VALIDATION.md](VALIDATION.md) for the verified scope and remaining integration issues.

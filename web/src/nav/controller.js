@@ -3,10 +3,13 @@ import { createGridFrame, cellToWorld, worldToCell, containsCell, remainingPath 
 import { buildTerrain, hazardField, validateHazard, sameHazard, hazardAffectsRoute } from './costs.js';
 import { segmentCost } from './planner.js';
 import { analyzeRoute } from './analysis.js';
+import { acceptsMapEvent, isMapPoint, NAV_SOURCE } from './events.js';
+
+let nextInstance = 0;
 
 // No DOM/Three dependency: navigation state can be tested with a fake Worker and bus.
 export class Navigation {
-  constructor({ bus, worker, now = Date.now, onRoute = () => {}, onPosition = () => {} }) {
+  constructor({ bus, worker, now = Date.now, onRoute = () => {}, onPosition = () => {}, enabled = true }) {
     Object.assign(this, { bus, worker, now, onRoute, onPosition });
     this.off = []; this.version = 0; this.serial = 0; this.pending = null;
     this.targetId = null; this.position = null; this.route = []; this.critical = new Set();
@@ -14,13 +17,18 @@ export class Navigation {
     this.lastPlanAt = -Infinity; this.lastPublishAt = -Infinity; this.dirty = false;
     this.lastStatus = null; this.blockReason = ''; this.warned = false; this.stats = null;
     this.searchStart = null; this.analysis = null;
+    this.enabled = enabled; this.instanceId = ++nextInstance; this.routeSerial = 0; this.routeId = null;
+    this.positionExpiresAt = Infinity; this.positionTs = -Infinity;
     const on = (name, fn) => this.off.push(bus.on(name, fn));
     on('layers:ready', data => this.load(data));
-    on('nav:request', ({ targetId }) => this.request(targetId));
+    on('nav:request', event => {
+      if (acceptsMapEvent(event, this.transform)) this.request(event.targetId);
+    });
     // The wearer's position in map metres, from the headset's tracking (field/index.js).
-    on('nav:position', ({ point }) => this.setPosition(point));
+    on('nav:position', event => this.updatePosition(event));
+    on('app:mode', ({ mode }) => this.setEnabled(mode === 'mars'));
     on('hazard:update', h => this.updateHazard(h));
-    on('voice:command', ({ intent }) => { if (intent === 'nav.stop') this.cancel(); });
+    on('voice:command', ({ intent }) => { if (this.enabled && intent === 'nav.stop') this.cancel(); });
     on('alert:raise', ({ id, level }) => {
       if (id === 'route-blocked') return;
       if (level === 'critical') {
@@ -31,9 +39,10 @@ export class Navigation {
     });
     on('alert:clear', ({ id }) => this.critical.delete(id));
     worker.onmessage = ({ data }) => this.result(data);
-    worker.onerror = () => { this.pending = null; this.fail('planner-error'); };
+    worker.onerror = () => { this.pending = null; if (this.enabled && this.targetId) this.fail('planner-error'); };
   }
   load(data) {
+    if (this.targetId) this.publish('cancelled', [], 0, 'map-reloaded');
     this.invalidate(); this.data = data; this.transform = null; this.terrainField = null;
     this.route = []; this.onRoute({ status: 'cancelled', points: [] });
     try {
@@ -42,6 +51,9 @@ export class Navigation {
       this.terrainField = { ...terrain, costs: terrain.base };
     } catch (err) { this.transform = null; this.terrainField = null; this.fail(err.message || 'invalid-grid'); return; }
     if (this.hazard?.frameId !== this.transform.frameId) { this.hazard = null; this.hfield = null; }
+    // A newly loaded map has no established current location. nav/index.js supplies
+    // the desktop start; a live provider supplies the position in an XR session.
+    this.setPosition(null); this.positionTs = -Infinity;
     this.analysis = null;
     this.worker.postMessage({ type: 'setup', version: ++this.version, ...data, hazard: this.hazard });
     if (this.targetId) this.dirty = true;
@@ -52,7 +64,9 @@ export class Navigation {
   }
   publish(status, points = [], distanceM = 0, reason = '') {
     this.lastStatus = status; this.blockReason = reason; this.lastPublishAt = this.now();
-    const payload = { status, targetId: this.targetId, points, distanceM, reason };
+    const payload = { status, targetId: this.targetId, points, distanceM, reason,
+      frame: 'map', frameId: this.transform?.frameId, source: NAV_SOURCE,
+      routeId: this.routeId, version: this.version };
     this.onRoute(payload); this.bus.emit('nav:route', payload);
   }
   clearWarning() {
@@ -67,21 +81,44 @@ export class Navigation {
     }
   }
   request(targetId) {
-    const hadRoute = this.route.length > 0 || this.lastStatus === 'ok';
-    this.invalidate(); this.targetId = this.critical.size ? 'base' : targetId;
+    if (!this.enabled) return;
+    const hadRoute = this.targetId !== null || this.route.length > 0 || this.lastStatus === 'ok';
+    this.invalidate();
     this.route = [];
     if (hadRoute) this.publish('cancelled', [], 0, 'new-request');
     else this.onRoute({ status: 'cancelled', points: [] });
+    this.targetId = this.critical.size ? 'base' : targetId;
+    this.routeId = `${this.instanceId}:${++this.routeSerial}`;
     this.lastPlanAt = -Infinity; this.dirty = true;
     this.tick();
   }
   cancel() {
     this.invalidate(); this.route = []; this.dirty = false;
-    this.clearWarning(); this.publish('cancelled'); this.targetId = null;
+    this.clearWarning(); this.publish('cancelled'); this.targetId = null; this.routeId = null;
   }
-  setPosition(position) {
-    this.position = position?.length === 3 && position.every(Number.isFinite) ? position.slice() : null;
+  setEnabled(enabled) {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (!enabled && (this.targetId || this.route.length)) this.cancel();
+    this.setPosition(null); this.positionTs = -Infinity;
+    if (enabled && this.critical.size) this.request('base');
+  }
+  updatePosition(event) {
+    if (!this.enabled || !acceptsMapEvent(event, this.transform)) return;
+    if (event.ts !== undefined) {
+      if (!Number.isFinite(event.ts) || event.ts <= this.positionTs ||
+          this.now() - event.ts > NAV.positionTimeoutMs || event.ts > this.now() + NAV.positionTimeoutMs) return;
+      this.positionTs = event.ts;
+    }
+    this.setPosition(event.tracked === false ? null : event.point, { live: true, timestamp: event.ts });
+  }
+  setPosition(position, { live = false, timestamp } = {}) {
+    this.position = isMapPoint(position) ? position.slice() : null;
+    const sampledAt = Number.isFinite(timestamp) ? Math.min(timestamp, this.now()) : this.now();
+    this.positionExpiresAt = live && this.position ? sampledAt + NAV.positionTimeoutMs : Infinity;
     this.onPosition(this.position);
+    this.bus.emit('nav:location', { point: this.position?.slice() ?? null,
+      frame: 'map', frameId: this.transform?.frameId, source: NAV_SOURCE });
     if (!this.position && this.targetId) { this.invalidate(); this.fail('tracking-lost'); this.dirty = true; }
     if (this.position && this.targetId && !this.route.length && this.searchStart &&
         Math.hypot(this.position[0] - this.searchStart[0], this.position[2] - this.searchStart[2]) >= NAV.offRouteM) this.dirty = true;
@@ -136,8 +173,13 @@ export class Navigation {
     return true;
   }
   result(m) {
+    this.expirePosition();
+    if (!this.enabled) return;
     if (m.type === 'error') {
-      if (m.version === this.version) { this.pending = null; this.dirty = false; this.fail(m.reason || 'planner-error'); }
+      // A failed old request can arrive after cancellation or a new destination.
+      // Setup/hazard failures have no request ID and still invalidate this version.
+      if (m.id !== undefined && m.id !== this.pending) return;
+      if (this.targetId && m.version === this.version) { this.pending = null; this.dirty = false; this.fail(m.reason || 'planner-error'); }
       return;
     }
     if (m.type !== 'result' || m.id !== this.pending || m.version !== this.version || !this.targetId) return;
@@ -168,6 +210,8 @@ export class Navigation {
       this.publish('ok', rest.points, rest.distanceM);
   }
   tick() {
+    this.expirePosition();
+    if (!this.enabled) return;
     if (!this.targetId) return;
     if (!this.transform) { this.fail('data-not-ready'); return; }
     if (!this.position) { this.fail('tracking-lost'); return; }
@@ -184,6 +228,9 @@ export class Navigation {
     this.pending = ++this.serial; this.lastPlanAt = this.now(); this.dirty = false;
     this.searchStart = this.position.slice();
     this.worker.postMessage({ type: 'plan', id: this.pending, start, targetId: wp.id });
+  }
+  expirePosition() {
+    if (this.position && this.now() >= this.positionExpiresAt) this.setPosition(null);
   }
   dispose() { this.off.forEach(off => off()); this.worker.terminate(); this.route = []; }
 }

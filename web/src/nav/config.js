@@ -8,4 +8,5 @@ export const NAV = Object.freeze({
   offRouteM: 8,
   arrivalM: 2,
   publishIntervalMs: 200,
+  positionTimeoutMs: 1500, // live position stream is normally sent every 200 ms
 });

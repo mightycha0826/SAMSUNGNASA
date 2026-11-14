@@ -12,6 +12,9 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { loadCData } from './c-data.js';
 import { analyzeRoute } from './analysis.js';
+import { acceptsMapEvent, NAV_SOURCE } from './events.js';
+import { RouteCurve } from '../map/route-curve.js';
+import { Vector3, TubeGeometry } from 'three';
 
 function field(cols, rows, fn = () => 1) {
   const costs = Float32Array.from({ length: cols * rows }, (_, i) => fn(i % cols, Math.floor(i / cols)));
@@ -291,4 +294,130 @@ test('route metrics handle positions in the edge half-cell without inventing ele
   const metrics = analyzeRoute(data, [[-.25, 0], [1, 0]]);
   close(metrics.distanceM, 5); close(metrics.ascentM, 1);
   assert.equal(analyzeRoute(data, [[-.51, 0], [1, 0]]), null);
+});
+
+test('live position loss clears guidance and rejects a late Worker result before arrival', () => {
+  const { nav, bus, worker, clock } = fixture();
+  bus.emit('nav:position', { point: cellToWorld(nav.transform, [3, 2]), source: 'headset' });
+  nav.request('site1');
+  const id = nav.pending, version = nav.version;
+  clock.now += NAV.positionTimeoutMs + 1;
+  worker.send({ type: 'result', id, version, status: 'ok', points: [[3, 2], [17, 2]] });
+  assert.equal(nav.lastStatus, 'blocked'); assert.equal(nav.blockReason, 'tracking-lost');
+  assert.equal(nav.position, null); assert.equal(nav.route.length, 0);
+  assert.equal(bus.events.filter(e => e.name === 'nav:location').at(-1).payload.point, null);
+  bus.emit('nav:position', { point: cellToWorld(nav.transform, [4, 2]), source: 'headset' });
+  nav.tick(); assert.notEqual(nav.pending, null);
+  worker.send({ type: 'result', id: nav.pending, version: nav.version, status: 'ok', points: [[4, 2], [17, 2]] });
+  assert.equal(nav.lastStatus, 'ok'); nav.dispose();
+});
+
+test('foreign and old position events cannot move the explorer or renew its live lease', () => {
+  const { nav, bus, clock } = fixture();
+  const start = cellToWorld(nav.transform, [3, 2]);
+  bus.emit('nav:position', { frame: 'map', frameId: nav.transform.frameId, point: start, ts: clock.now });
+  const expires = nav.positionExpiresAt;
+  for (const extra of [{ frame: 'room' }, { frameId: 'another-map' }, { ts: clock.now - 1 }, { ts: clock.now + 100000 }]) {
+    bus.emit('nav:position', { point: [1, 0, 1], ...extra });
+    assert.deepEqual(nav.position, start); assert.equal(nav.positionExpiresAt, expires);
+  }
+  clock.now = expires; nav.tick(); assert.equal(nav.position, null);
+  nav.dispose();
+});
+
+test('explicit tracking loss hides position immediately; manual planning does not time out', () => {
+  const { nav, bus, clock } = fixture();
+  const point = nav.position.slice();
+  clock.now += NAV.positionTimeoutMs * 10; nav.tick();
+  assert.deepEqual(nav.position, point); assert.equal(nav.lastStatus, 'ok');
+  bus.emit('nav:position', { point, tracked: false });
+  assert.equal(nav.position, null); assert.equal(nav.blockReason, 'tracking-lost');
+  nav.dispose();
+});
+
+test('field mode owns its guidance while planetary requests and emergency output are suspended', () => {
+  const { nav, bus, worker } = fixture();
+  bus.emit('app:mode', { mode: 'field' });
+  assert.equal(nav.targetId, null); assert.equal(nav.position, null);
+  const count = () => bus.events.filter(e => e.name === 'nav:route').length;
+  const before = count();
+  bus.emit('nav:request', { targetId: 'site1' });
+  bus.emit('alert:raise', { id: 'suit-temp', level: 'critical' });
+  bus.emit('voice:command', { intent: 'nav.stop' });
+  bus.emit('nav:position', { point: [0, 0, 0] });
+  worker.onerror(); nav.tick();
+  worker.send({ type: 'error', version: nav.version, reason: 'planner-error' });
+  assert.equal(count(), before); assert.equal(nav.targetId, null); assert.equal(nav.position, null);
+  bus.emit('app:mode', { mode: 'mars' });
+  assert.equal(nav.targetId, 'base'); assert.equal(nav.blockReason, 'tracking-lost');
+  nav.dispose();
+});
+
+test('route identities preserve the cancelled destination and describe the map frame', () => {
+  const { nav, bus } = fixture();
+  const old = bus.events.filter(e => e.name === 'nav:route' && e.payload.status === 'ok').at(-1).payload;
+  assert.equal(old.source, NAV_SOURCE); assert.equal(old.frame, 'map'); assert.equal(old.frameId, nav.transform.frameId);
+  nav.request('base');
+  const cancelled = bus.events.filter(e => e.name === 'nav:route' && e.payload.status === 'cancelled').at(-1).payload;
+  assert.equal(cancelled.targetId, 'site1'); assert.equal(cancelled.routeId, old.routeId);
+  assert.notEqual(nav.routeId, old.routeId);
+  assert.equal(acceptsMapEvent({ frame: 'room' }, nav.transform), false);
+  assert.equal(acceptsMapEvent({ frame: 'map', frameId: 'wrong' }, nav.transform), false);
+  assert.equal(acceptsMapEvent(old, nav.transform), true);
+  nav.dispose();
+});
+
+test('displayed route tube keeps every checked bend instead of rounding into adjacent cells', () => {
+  const points = [[0, 0, 0], [1, 0, 0], [1, 0.2, 1], [2, 0.2, 1]].map(p => new Vector3(...p));
+  const curve = new RouteCurve(points), radial = 6;
+  const tube = new TubeGeometry(curve, points.length - 1, .01, radial, false);
+  const attr = tube.getAttribute('position');
+  for (let i = 0; i < points.length; i++) {
+    const centre = new Vector3();
+    for (let j = 0; j < radial; j++) centre.add(new Vector3().fromBufferAttribute(attr, i * (radial + 1) + j));
+    centre.divideScalar(radial);
+    assert.ok(centre.distanceTo(points[i]) < 1e-6);
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    assert.ok(curve.getPointAt((i + .5) / (points.length - 1)).distanceTo(points[i].clone().lerp(points[i + 1], .5)) < 1e-10);
+  }
+  tube.dispose();
+});
+
+test('an error from a cancelled plan cannot interrupt a newer plan in the same map version', () => {
+  const { nav, bus, worker } = fixture();
+  nav.request('site1');
+  const oldId = nav.pending;
+  nav.request('base');
+  const pending = nav.pending, before = bus.events.length;
+  worker.send({ type: 'error', id: oldId, version: nav.version, reason: 'old-plan-error' });
+  assert.equal(nav.pending, pending); assert.equal(bus.events.length, before);
+  worker.send({ type: 'result', id: pending, version: nav.version, status: 'ok', points: [[2, 2]] });
+  assert.equal(nav.lastStatus, 'arrived'); assert.equal(nav.arrivedTargetId, 'base');
+  nav.dispose();
+});
+
+test('consecutive blocked requests publish the new destination even with the same reason', () => {
+  const { nav, bus } = fixture();
+  nav.setPosition(null);
+  nav.request('base');
+  const latest = bus.events.filter(e => e.name === 'nav:route').at(-1).payload;
+  assert.equal(latest.status, 'blocked'); assert.equal(latest.reason, 'tracking-lost');
+  assert.equal(latest.targetId, 'base'); assert.equal(latest.routeId, nav.routeId);
+  nav.dispose();
+});
+
+test('delayed or duplicate timestamped positions cannot extend the validity of old samples', () => {
+  const { nav, bus, clock } = fixture();
+  const point = nav.position.slice(), sampleTs = clock.now;
+  clock.now += NAV.positionTimeoutMs - 100;
+  bus.emit('nav:position', { point, ts: sampleTs });
+  assert.equal(nav.positionExpiresAt, sampleTs + NAV.positionTimeoutMs);
+  clock.now += 50;
+  bus.emit('nav:position', { point: [1, 0, 1], ts: sampleTs });
+  assert.deepEqual(nav.position, point);
+  assert.equal(nav.positionExpiresAt, sampleTs + NAV.positionTimeoutMs);
+  clock.now += 51; nav.tick();
+  assert.equal(nav.position, null); assert.equal(nav.blockReason, 'tracking-lost');
+  nav.dispose();
 });
