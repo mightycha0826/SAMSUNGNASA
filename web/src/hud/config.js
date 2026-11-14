@@ -15,8 +15,12 @@ export const HUD = {
   followRate: 0,
   /** 목업의 화면 크기 (도). 아래 위치는 이 화면의 왼쪽 위 기준 */
   stage: { wDeg: 80.26, hDeg: 50.16 },
-  status: { leftDeg: 3.5, topDeg: 4.5, wDeg: 20, hDeg: 31 },
-  banner: { topDeg: 4.5, wDeg: 38, hDeg: 11 },
+  // Tuned on the Quest 3: cards near the stage corners were hard to see, so the status panel is
+  // centred on the horizontal midline and everything sits a little closer to the middle of the
+  // view. The drawn status card is about 23.3 deg tall without the optional pressure / air
+  // temperature rows, so top = (50.16 - 23.3) / 2.
+  status: { leftDeg: 8, topDeg: 13.4, wDeg: 20, hDeg: 31 },
+  banner: { topDeg: 8, wDeg: 38, hDeg: 11 },
   /** 경보 테두리 (critical 빨강, warn 주황): 가운데에서 좌우·상하 절반 크기 (도, 기본은 목업 화면 전체 = 실제 시야각 약 ±35° × ±23.5°), 밝아지는 주기 (초) */
   edge: { halfWDeg: 40.13, halfHDeg: 25.08, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },
   /** 레이어 탭 + 범례 */
@@ -24,8 +28,9 @@ export const HUD = {
     wDeg: 16,
     hDeg: 21,
     /** 손 추적이 없을 때(PC 포함) 화면에 고정하는 자리 */
-    fixedLeftDeg: 26,
-    fixedBottomDeg: 3.5,
+    // right side, centred on the horizontal midline (mirrors the status panel)
+    fixedLeftDeg: 56.26,
+    fixedBottomDeg: 17.33,
     /** 손바닥 옆에 띄울 때: 손목에서 오른쪽·위로 (m), 크기 배율 */
     palmOffsetRightM: 0.17,
     palmOffsetUpM: 0.06,
