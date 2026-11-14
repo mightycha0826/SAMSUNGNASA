@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
 
 const base = process.argv[2] || 'https://localhost:5173/';
 const MUST = ['layers:ready', 'env:update', 'telemetry:update', 'alert:raise', 'alert:clear', 'hazard:update',
-  'voice:command', 'nav:request', 'layer:toggle'];
+  'voice:command', 'nav:request', 'layer:toggle', 'mode:change'];
 
 (async () => {
   const browser = await chromium.launch();

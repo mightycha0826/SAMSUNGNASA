@@ -1,0 +1,69 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>포인트 디자인 시스템</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); overflow: hidden; }
+  .cover { position: relative; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .slab { fill: var(--primary); }
+  .tray { fill: var(--row); }
+  .pill { fill: var(--toast-bg); }
+  .dot { fill: var(--track); }
+  .dot.on { fill: var(--primary); }
+  .dot.pt { fill: var(--point); }
+  .words { position: absolute; left: var(--space-8); bottom: var(--space-8); max-width: 440px; }
+  .name { margin: 0; font-size: 60px; line-height: 1.02; font-weight: 650; letter-spacing: -.03em; color: var(--ink); }
+  .tag { margin: var(--space-3) 0 0 2px; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      primary 176×232 slab bled off the top (the one colour every app owns) · row 256×192 tray (the grey that carries everything) · toast-bg pill 112×40 once · point appears only as one dot
+  arrangement one tall primary slab with the grey tray beside it, bottoms on one line space-8 above the edge, space-4 gutter
+  pattern     check circles, from "포인트는 두 색뿐": 24 discs at a space-8+space-2 pitch on the tray, the first seven done (primary), one today (point), the rest track
+  scales      sides in space-2 multiples; gutter space-4; disc diameter 24 (the check), pitch 40; corners radius-lg, pill radius-full
+-->
+<rect class="slab" x="0" y="-28" width="176" height="284" rx="40"/>
+<rect class="tray" x="200" y="64" width="256" height="192" rx="40"/>
+<rect class="pill" x="32" y="200" width="112" height="40" rx="20"/>
+<circle class="dot on" cx="240" cy="104" r="12"/>
+<circle class="dot on" cx="280" cy="104" r="12"/>
+<circle class="dot on" cx="320" cy="104" r="12"/>
+<circle class="dot on" cx="360" cy="104" r="12"/>
+<circle class="dot on" cx="400" cy="104" r="12"/>
+<circle class="dot on" cx="440" cy="104" r="12"/>
+<circle class="dot on" cx="240" cy="144" r="12"/>
+<circle class="dot pt" cx="280" cy="144" r="12"/>
+<circle class="dot" cx="320" cy="144" r="12"/>
+<circle class="dot" cx="360" cy="144" r="12"/>
+<circle class="dot" cx="400" cy="144" r="12"/>
+<circle class="dot" cx="440" cy="144" r="12"/>
+<circle class="dot" cx="240" cy="184" r="12"/>
+<circle class="dot" cx="280" cy="184" r="12"/>
+<circle class="dot" cx="320" cy="184" r="12"/>
+<circle class="dot" cx="360" cy="184" r="12"/>
+<circle class="dot" cx="400" cy="184" r="12"/>
+<circle class="dot" cx="440" cy="184" r="12"/>
+<circle class="dot" cx="240" cy="224" r="12"/>
+<circle class="dot" cx="280" cy="224" r="12"/>
+<circle class="dot" cx="320" cy="224" r="12"/>
+<circle class="dot" cx="360" cy="224" r="12"/>
+<circle class="dot" cx="400" cy="224" r="12"/>
+<circle class="dot" cx="440" cy="224" r="12"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">포인트<br>디자인 시스템</h1>
+<p class="tag">회색 위에 두 가지 색만.</p>
+</div>
+</div>
+</body>
+</html>

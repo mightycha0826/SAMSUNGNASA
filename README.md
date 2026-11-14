@@ -158,6 +158,7 @@ data-pipeline/       C  NASA 데이터 가공 스크립트 (Python)
 jetson/              E  허브 서버, 음성, 센서 수집
 arduino/             E  온도 센서 펌웨어
 docs/                문서
+design-system/       포인트 디자인 시스템 (HUD 색·글꼴의 원본)
 ```
 
 ---
@@ -285,6 +286,7 @@ npm run dev        # https://localhost:5173/ (자체 서명 인증서)
 
 - `https://localhost:5173/?mock=1` 을 엽니다. 인증서 경고는 "고급 → 계속"으로 넘어갑니다.
 - 왼쪽 위 창에 버스에 흐르는 이벤트와 횟수가 보입니다. 키보드 `N` 안내, `H` 기지, `S` 그만, `L` 열 지도, `T` 온도 급상승.
+- HUD 글자는 기본이 영어(목업 기준)이고, `?lang=ko` 를 붙이면 한국어로 나옵니다. HUD의 크기·위치·점멸 주기는 `web/src/hud/config.js` 의 숫자로 조정합니다.
 - 일부만 가짜로 돌릴 수 있습니다: `?mock=link,hazard` (부분: `data`, `link`, `hazard`). `?mockSpeed=10` 은 시간표를 10배 빠르게 돌립니다.
 
 **헤드셋에서 접속** — PC와 헤드셋을 같은 Wi-Fi에 둡니다.

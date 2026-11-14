@@ -1,0 +1,9 @@
+<!-- @dsCard group="목록" height=480 -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Group</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block"></head>
+<body>
+<div style="max-width:390px;padding:0 16px 16px"><h2 class="pt-group-label">알림</h2><div class="pt-group"><div class="pt-cell"><span class="pt-cell__label">지출 알림</span><button type="button" role="switch" class="pt-switch" aria-checked="true" aria-label="지출 알림"><span class="pt-switch__knob"></span></button></div><div class="pt-cell"><span class="pt-cell__label">예산 초과 알림</span><button type="button" role="switch" class="pt-switch" aria-checked="true" aria-label="예산 초과 알림"><span class="pt-switch__knob"></span></button></div><div class="pt-cell"><span class="pt-cell__label">주간 리포트</span><button type="button" role="switch" class="pt-switch" aria-checked="false" aria-label="주간 리포트"><span class="pt-switch__knob"></span></button></div></div><h2 class="pt-group-label">설정</h2><div class="pt-group"><a href="#" class="pt-cell"><span class="pt-cell__key">월 예산</span><span class="pt-cell__label"><span class="pt-num">600,000원</span></span><span class="material-symbols-rounded pt-cell__chev" aria-hidden="true">chevron_right</span></a><a href="#" class="pt-cell"><span class="pt-cell__key">시작일</span><span class="pt-cell__label">매월 1일</span><span class="material-symbols-rounded pt-cell__chev" aria-hidden="true">chevron_right</span></a></div></div>
+<script>document.querySelectorAll(".pt-switch").forEach(function(b){if(b.disabled)return;b.addEventListener("click",function(){b.setAttribute("aria-checked",b.getAttribute("aria-checked")!=="true");});});</script>
+</body>
+</html>
