@@ -106,8 +106,8 @@ export function init(context) {
   if (ctx.mock.hazard) startMockHazard(ctx.bus, { speed: ctx.mock.speed });
   ctx.xr.onSessionStart(() => reset());
   // With depth-sensing three.js would draw a mesh that hides every virtual object behind real
-  // surfaces (the reason core/xr.js does not ask for depth in every session), and would leave
-  // clearing the frame to that mesh. The scan only wants the numbers: no mesh, and the usual clear.
+  // surfaces, and would leave clearing the frame to that mesh. The scan only wants the numbers:
+  // no mesh, and the usual clear.
   ctx.renderer.xr.getDepthSensingMesh = () => null;
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
