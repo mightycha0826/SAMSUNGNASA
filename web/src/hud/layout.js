@@ -5,7 +5,8 @@
 //   - in order of importance: the first tile is top right, the second top left, the third
 //     second right, and so on. So the columns are always level, or the right one has one more:
 //     when the number is odd, the right side has the say.
-//   - a reading in a critical state leaves its column and comes to the middle, under the line
+//   - a reading in a critical state (or one that asks for it: `focus`, the ambient temperature
+//     as soon as its alert sounds) leaves its column and comes to the middle, under the line
 //     of sight, larger than the others. Only one at a time, the most important; when it is back
 //     in range it returns to its column.
 //   - when a reading is added or dropped, the others close up and the columns level out again.
@@ -14,14 +15,14 @@
 // crossing the view for long. While a tile moves it stretches a little along the way.
 
 /**
- * @param {{ id: string, state?: string, hDeg: number }[]} readings in order of importance, most important first
+ * @param {{ id: string, state?: string, focus?: boolean, hDeg: number }[]} readings in order of importance, most important first
  * @param K { columnDeg, topDeg, gapDeg, focus: { yDeg, scale } } (HUD.dash)
  * @returns Map id -> { side: 'left' | 'right' | 'centre', x, y, scale }: x in degrees right of
  *          the middle of the view, y in degrees below its top edge to the tile's top edge
  */
 export function arrange(readings, K) {
   const out = new Map();
-  const focus = readings.find((r) => r.state === 'crit') ?? null;
+  const focus = readings.find((r) => r.focus || r.state === 'crit') ?? null;
   const tops = { right: K.topDeg, left: K.topDeg };
   let n = 0;
   for (const r of readings) {

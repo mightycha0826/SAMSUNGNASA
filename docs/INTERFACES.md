@@ -32,7 +32,7 @@ There are two coordinate systems. Mixing them up is what breaks most often at in
 - The conversion is defined by the `demo` entry of `layerset.json`. A region of the map is scaled down to the size of the room floor.
 - **Only C** converts Mars longitude/latitude ↔ map grid. The browser only receives grid coordinates. One degree is about 59,274.7 m (radius 3,396,190 m).
 - All times are Unix time in milliseconds (`Date.now()`).
-- Field names end with the unit: Celsius (`C`) for temperature, meters (`M`) for distance. Examples: `suitTempC`, `distanceM`.
+- Field names end with the unit: Celsius (`C`) for temperature, meters (`M`) for distance. Examples: `suitTempC`, `distanceM`. (`suitTempC` is the **ambient temperature**: the sensor on the suit measures the air around the wearer. The field and the alert id `suit-temp` keep the names they had when it was called the suit temperature; body temperature is simulated in the headset and is not in this field.)
 
 ---
 
@@ -225,7 +225,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second). The grid is a window of 256 × 256 cells that moves with the wearer in steps of a tile (6.4 m): **read `originXZ` from every event**. An obstacle stays in it until clear floor is seen where it stood, or the wearer walks there |
 | `nav:request` | F, B (from voice) | D | A route is requested |
 | `nav:route` | D | F | A route was computed |
-| `telemetry:update` | B (from the Jetson) | F | Suit temperature arrives (once a second) |
+| `telemetry:update` | B (from the Jetson) | F | The ambient temperature (the sensor on the suit) arrives (once a second) |
 | `alert:raise` | B (from the Jetson), D | F, D | A hazard appears |
 | `alert:clear` | B (from the Jetson), D | F, D | A hazard is gone |
 | `voice:command` | B (from the Jetson) | All modules | A voice command was understood |
@@ -307,7 +307,7 @@ With live depth the headset's depth image is laid over the same cells twice a se
 
 **`alert:raise`**
 ```json
-{ "id": "suit-temp", "level": "critical", "message": "Suit temperature is critical", "ts": 1794000000000 }
+{ "id": "suit-temp", "level": "critical", "message": "Ambient temperature is critical", "ts": 1794000000000 }
 ```
 - `level`: `warn` (only the status panel color changes) or `critical` (red flashing screen)
 - `id` values: `suit-temp` (E), `route-blocked` (D), `radiation` (B, decided from `env.json`), `link-lost` (B, Jetson connection lost)
@@ -419,7 +419,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 
 The hub serves `/monitor` (the page), `/monitor.mjpg` (the pictures as one multipart response) and `/monitor.json` (state, including a rescue signal that is up).
 
-### Suit temperature thresholds (starting values)
+### Ambient temperature thresholds (starting values)
 
 | Range | Result |
 |---|---|

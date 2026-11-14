@@ -363,7 +363,7 @@ class Hub:
         the browser never sends them. Used by tools/fake_quest.py."""
         if type_ == "dev.text":            # skip STT, test the intent parser
             await self.handle_text_command(p.get("text", ""))
-        elif type_ == "dev.temp":          # set the mock suit temperature
+        elif type_ == "dev.temp":          # set the mock ambient temperature
             self.suit.mock_c = float(p["suitTempC"])
             log.info("dev: mock temp = %.1f", self.suit.mock_c)
 

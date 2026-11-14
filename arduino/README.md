@@ -1,4 +1,6 @@
-# arduino/ — suit temperature sensor (role E)
+# arduino/ — temperature sensor on the suit (role E)
+
+The sensor measures the air around the wearer: the app shows it as the **ambient temperature**. The field it travels in is still called `suitTempC`.
 
 `suit_temp/suit_temp.ino` reads one temperature sensor and prints one JSON line per second at 115200 baud ([docs/INTERFACES.md](../docs/INTERFACES.md) section 5):
 

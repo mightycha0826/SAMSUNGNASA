@@ -25,7 +25,7 @@ A Meta Quest 3 stands in for the spacesuit helmet, and we build the map a Mars e
 |---|---|---|---|
 | 1. Orbital map | 3D map of the exploration site with terrain, optical and thermal data overlaid | **NASA orbiter data** (MRO, Mars Odyssey, MGS) | Quest 3 (palm map) |
 | 2. Field map | Nearby obstacles that orbital data cannot see | Helmet depth sensor laid over the NASA map | Quest 3 (real-time environment analysis) |
-| 3. Survival info | Radiation, suit temperature, emergency alerts | **NASA Curiosity observations** + temperature sensor | Jetson + Arduino |
+| 3. Survival info | Radiation, ambient temperature, emergency alerts | **NASA Curiosity observations** + temperature sensor | Jetson + Arduino |
 
 Control is by palm gesture and voice only. The premise is that pressing a screen is hard with spacesuit gloves.
 
@@ -38,14 +38,14 @@ For every feature we must be able to answer "which NASA data does this value on 
 | Palm 3D map | Terrain (MRO HiRISE and others), optical (MRO HiRISE), thermal (Mars Odyssey THEMIS) |
 | Route guidance | Slope computed from terrain. Shown next to the path Curiosity actually drove, as validation |
 | Status panel | Radiation observed by Curiosity RAD, elevation and geologic unit of the current position |
-| Emergency mode | Alert based on observed radiation (together with the suit temperature alert) |
+| Emergency mode | Alert based on observed radiation (together with the ambient temperature alert) |
 | Voice guidance | Reads the values above aloud |
 | Rover point-of-view photo | Real photos Curiosity took at that spot |
 | Real-time environment analysis | Corrects the route built from NASA data to fit nearby obstacles |
 
 Where each dataset comes from is in [docs/RESOURCES.md](docs/RESOURCES.md).
 
-Only two inputs are not NASA data: the helmet depth sensor and the suit temperature sensor. Both operate only on top of the map and route built from NASA data.
+Only two inputs are not NASA data: the helmet depth sensor and the temperature sensor on the suit (it measures the air around the wearer). Both operate only on top of the map and route built from NASA data.
 
 ### Real-time environment analysis is the kick of the demo
 
@@ -119,7 +119,7 @@ The hackathon is 48 hours. We grade features and finish from the top.
 | Palm 3D map, layer switching | Q1, Q8 | P0 | D, F |
 | Route guidance (obstacle-avoiding route, floor arrows) | Q7 | P0 | D |
 | Curiosity's actual traverse shown (route validation) | Q1, Q7 | P0 | C, D |
-| Status panel (radiation, elevation, suit temperature) | Q6 | P0 | F, E |
+| Status panel (radiation, ambient temperature, vitals) | Q6 | P0 | F, E |
 | Emergency mode (red flashing screen) | Q6 | P0 | F, E |
 | Real-time environment analysis (field obstacle layer, the demo kick) | Q5, Q7 | P1 | A |
 | Voice commands (STT) and voice guidance (TTS) | Q10 | P1 | E |
@@ -356,8 +356,8 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 **The right hand: vitals.** The right hand points, and it shows one thing of its own.
 
 - Open right palm turned up: a figure of the wearer turns slowly over the palm. It is the same kind of object as the map over the left palm: it floats a little above the palm, a little away from you and a little toward the middle of the body, with a cone of light from the palm, and its readings are on the caption card that goes around its cylinder, under the plate the figure stands on, always facing you.
-- The readings: oxygen, heart rate, suit pressure, the temperature of head, torso, arms and legs, and battery. A part of the figure turns orange or red when a reading that belongs to it is out of range (head: oxygen, head temperature; torso: temperature, heart rate; arms and legs: their temperature, suit pressure; backpack: battery), and the caption names what to check.
-- **What is real and what is not.** The torso temperature is the real sensor on the Jetson and the battery is the headset's own. Oxygen, heart rate and suit pressure are simulated, and so are the head, arm and leg temperatures, which follow the torso sensor at a fixed distance; the caption marks these "sim". `?simO2=12`, `?simPressure=24`, `?simHeart=160` set them from the address.
+- The readings: oxygen, heart rate, suit pressure, the body temperature of head, torso, arms and legs, and battery. A part of the figure turns orange or red when a reading that belongs to it is out of range (head: oxygen, head temperature; torso: body temperature, heart rate; arms and legs: their temperature, suit pressure; backpack: battery), and the caption names what to check.
+- **What is real and what is not.** The battery is the headset's own, and the temperature sensor on the Jetson is real, but it measures the **air around the wearer** (the caption shows it as "Ambient"), not the body. Oxygen, heart rate, suit pressure and every body temperature are simulated and marked "sim". The simulated body warms by 0.12 °C for each degree the ambient temperature is above 30 °C, so heating the sensor shows on the figure as well. `?simO2=12`, `?simPressure=24`, `?simHeart=160`, `?simBody=38.5` set them from the address.
 - The figure is built in the app from smooth solids, not loaded from a file, so it needs no download.
 - **Two hands at once.** Where the hands could get in each other's way the left one has the say: the vitals stay away while the right hand's pointer is on a menu or on the map, and while the two wrists are closer than 16 cm (the cameras then see one hand in front of the other).
 
@@ -365,16 +365,16 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 
 **The readings: tiles that move.** There is no status card in a corner any more. Each reading is a tile of its own, with its number and a bar or a graph of its last minute, and the tiles stand in two columns left and right of what you look at (they end 26° out; the 23° in the middle stay clear).
 
-- **Always there:** battery (the headset's own), oxygen (simulated) and suit temperature (the Jetson's sensor), each a bar with its limits marked. They come first, so they keep the top places.
-- **The rest by importance** (`web/src/hud/importance.js`): a reading has a base (route 70 while one is active, heart rate 35, radiation 32, suit pressure 30, air temperature 12, air pressure 10), plus 50 when it is out of range and 100 when critical, plus up to 20 for heading toward its limit. Those at 31 or more are shown, at most three; so tiles come and go. A reading on show keeps its place unless another beats it clearly. Elevation, geologic unit and the layer name are no longer shown.
+- **Always there:** battery (the headset's own), oxygen (simulated) and ambient temperature (the Jetson's sensor: the air around the wearer), each a bar with its limits marked. They come first, so they keep the top places.
+- **The rest by importance** (`web/src/hud/importance.js`): a reading has a base (route 70 while one is active, heart rate 35, body temperature 33, radiation 32, suit pressure 30, air temperature 12, air pressure 10), plus 50 when it is out of range and 100 when critical, plus up to 20 for heading toward its limit. Those at 31 or more are shown, at most three; so tiles come and go. A reading on show keeps its place unless another beats it clearly. Elevation, geologic unit and the layer name are no longer shown.
 - **Level columns:** the tiles fill right, left, right, left in order, so the columns are level or the right one has one more.
-- **To the middle:** a reading in a critical state leaves its column and comes to the middle, under the line of sight and above the alert card, 18 % larger. The others close up. When it is back in range it returns.
+- **To the middle:** a reading in a critical state, and the ambient temperature as soon as its alert sounds (30 °C), leaves its column and comes to the middle, under the line of sight and above the alert card, 18 % larger. The others close up. When it is back in range it returns.
 - **How they move:** on a spring, there in about a quarter of a second with a 5 % overshoot, stretching by up to 6 % along the way; a new tile fades in where it belongs, a dropped one fades out where it stood.
 - **Lower than centred:** what is laid out as centred looks a little high in the Quest 3, so the whole HUD hangs 1.5° lower (`HUD.viewDropDeg`). The confirmation of a command ("Navigate") appears just below the line of sight.
 
 **Voice.** The headset ends the microphone whenever it is taken off or the system menu opens; the app now opens it again by itself (it used to stay dead until the page was reloaded, which is why speech often seemed not to be recognised at all). The hub keeps the last 100 utterances as WAV files in `jetson/logs/utterances/`, named by time and by what was understood, for tuning.
 
-**Alerts.** Warn and critical alerts bring up the alert card at the bottom, beep, and light the whole view softly in orange or red with each beep (`?wash=0` turns the light off, `?sound=0` the beep). "Confirm" stops both. The suit temperature alert steps back down as the temperature falls: critical above 35 °C, back to warn below 34 °C, cleared below 29 °C.
+**Alerts.** Warn and critical alerts bring up the alert card at the bottom, beep, and light the whole view softly in orange or red with each beep (`?wash=0` turns the light off, `?sound=0` the beep). "Confirm" stops both. The ambient temperature alert steps back down as the temperature falls: critical above 35 °C, back to warn below 34 °C, cleared below 29 °C.
 
 **Device check page** — open `https://<PC address>:5173/check.html` in the headset browser. Press **Start AR check** (`AR 점검 시작`), look around the room for 10 seconds and raise both hands: a table shows the granted session features and whether hands, depth, mesh and planes were received. The microphone is checked separately with the **Microphone check** (`마이크 점검`) button.
 

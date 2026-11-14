@@ -1,4 +1,9 @@
-"""Suit temperature alert state machine (docs/INTERFACES.md section 4).
+"""Ambient temperature alert state machine (docs/INTERFACES.md section 4).
+
+The sensor on the suit measures the air around the wearer. The alert keeps the id
+"suit-temp" and the reading the field name suitTempC it had when it was called the suit
+temperature: other modules listen for those names.
+
 
 The alert level follows the temperature in both directions:
 
@@ -14,10 +19,10 @@ temperature well under the threshold that started it.
 from dataclasses import dataclass
 
 ALERT_ID = "suit-temp"
-SUIT_TEMP_MESSAGES = {"warn": "Suit temperature is rising",
-                      "critical": "Suit temperature is critical"}
+SUIT_TEMP_MESSAGES = {"warn": "Ambient temperature is rising",
+                      "critical": "Ambient temperature is critical"}
 # What the alert says after it has come down from critical.
-EASING_MESSAGE = "Suit temperature is high"
+EASING_MESSAGE = "Ambient temperature is high"
 
 
 @dataclass

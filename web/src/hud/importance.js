@@ -3,7 +3,7 @@
 // The card has room for a few readings, and most of what could be shown is not worth a glance
 // most of the time. So every reading gets a number, its importance, and the card shows:
 //   - the pinned ones, always, each in its own fixed place: what has to be watched all the
-//     time (battery, oxygen, suit temperature). Their importance is the maximum by definition.
+//     time (battery, oxygen, ambient temperature). Their importance is the maximum by definition.
 //   - of the rest, those whose importance is at least `showAbove`, the most important first,
 //     and at most `slots` of them. So the number on show changes: a reading comes up when it
 //     starts to matter and goes when it stops.

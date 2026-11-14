@@ -11,17 +11,18 @@
 // reading is out of range:
 //     head      oxygen (tank level, %)          simulated: there is no oxygen sensor
 //               head temperature                simulated
-//     torso     suit temperature (deg C)        the real sensor on the Jetson (telemetry:update)
+//     torso     body temperature (deg C)        simulated
 //               heart rate (bpm)                simulated: there is no pulse sensor
 //     arms      arm temperature                 simulated
 //     legs      leg temperature                 simulated
 //     arms+legs suit pressure (kPa)             simulated: there is no pressure sensor
 //     backpack  battery (%)                     the headset's own battery (navigator.getBattery)
-//   There is one temperature sensor, on the torso. The other three temperatures follow it at a
-//   fixed distance (a head runs a little cooler than the chest, limbs cooler still), so they
-//   move when the real one moves. The caption marks every simulated reading "sim".
-//   ?simO2=12, ?simPressure=24 and ?simHeart=160 set values from the address,
-//   window.__hud.suit.set({ o2, pressureKpa, heart, battery, headC, armsC, legsC }) from the console.
+//   There is no sensor on the body: every body temperature is simulated (HUD.suit.body). The
+//   one real temperature, the sensor on the Jetson, is the air around the wearer: it is shown
+//   in the caption as "Ambient", not on the figure, and the simulated body warms a little when
+//   it is hot, so heating the sensor shows here too. The caption marks what is simulated "sim".
+//   ?simO2=12, ?simPressure=24, ?simHeart=160 and ?simBody=38.5 set values from the address,
+//   window.__hud.suit.set({ o2, pressureKpa, heart, bodyC, battery, headC, armsC, legsC }) from the console.
 //
 // The figure is built here from smooth solids (a turned profile for the trunk, tapered limbs
 // with round joints), not loaded from a file: the app has to work without any download.
@@ -188,19 +189,26 @@ export function createSuit(ctx) {
   const num = (name, fallback) => (q.has(name) && Number.isFinite(Number(q.get(name))) ? Number(q.get(name)) : fallback);
 
   // ---- readings ----
-  const base = { o2: num('simO2', 98), pressureKpa: num('simPressure', K.pressureKpa.nominal), heart: num('simHeart', 72) };
-  // Temperatures set by hand (set()), in place of the ones that follow the torso sensor.
+  const base = { o2: num('simO2', 98), pressureKpa: num('simPressure', K.pressureKpa.nominal), heart: num('simHeart', 72), bodyC: num('simBody', K.body.core) };
+  // Temperatures of single parts set by hand (set()), in place of the ones worked out from the body's.
   const fixed = { headC: null, armsC: null, legsC: null };
-  const reading = { o2: base.o2, pressureKpa: base.pressureKpa, heart: base.heart, battery: null, charging: false, suitTempC: null, tempSource: null, headC: null, armsC: null, legsC: null };
+  const reading = { o2: base.o2, pressureKpa: base.pressureKpa, heart: base.heart, battery: null, charging: false, ambientC: null, tempSource: null, torsoC: null, headC: null, armsC: null, legsC: null };
   let batteryNote = 'not reported by this browser';
   let dirty = true;
 
-  /** The three temperatures without a sensor: the torso's, less what that part usually runs cooler. */
-  function followTorso() {
-    for (const [key, below] of [['headC', K.cooler.head], ['armsC', K.cooler.arms], ['legsC', K.cooler.legs]]) {
-      reading[key] = fixed[key] ?? (reading.suitTempC == null ? null : Number((reading.suitTempC - below).toFixed(1)));
+  /** The simulated body: the torso at its base temperature, warmer when the air is hot; the other parts a set distance from it. */
+  function simulateBody() {
+    const B = K.body;
+    const heat = reading.ambientC == null ? 0 : Math.max(0, reading.ambientC - B.fromAmbientC) * B.perAmbientC;
+    const torso = base.bodyC + heat;
+    const next = { torsoC: torso, headC: fixed.headC ?? torso + B.head, armsC: fixed.armsC ?? torso + B.arms, legsC: fixed.legsC ?? torso + B.legs };
+    for (const [key, value] of Object.entries(next)) {
+      const rounded = Number(value.toFixed(1));
+      if (rounded !== reading[key]) dirty = true;
+      reading[key] = rounded;
     }
   }
+  simulateBody();
 
   navigator.getBattery?.()
     .then((b) => {
@@ -215,11 +223,12 @@ export function createSuit(ctx) {
       b.addEventListener('chargingchange', read);
     })
     .catch(() => {});
+  // The sensor on the Jetson: the air around the wearer (the field is still called suitTempC).
   ctx.bus.on('telemetry:update', ({ suitTempC, source }) => {
-    if (suitTempC !== reading.suitTempC || source !== reading.tempSource) dirty = true;
-    reading.suitTempC = suitTempC ?? null;
+    if (suitTempC !== reading.ambientC || source !== reading.tempSource) dirty = true;
+    reading.ambientC = suitTempC ?? null;
     reading.tempSource = source ?? null;
-    followTorso();
+    simulateBody();
   });
 
   // ---- the hologram ----
@@ -242,29 +251,29 @@ export function createSuit(ctx) {
 
   /** The six lines of the caption, and the states behind them. */
   function describe() {
-    const z = suitStates(reading, HUD.suit, HUD.suitGauge);
+    const z = suitStates(reading, HUD.suit);
     const wrong = [];
     const note = (state, text) => state && wrong.push(text);
     note(z.o2, `oxygen ${show(reading.o2, 0)} %`);
     note(z.heart, `heart rate ${show(reading.heart, 0)} bpm`);
     note(z.pressure, `pressure ${show(reading.pressureKpa, 1)} kPa`);
     note(z.headTemp, `head ${show(reading.headC, 1)} °C`);
-    note(z.temp, `torso ${show(reading.suitTempC, 1)} °C`);
+    note(z.temp, `torso ${show(reading.torsoC, 1)} °C`);
     note(z.armsTemp, `arms ${show(reading.armsC, 1)} °C`);
     note(z.legsTemp, `legs ${show(reading.legsC, 1)} °C`);
     note(z.battery, `battery ${show(reading.battery, 0)} %`);
     const level = worst(...Object.values(z));
-    const torsoTag = reading.suitTempC == null ? '' : reading.tempSource === 'mock' ? ' (mock)' : ' (sensor)';
+    const ambient = reading.ambientC == null ? 'no reading' : `${show(reading.ambientC, 1)} °C (${reading.tempSource === 'mock' ? 'mock' : 'sensor'})`;
     return {
       states: z,
       level,
       lines: [
         `VITALS · ${wrong.length ? `${wrong.length} out of range` : 'all in range'}`,
         `Oxygen ${show(reading.o2, 0)} % · Heart ${show(reading.heart, 0)} bpm · Pressure ${show(reading.pressureKpa, 1)} kPa   (sim)`,
-        `Temp °C · head ${show(reading.headC, 1)} · torso ${show(reading.suitTempC, 1)}${torsoTag} · arms ${show(reading.armsC, 1)} · legs ${show(reading.legsC, 1)}`,
+        `Body °C · head ${show(reading.headC, 1)} · torso ${show(reading.torsoC, 1)} · arms ${show(reading.armsC, 1)} · legs ${show(reading.legsC, 1)}   (sim)`,
         wrong.length ? `Check: ${wrong.join(' · ')}` : 'Helmet, torso, arms, legs, pack: nothing to report',
-        `Battery ${show(reading.battery, 0)} % · ${batteryNote}`,
-        'sim = simulated, no sensor. Head, arm and leg temperatures follow the torso sensor.',
+        `Ambient ${ambient} · Battery ${show(reading.battery, 0)} % (${batteryNote})`,
+        'sim = simulated, no sensor on the body. Ambient: the temperature sensor on the suit.',
       ],
     };
   }
@@ -334,7 +343,7 @@ export function createSuit(ctx) {
     battery: () => reading.battery,
     /** The readings as they are now, and which of them are out of range ('' | 'warn' | 'crit'): the status card shows some of them. */
     readings: () => reading,
-    states: () => suitStates(reading, HUD.suit, HUD.suitGauge),
+    states: () => suitStates(reading, HUD.suit),
     // ---- console and tests ----
     /** PC: show(true, [x, y, z]) puts the hologram in the scene without a hand; show(false) takes it away. */
     show(on, at = [0.6, 1.2, 0.3]) {
@@ -347,13 +356,14 @@ export function createSuit(ctx) {
       beam.visible = false;
       dirty = true;
     },
-    /** Set readings by hand: set({ o2: 12, pressureKpa: 24, heart: 160, battery: 9, charging: false, legsC: 36 }). null gives a temperature back to the sensor. */
+    /** Set readings by hand: set({ o2: 12, pressureKpa: 24, heart: 160, bodyC: 38.5, battery: 9, charging: false, legsC: 34 }). null gives a part's temperature back to the simulation. */
     set(values) {
       if (values.o2 != null) base.o2 = values.o2;
       if (values.pressureKpa != null) base.pressureKpa = values.pressureKpa;
       if (values.heart != null) base.heart = values.heart;
+      if (values.bodyC != null) base.bodyC = values.bodyC;
       for (const key of ['headC', 'armsC', 'legsC']) if (values[key] !== undefined) fixed[key] = values[key];
-      followTorso();
+      simulateBody();
       if (values.battery !== undefined) {
         reading.battery = values.battery;
         batteryNote = 'set by hand';

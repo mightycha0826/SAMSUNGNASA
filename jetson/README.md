@@ -1,6 +1,6 @@
 # jetson/ — Jetson hub (role E)
 
-Everything outside the headset: suit temperature sensor, alerts, voice assistant, web app serving.
+Everything outside the headset: the temperature sensor on the suit (ambient temperature: the air around the wearer), alerts, voice assistant, web app serving.
 All formats follow [docs/INTERFACES.md](../docs/INTERFACES.md) sections 4–6. Headset connection: [QUEST_CONNECT.md](QUEST_CONNECT.md). Firmware: [../arduino/](../arduino/README.md).
 
 ## One-time setup
@@ -77,7 +77,7 @@ Edit [`commands.json`](commands.json) and save. The hub reloads it by itself; a 
 Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate" (to the nearby point about 20 m from the base; "Take me to the survey site" names the far one), "Base", "Mark target", "Stop", "Confirm", "Emergency" (arms the SOS; "Confirm" then sends it, "Cancel rescue" withdraws it), "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
 
 - The critical alert sentence is synthesized at startup, so it plays without the 1 s delay.
-- `status.report` is answered by the hub itself: suit temperature, alerts, route state.
+- `status.report` is answered by the hub itself: ambient temperature, alerts, route state.
 - An `urgent` utterance drops normal ones still waiting; the browser cuts audio already playing.
 
 ### Headset menu and diagnostics

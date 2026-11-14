@@ -6,7 +6,7 @@
 //    4 s  "Thermal"     layer.show
 //    8 s  "Navigate"    nav.start
 //   20 s  "Optical"     layer.show
-//   30-42 s the suit temperature climbs from 24.5 to 36.5 C (warn at 30, critical at 35)
+//   30-42 s the ambient temperature climbs from 24.5 to 36.5 C (warn at 30, critical at 35)
 //   42-55 s it cools (back to warn below 34 C, alert.clear below 29 C)
 //   57 s  "Stop"        nav.stop
 //
@@ -66,7 +66,7 @@ export function startMockJetson(deliver, { speed = 1 } = {}) {
       level = next;
       if (!level) send('alert.clear', { id: 'suit-temp' });
       else {
-        const message = easing ? 'Suit temperature is high' : level === 'critical' ? 'Suit temperature is critical' : 'Suit temperature is rising';
+        const message = easing ? 'Ambient temperature is high' : level === 'critical' ? 'Ambient temperature is critical' : 'Ambient temperature is rising';
         send('alert.raise', { id: 'suit-temp', level, message });
       }
     }

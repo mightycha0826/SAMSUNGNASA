@@ -355,7 +355,7 @@ const waypointLabel = (id) => {
 // ---- 표시용 값 ----
 // What the readings were over the last minute, one value a second: the graphs on the status
 // card, and how fast each reading is moving (importance.js: trend).
-const history = { heart: [], radiation: [], pressure: [], airTemp: [], airPressure: [] };
+const history = { heart: [], body: [], radiation: [], pressure: [], airTemp: [], airPressure: [] };
 let lastSample = 0;
 let rankedShown = []; // ids of the ranked readings on the card, in the order of their places
 let routeFrom = 0; // the longest distance seen on the route in progress: where its bar starts
@@ -370,6 +370,7 @@ function sampleReadings(now) {
     if (history[key].length > HUD.readings.historyS) history[key].shift();
   };
   push('heart', r.heart);
+  push('body', r.torsoC);
   push('pressure', r.pressureKpa);
   push('radiation', e?.radiationUGyPerDay);
   push('airTemp', e?.airTempK != null ? e.airTempK - 273.15 : null);
@@ -378,8 +379,8 @@ function sampleReadings(now) {
 }
 
 /**
- * The status card: the pinned readings in their fixed places (battery, oxygen, suit
- * temperature: what has to be watched all the time), and under them the readings that matter
+ * The readings: the pinned ones (battery, oxygen, ambient temperature: what has to be watched
+ * all the time), and under them the readings that matter
  * most right now, chosen by importance.js.
  */
 function statusVM() {
@@ -408,9 +409,12 @@ function statusVM() {
       marks: [{ at: HUD.suit.o2.crit / 100 }, { at: HUD.suit.o2.warn / 100 }], lowIsBad: true,
     },
     {
-      id: 'suitTemp', pinned: true, label: S.suit, value: num(t, 1), unit: '°C',
+      // The sensor on the suit: the air around the wearer. As soon as its alert sounds (warn or
+      // critical) the tile comes to the middle (layout.js: focus), where it cannot be missed.
+      id: 'ambient', pinned: true, label: S.suit, value: num(t, 1), unit: '°C',
       tag: linkLost ? S.lastValue : state.suit.source === 'mock' ? 'mock' : null,
       state: linkLost || t === null ? 'stale' : suitAlert?.level === 'critical' ? 'crit' : suitAlert ? 'warn' : '',
+      focus: !!suitAlert,
       fill: fill(t, G.min, G.max),
       marks: [{ at: fill(G.warn, G.min, G.max), label: String(G.warn) }, { at: fill(G.crit, G.min, G.max), label: String(G.crit) }],
     },
@@ -440,6 +444,7 @@ function statusVM() {
       fill: nav.status === 'ok' && routeFrom > 0 ? 1 - nav.distanceM / routeFrom : 0,
     },
     { id: 'heart', base: R.heart.base, viz: 'graph', label: 'Heart rate', value: num(r.heart), unit: 'bpm', tag: 'sim', state: z.heart, lines: [HUD.suit.heart.warnLow, HUD.suit.heart.warnHigh], ...graph('heart', R.heart.bad, R.heart.span) },
+    { id: 'body', base: R.body.base, viz: 'graph', label: 'Body temp', value: num(r.torsoC, 1), unit: '°C', tag: 'sim', state: z.temp, lines: [HUD.suit.bodyTemp.warnLow, HUD.suit.bodyTemp.warnHigh], ...graph('body', R.body.bad, R.body.span) },
     { id: 'radiation', base: R.radiation.base, viz: 'graph', label: S.radiation, value: num(e?.radiationUGyPerDay), unit: S.radUnit, tag: e?.radiationIsFixedValue ? S.published : null, state: radAlert ? (radAlert.level === 'critical' ? 'crit' : 'warn') : '', active: e?.radiationUGyPerDay != null, ...graph('radiation', R.radiation.bad) },
     { id: 'pressure', base: R.pressure.base, viz: 'graph', label: 'Suit pressure', value: num(r.pressureKpa, 1), unit: 'kPa', tag: 'sim', state: z.pressure, lines: [HUD.suit.pressureKpa.warnLow, HUD.suit.pressureKpa.warnHigh], ...graph('pressure', R.pressure.bad, R.pressure.span) },
     { id: 'airTemp', base: R.airTemp.base, viz: 'graph', label: S.airTemp, value: num(e?.airTempK != null ? e.airTempK - 273.15 : null, 1), unit: '°C', state: '', active: e?.airTempK != null, ...graph('airTemp', R.airTemp.bad) },

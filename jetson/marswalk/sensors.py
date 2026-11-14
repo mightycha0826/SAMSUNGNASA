@@ -1,4 +1,5 @@
-"""Suit temperature source: Arduino over serial, falling back to mock.
+"""Ambient temperature source (the sensor on the suit measures the air around the wearer):
+Arduino over serial, falling back to mock. The reading keeps the field name suitTempC.
 
 Serial format (docs/INTERFACES.md section 5): 115200 baud, one JSON line per second,
 {"temp_c": 24.5} or {"temp_c": null, "error": "read_failed"}.

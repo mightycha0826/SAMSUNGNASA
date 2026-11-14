@@ -74,3 +74,14 @@ test('a tile stretches along the way it moves, a little, and not at rest', () =>
   const [, uy] = stretch(0, -30, 0.06, 60);
   assert.ok(uy > 1 && uy < 1.04);
 });
+
+test('a reading that asks for it comes to the middle before it is critical (the ambient temperature when its alert sounds)', () => {
+  const list = [{ id: 'battery', hDeg: 4 }, { id: 'o2', hDeg: 4 }, { id: 'ambient', hDeg: 4, state: 'warn', focus: true }, { id: 'heart', hDeg: 4 }];
+  const at = arrange(list, K);
+  assert.equal(at.get('ambient').side, 'centre');
+  assert.deepEqual(sides(at), { left: 1, right: 2, centre: 1 });
+  // A critical reading earlier in the list still goes first.
+  const both = arrange([{ id: 'o2', hDeg: 4, state: 'crit' }, ...list.slice(2)], K);
+  assert.equal(both.get('o2').side, 'centre');
+  assert.notEqual(both.get('ambient').side, 'centre');
+});

@@ -11,7 +11,7 @@
 // crew's part is played here.
 //
 // Receives: voice:command, rescue:state, nav:position, telemetry:update
-// Sends:    rescue:signal { active, position, suitTempC, batteryPct }
+// Sends:    rescue:signal { active, position, suitTempC (the ambient temperature sensor), batteryPct }
 
 import { HUD } from './config.js';
 import { mock } from '../core/config.js';

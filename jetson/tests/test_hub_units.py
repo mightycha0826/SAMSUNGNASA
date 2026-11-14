@@ -43,7 +43,7 @@ class AlertTest(unittest.TestCase):
 
     def test_easing_message(self):
         msgs = self.run_seq([36, 33])
-        self.assertEqual(msgs[1][1]["message"], "Suit temperature is high")
+        self.assertEqual(msgs[1][1]["message"], "Ambient temperature is high")
 
     def test_none_ignored(self):
         self.assertEqual(self.run_seq([None, None]), [])
@@ -149,10 +149,10 @@ class SpeechTest(unittest.TestCase):
     def test_status(self):
         s = status_sentence(36.0, "arduino",
                             {"suit-temp": {"level": "critical"}}, {"navStatus": "ok"})
-        self.assertEqual(s, "Suit temperature thirty-six degrees. One critical alert. "
+        self.assertEqual(s, "Ambient temperature thirty-six degrees. One critical alert. "
                             "Route guidance active.")
         self.assertEqual(status_sentence(None, "arduino", {}, {}),
-                         "Suit temperature sensor is not responding. No alerts.")
+                         "Ambient temperature sensor is not responding. No alerts.")
 
 
 class MapStoreTest(unittest.TestCase):

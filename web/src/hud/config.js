@@ -54,7 +54,7 @@ export const HUD = {
   banner: { topDeg: 27, wDeg: 24, hDeg: 4 },
   /** Alert card: bottom centre, its bottom edge bottomDeg above the bottom of the stage, at
    *  most 26 deg wide. The panel is glowDeg larger on every side for the light around it. */
-  alert: { wDeg: 29, hDeg: 12, bottomDeg: 4.6, glowDeg: 2.5, maxCardDeg: 24 },
+  alert: { wDeg: 33, hDeg: 12, bottomDeg: 4.6, glowDeg: 2.5, maxCardDeg: 28 },
   /** The light around the alert card (critical red, warn orange). Pulse: full brightness at the
    *  start of every period, fading to lowOpacity by 48% of it, 0.1 s after the alarm beep.
    *  "Confirm" stops the pulse and the beep (ackedOpacity). */
@@ -102,12 +102,14 @@ export const HUD = {
     historyS: 60,
     route: { base: 70 },
     heart: { base: 35, span: [40, 160], bad: 0 },
+    body: { base: 33, span: [35, 40], bad: 0 },
     radiation: { base: 32, bad: 1 },
     pressure: { base: 30, span: [24, 33], bad: 0 },
     airTemp: { base: 12, bad: null }, // no limit to head for: its movement does not raise it
     airPressure: { base: 10, bad: null },
   },
-  /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
+  /** The bar of the ambient temperature (the sensor on the suit): its range and marks (deg C).
+   *  The limits are the hub's (INTERFACES section 4). */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },
   /** Point and pinch (pointer.js). A ray leaves the pointing hand, a cursor shows where it
    *  meets a menu, and closing thumb and index finger presses the button under the cursor, as
@@ -200,8 +202,12 @@ export const HUD = {
     battery: { warn: 30, crit: 15 },
     /** Heart rate (bpm) */
     heart: { critLow: 40, warnLow: 50, warnHigh: 120, critHigh: 150 },
-    /** How much cooler than the torso sensor the parts without a sensor are shown (deg C) */
-    cooler: { head: 0.6, arms: 1.4, legs: 1.9 },
+    /** Body temperature (deg C), simulated: there is no sensor on the body. The torso is at
+     *  `core`, the other parts this far from it; and the body warms by `perAmbientC` for every
+     *  degree the ambient temperature (the real sensor) is above `fromAmbientC`, so heating
+     *  the sensor shows on the figure too. */
+    body: { core: 36.8, head: 0.1, arms: -0.6, legs: -0.8, fromAmbientC: 30, perAmbientC: 0.12 },
+    bodyTemp: { critLow: 35, warnLow: 35.5, warnHigh: 37.8, critHigh: 39 },
   },
   /** Emergency button: the red bar on the command card (hud/rescue.js). Pressed once it is
    *  armed for armMs; pressed again, or "Confirm" said, it sends. */
