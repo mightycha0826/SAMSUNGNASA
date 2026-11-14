@@ -1,5 +1,5 @@
 // Live layer of the floor grid: what the depth sensor sees right now, on the same cells as the
-// room scan in index.js. Pure arithmetic, no three.js and no WebXR: node --test src/scan/grid.test.js
+// room scan (room.js). Pure arithmetic, no three.js and no WebXR: node --test src/scan/grid.test.js
 //
 // The room scan only ever adds structure. This layer can also take it away again: a cell turns
 // into an obstacle once something has been seen standing in it in setScans reads in a row, and
