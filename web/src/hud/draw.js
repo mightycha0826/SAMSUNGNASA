@@ -211,20 +211,23 @@ export function drawStatus(g, d, vm, gauge) {
   const W = g.canvas.width;
   g.clearRect(0, 0, W, g.canvas.height);
   const m = 0.3 * d; // room for the outer outline and the text glow
-  const pad = 0.8 * d;
-  const gap = 0.6 * d;
-  const suitH = 7.75 * d;
-  const distH = 5.6 * d;
-  const envLine = 1.82 * d;
-  const envH = 1.2 * d + vm.env.length * envLine + Math.max(0, vm.env.length - 1) * 0.3 * d;
+  const pad = 0.75 * d;
+  const gap = 0.55 * d;
+  const suitH = 7.45 * d;
+  const distH = 5.35 * d;
+  const envLine = 1.76 * d;
+  const envH = 1.1 * d + vm.env.length * envLine + Math.max(0, vm.env.length - 1) * 0.25 * d;
   const footH = 1.5 * d;
   const total = pad + suitH + gap + distH + gap + (vm.env.length ? envH + gap : 0) + footH + 0.4 * d;
 
-  frame(g, m, m, W - 2 * m, total, 1.6 * d, 0.18 * d, O.ink, 0.12 * d, 0.1 * d);
+  // The card sits against the bottom of its panel (it is anchored bottom right in the mockup),
+  // so it grows upward when the optional pressure and air temperature rows appear.
+  const top = Math.max(m, g.canvas.height - m - total);
+  frame(g, m, top, W - 2 * m, total, 1.6 * d, 0.18 * d, O.ink, 0.12 * d, 0.1 * d);
 
   const x0 = m + pad;
   const w = W - 2 * m - pad * 2;
-  let y = m + pad;
+  let y = top + pad;
   const rowFrame = (h, state) => {
     const color = state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : O.line;
     frame(g, x0, y, w, h, 1.25 * d, 0.13 * d, color, 0.09 * d, 0.08 * d);
@@ -234,20 +237,20 @@ export function drawStatus(g, d, vm, gauge) {
   const mainRow = (h, ico, r, okWord = false) => {
     rowFrame(h, r.state);
     const accent = STATE_COLOR[r.state]?.() ?? O.ink;
-    haloIcon(g, ico, x0 + 0.9 * d + 1.0 * d, y + h / 2, 2.0 * d, accent);
-    const tx = x0 + 0.9 * d + 2.0 * d + 0.7 * d;
-    let ly = y + 0.7 * d + 0.72 * d;
-    const lw = text(g, r.label, tx, ly, { weight: 700, size: 1.1 * d, color: O.label, halo: true });
+    haloIcon(g, ico, x0 + 0.85 * d + 0.95 * d, y + h / 2, 1.9 * d, accent);
+    const tx = x0 + 0.85 * d + 1.9 * d + 0.65 * d;
+    let ly = y + 0.65 * d + 0.7 * d;
+    const lw = text(g, r.label, tx, ly, { weight: 700, size: 1.05 * d, color: O.label, halo: true });
     if (r.tag) tag(g, r.tag, tx + lw + 0.5 * d, ly, d, false, true);
-    ly += 0.72 * d + 1.38 * d;
+    ly += 0.7 * d + 1.33 * d;
     let vx = tx;
-    vx += text(g, r.value, vx, ly, { weight: 700, size: 2.4 * d, color: r.state === 'stale' ? O.stale : O.ink, tight: true, halo: true });
-    if (r.unit) vx += 0.35 * d + text(g, r.unit, vx + 0.35 * d, ly + 0.35 * d, { weight: 700, size: 1.3 * d, color: O.label, halo: true });
+    vx += text(g, r.value, vx, ly, { weight: 700, size: 2.3 * d, color: r.state === 'stale' ? O.stale : O.ink, tight: true, halo: true });
+    if (r.unit) vx += 0.35 * d + text(g, r.unit, vx + 0.35 * d, ly + 0.35 * d, { weight: 700, size: 1.25 * d, color: O.label, halo: true });
     if (r.word) {
       const wordColor = STATE_COLOR[r.state]?.() ?? (okWord ? O.ok : O.ink);
-      text(g, r.word, vx + 0.85 * d, ly + 0.4 * d, { weight: 700, size: 1.2 * d, color: wordColor, halo: true });
+      text(g, r.word, vx + 0.85 * d, ly + 0.4 * d, { weight: 700, size: 1.15 * d, color: wordColor, halo: true });
     }
-    return { tx, bottom: ly + 1.38 * d };
+    return { tx, bottom: ly + 1.33 * d };
   };
 
   // Suit temperature
@@ -255,8 +258,8 @@ export function drawStatus(g, d, vm, gauge) {
   const s = mainRow(suitH, suitIcon, { ...vm.suit, unit: '°C' }, true);
   const gx = s.tx;
   const gw = x0 + w - 0.9 * d - gx;
-  const gy = s.bottom + 0.45 * d;
-  const gh = 0.48 * d;
+  const gy = s.bottom + 0.4 * d;
+  const gh = 0.46 * d;
   box(g, gx - 1, gy - 1, gw + 2, gh + 2, gh / 2 + 1, O.outer);
   box(g, gx, gy, gw, gh, gh / 2, 'rgba(120, 124, 130, 1)');
   if (vm.suit.fill > 0) {
@@ -269,7 +272,7 @@ export function drawStatus(g, d, vm, gauge) {
     g.fillRect(mx - 0.08 * d - 1, gy - 0.25 * d - 1, 0.16 * d + 2, 0.98 * d + 2);
     g.fillStyle = O.ink;
     g.fillRect(mx - 0.08 * d, gy - 0.25 * d, 0.16 * d, 0.98 * d);
-    text(g, String(mark), mx, gy + 1.28 * d, { weight: 700, size: 0.95 * d, color: O.ink, align: 'center', halo: true });
+    text(g, String(mark), mx, gy + 1.28 * d, { weight: 700, size: 0.9 * d, color: O.ink, align: 'center', halo: true });
   }
   y += suitH + gap;
 
@@ -280,62 +283,88 @@ export function drawStatus(g, d, vm, gauge) {
   // Environment values
   if (vm.env.length) {
     rowFrame(envH, '');
-    let ey = y + 0.6 * d + envLine / 2;
+    let ey = y + 0.55 * d + envLine / 2;
     for (const row of vm.env) {
-      text(g, row.k, x0 + 0.9 * d, ey, { weight: 700, size: 1.2 * d, color: O.label, halo: true });
+      text(g, row.k, x0 + 0.85 * d, ey, { weight: 700, size: 1.15 * d, color: O.label, halo: true });
       let rx = x0 + w - 0.9 * d;
       if (row.tag) rx -= tag(g, row.tag, rx, ey, d, true, true) + 0.6 * d;
-      if (row.unit) rx -= text(g, row.unit, rx, ey + 0.1 * d, { weight: 700, size: 1.05 * d, color: O.label, align: 'right', halo: true }) + 0.35 * d;
-      rx -= text(g, row.v, rx, ey, { weight: 700, size: 1.4 * d, color: O.ink, align: 'right', halo: true });
+      if (row.unit) rx -= text(g, row.unit, rx, ey + 0.1 * d, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true }) + 0.35 * d;
+      rx -= text(g, row.v, rx, ey, { weight: 700, size: 1.35 * d, color: O.ink, align: 'right', halo: true });
       if (row.state === 'warn' || row.state === 'crit') {
         haloIcon(g, row.state === 'crit' ? 'error' : 'warning', rx - 1.1 * d, ey, 1.4 * d, STATE_COLOR[row.state]());
       }
-      ey += envLine + 0.3 * d;
+      ey += envLine + 0.25 * d;
     }
     y += envH + gap;
   }
 
   // Foot: layer name, sol and local time
   const fy = y + footH / 2 - 0.1 * d;
-  const lw = text(g, vm.foot.layerLabel + ' ', x0 + 0.9 * d, fy, { weight: 700, size: 1.05 * d, color: O.label, halo: true });
-  text(g, vm.foot.layer, x0 + 0.9 * d + lw, fy, { weight: 700, size: 1.05 * d, color: O.ink, halo: true });
-  text(g, vm.foot.sol, x0 + w - 0.9 * d, fy, { weight: 700, size: 1.05 * d, color: O.label, align: 'right', halo: true });
+  const lw = text(g, vm.foot.layerLabel + ' ', x0 + 0.9 * d, fy, { weight: 700, size: 1.0 * d, color: O.label, halo: true });
+  text(g, vm.foot.layer, x0 + 0.9 * d + lw, fy, { weight: 700, size: 1.0 * d, color: O.ink, halo: true });
+  text(g, vm.foot.sol, x0 + w - 0.9 * d, fy, { weight: 700, size: 1.0 * d, color: O.label, align: 'right', halo: true });
   return total;
 }
 
-// ---- alert card (centre of view) ----
+// ---- alert card (bottom centre) ----
 // vm: { alert: { level, title, sub, more } | null }
-// Warn and critical alerts sit dead centre, in the wearer's line of sight (updated mockup).
-export function drawAlert(g, d, vm) {
+// Warn and critical alerts sit at the bottom centre so the line of sight stays clear (mockup).
+// Returns the card's rectangle in canvas pixels, for the light drawn around it, or null.
+export function drawAlert(g, d, vm, maxCardDeg = 26, glowDeg = 2.5) {
   const W = g.canvas.width;
   const H = g.canvas.height;
   g.clearRect(0, 0, W, H);
-  if (!vm.alert) return;
+  if (!vm.alert) return null;
   const crit = vm.alert.level === 'critical';
-  const icoS = (crit ? 3.4 : 2.6) * d;
-  const titleS = (crit ? 1.9 : 1.6) * d;
-  const subS = 1.2 * d;
-  const padX = 1.5 * d;
-  const padY = 1.0 * d;
-  const tw = Math.max(measure(g, vm.alert.title, 700, titleS), vm.alert.sub ? measure(g, vm.alert.sub, 500, subS) : 0);
-  const moreW = vm.alert.more ? measure(g, vm.alert.more, 600, 0.95 * d) + 1.0 * d + 1.3 * d : 0;
-  const w = Math.min(W - 2, padX * 2 + icoS + 0.9 * d + tw + moreW);
-  const textH = titleS * 1.3 + (vm.alert.sub ? subS * 1.3 : 0);
+  const icoS = (crit ? 3.1 : 2.5) * d;
+  const titleS = (crit ? 1.8 : 1.55) * d;
+  const subS = 1.15 * d;
+  const padX = 1.4 * d;
+  const padY = 0.95 * d;
+  const maxW = Math.min(W - 2 * glowDeg * d, maxCardDeg * d);
+  const moreW = vm.alert.more ? measure(g, vm.alert.more, 600, 0.95 * d) + 1.0 * d + 1.2 * d : 0;
+  const room = maxW - padX * 2 - icoS - 0.85 * d - moreW;
+  const title = fit(g, vm.alert.title, room, 700, titleS);
+  const sub = vm.alert.sub ? fit(g, vm.alert.sub, room, 500, subS) : '';
+  const tw = Math.max(measure(g, title, 700, titleS), sub ? measure(g, sub, 500, subS) : 0);
+  const w = Math.min(maxW, padX * 2 + icoS + 0.85 * d + tw + moreW);
+  const textH = titleS * 1.3 + (sub ? subS * 1.3 : 0);
   const h = padY * 2 + Math.max(icoS, textH);
   const x = (W - w) / 2;
-  const y = (H - h) / 2;
+  const y = H - glowDeg * d - h; // against the bottom, leaving room for the light
+  g.save();
+  g.shadowColor = 'rgba(0, 0, 0, 0.72)';
+  g.shadowBlur = 1.6 * d;
+  g.shadowOffsetY = 0.6 * d;
   box(g, x, y, w, h, 1.6 * d, T.surface);
-  g.beginPath();
-  g.roundRect(x + 1, y + 1, w - 2, h - 2, 1.6 * d);
-  g.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-  g.lineWidth = 1.5;
-  g.stroke();
+  g.restore();
   icon(g, crit ? 'error' : 'warning', x + padX + icoS / 2, y + h / 2, icoS, crit ? T.danger : T.point, '#262626');
-  const tx = x + padX + icoS + 0.9 * d;
+  const tx = x + padX + icoS + 0.85 * d;
   const ty = y + (h - textH) / 2;
-  text(g, vm.alert.title, tx, ty + (titleS * 1.3) / 2, { weight: 700, size: titleS, tight: crit });
-  if (vm.alert.sub) text(g, vm.alert.sub, tx, ty + titleS * 1.3 + (subS * 1.3) / 2, { size: subS, color: T.muted });
+  text(g, title, tx, ty + (titleS * 1.3) / 2, { weight: 700, size: titleS, tight: crit });
+  if (sub) text(g, sub, tx, ty + titleS * 1.3 + (subS * 1.3) / 2, { size: subS, color: T.muted });
   if (vm.alert.more) tag(g, vm.alert.more, x + w - padX, y + h / 2, d, true);
+  return { x, y, w, h, r: 1.6 * d };
+}
+
+// The flashing light of the alert card: a bright border with a glow outside it and a faint one
+// inside. Drawn white; the material tints it orange or red and pulses its opacity.
+export function drawAlertGlow(g, d, card) {
+  g.clearRect(0, 0, g.canvas.width, g.canvas.height);
+  if (!card) return;
+  const { x, y, w, h, r } = card;
+  g.save();
+  g.strokeStyle = '#ffffff';
+  g.shadowColor = '#ffffff';
+  for (const [blur, width, alpha] of [[1.8 * d, 0.5 * d, 0.55], [0.9 * d, 0.34 * d, 0.8], [0, 0.24 * d, 1]]) {
+    g.globalAlpha = alpha;
+    g.shadowBlur = blur;
+    g.lineWidth = width;
+    g.beginPath();
+    g.roundRect(x, y, w, h, r);
+    g.stroke();
+  }
+  g.restore();
 }
 
 // ---- route / voice toast (top centre) ----
@@ -364,7 +393,7 @@ export function drawLayers(g, d, vm) {
   const hits = [];
   if (!vm.tabs.length) return hits; // layers:ready 전에는 아무것도 그리지 않는다
   const pad = 0.3 * d;
-  const tabH = 3.2 * d;
+  const tabH = 3.0 * d;
   const rows = Math.ceil(vm.tabs.length / 2);
   const segH = pad * 2 + rows * tabH + Math.max(0, rows - 1) * pad;
   box(g, 0, 0, W, segH, 1.1 * d, T.menu);
@@ -408,7 +437,7 @@ export function drawLayers(g, d, vm) {
     const y0 = segH + 0.6 * d;
     const lp = 0.9 * d;
     const line = 1.37 * d;
-    const size = 1.05 * d;
+    const size = 1.0 * d;
     const inner = W - lp * 2;
     const h = 1.4 * d + 0.8 * d + (2 + lg.src.length) * line + (2 + lg.src.length) * 0.3 * d;
     box(g, 0, y0, W, h, 1.1 * d, T.menu);
@@ -431,65 +460,6 @@ export function drawLayers(g, d, vm) {
   }
   drawCursor(g, d, vm.cursor);
   return hits;
-}
-
-// ---- 비상 테두리 ----
-// 가장자리만 칠하고 가운데는 비운다 (지도와 화살표를 가리지 않게).
-// 흰색으로 그려 두고, 색은 index.js가 경보 등급에 따라 입힌다 (critical 빨강, warn 주황).
-export function drawEdge(g, shape = 'rect') {
-  const { width: W, height: H } = g.canvas;
-  g.clearRect(0, 0, W, H);
-  if (shape === 'quest3') {
-    drawEdgeQuest3(g, W, H);
-    return;
-  }
-  const depth = Math.round(W * 0.075);
-  g.strokeStyle = '#ffffff';
-  g.lineWidth = 1.5;
-  for (let i = 0; i < depth; i++) {
-    g.globalAlpha = (1 - i / depth) ** 2;
-    g.beginPath();
-    g.roundRect(i + 0.5, i + 0.5, W - 2 * i - 1, H - 2 * i - 1, Math.max(0, depth * 0.6 - i * 0.3));
-    g.stroke();
-  }
-  g.globalAlpha = 1;
-}
-
-// Quest 3 lens contour (mockup): a rounded oval. The glow is clear in the middle, 46% at 87% of
-// the oval and solid at its edge and beyond; a soft rim line follows a superellipse (n = 2.6).
-function drawEdgeQuest3(g, W, H) {
-  g.save();
-  g.translate(W / 2, H / 2);
-  g.scale(0.52 * W, 0.5 * H);
-  const grad = g.createRadialGradient(0, 0, 0, 0, 0, 1);
-  grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  grad.addColorStop(0.64, 'rgba(255, 255, 255, 0)');
-  grad.addColorStop(0.87, 'rgba(255, 255, 255, 0.46)');
-  grad.addColorStop(1, 'rgba(255, 255, 255, 1)');
-  g.fillStyle = grad;
-  g.fillRect(-1.2, -1.2, 2.4, 2.4);
-  g.restore();
-
-  const rx = 0.492 * W;
-  const ry = 0.488 * H;
-  const exp = 2 / 2.6;
-  g.beginPath();
-  for (let i = 0; i <= 160; i++) {
-    const t = (i / 160) * Math.PI * 2;
-    const ct = Math.cos(t);
-    const st = Math.sin(t);
-    const x = W / 2 + rx * Math.sign(ct) * Math.abs(ct) ** exp;
-    const y = H / 2 + ry * Math.sign(st) * Math.abs(st) ** exp;
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
-  }
-  g.closePath();
-  g.strokeStyle = '#ffffff';
-  g.lineWidth = 0.014 * W;
-  g.shadowColor = '#ffffff';
-  g.shadowBlur = 0.012 * W;
-  g.stroke();
-  g.shadowBlur = 0;
 }
 
 /** Fingertip cursor on a menu: a ring that tightens as the finger nears, solid once it is locked

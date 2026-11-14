@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
 import { T, loadFont } from './tokens.js';
-import { drawStatus, drawBanner, drawAlert, drawLayers, drawEdge, drawCommands } from './draw.js';
+import { drawStatus, drawBanner, drawAlert, drawAlertGlow, drawLayers, drawCommands } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
 
@@ -129,7 +129,6 @@ function alarmBeep(level) {
 }
 // The running alarm: which level it is for, when it started, and how many beeps have sounded.
 const alarm = { level: null, t0: 0, beeps: 0 };
-let edgeShape = null;
 
 /** Short click, so a press is heard as well as seen. */
 function clickSound() {
@@ -662,18 +661,18 @@ export function init(context) {
   pCommands = makePanel(HUD.commands.wDeg, HUD.commands.hDeg);
   pCommands.mesh.visible = false;
   ctx.scene.add(pCommands.mesh);
-  // Alert card: dead centre of the view.
-  pAlert = makePanel(HUD.alert.wDeg, HUD.alert.hDeg);
-  place(pAlert, (HUD.stage.wDeg - HUD.alert.wDeg) / 2, (HUD.stage.hDeg - HUD.alert.hDeg) / 2, HUD.alert.wDeg, HUD.alert.hDeg);
-  cards.add(pStatus.mesh, pBanner.mesh, pAlert.mesh);
-  placeLayersFixed();
-
-  const E = HUD.edge;
-  pEdge = makePanel(E.halfWDeg * 2, E.halfHDeg * 2, 512, Math.round((512 * E.halfHDeg) / E.halfWDeg));
-  pEdge.mesh.position.set(0, 0, -HUD.distanceM);
+  // Alert card: bottom centre, clear of the line of sight (mockup). Its flashing light is a
+  // second panel of the same size behind it, so the pulse is a change of opacity, not a redraw.
+  const A = HUD.alert;
+  const alertTop = HUD.stage.hDeg - A.bottomDeg + A.glowDeg - A.hDeg;
+  pEdge = makePanel(A.wDeg, A.hDeg);
+  place(pEdge, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
   pEdge.mesh.renderOrder = 999;
   pEdge.mesh.visible = false;
-  rigid.add(pEdge.mesh);
+  pAlert = makePanel(A.wDeg, A.hDeg);
+  place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
+  cards.add(pStatus.mesh, pBanner.mesh, pEdge.mesh, pAlert.mesh);
+  placeLayersFixed();
 
   wire(ctx.bus);
   initInput();
@@ -696,13 +695,6 @@ export function update(frame) {
     s = Math.min(1, (halfH * ctx.camera.aspect) / ((HUD.stage.wDeg / 2) * UNIT), halfH / ((HUD.stage.hDeg / 2) * UNIT));
   }
   rigid.scale.set(s, s, 1);
-  // The alert frame runs around the whole viewport: on a PC screen that is the window edge,
-  // in the headset it is the size set in HUD.edge.
-  if (ctx.xr.presenting) pEdge.mesh.scale.set(1, 1, 1);
-  else {
-    const halfH = Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov / 2)) * HUD.distanceM;
-    pEdge.mesh.scale.set((halfH * ctx.camera.aspect) / (HUD.edge.halfWDeg * UNIT) / s, halfH / (HUD.edge.halfHDeg * UNIT) / s, 1);
-  }
 
   if (HUD.followRate > 0) {
     const k = 1 - Math.exp(-HUD.followRate * frame.dt);
@@ -729,13 +721,7 @@ export function update(frame) {
   // 테두리: critical은 빨강, warn은 같은 테두리를 주황으로. 느리게 밝아졌다 어두워진다.
   // "경보 확인" 뒤에는 흐리게 멈춘다. mode:change(emergency)는 critical일 때만 보낸다.
   const level = frameLevel();
-  // Frame shape follows the display: the Quest 3 lens oval in the headset, the window edge on a PC.
-  const shape = ctx.xr.presenting ? 'quest3' : 'rect';
-  if (shape !== edgeShape) {
-    edgeShape = shape;
-    drawEdge(pEdge.g, shape);
-    pEdge.tex.needsUpdate = true;
-  }
+  // The light around the alert card (mockup): orange for warn, red for critical.
   pEdge.mesh.visible = !!level;
   // Alarm: a beep at the start of every period, the flash 0.1 s after it (mockup). "Confirm"
   // stops both; a change of level starts over.
@@ -780,8 +766,10 @@ export function update(frame) {
     const vm = bannerVM();
     drawBanner(pBanner.g, HUD.pxPerDeg, vm);
     pBanner.tex.needsUpdate = true;
-    drawAlert(pAlert.g, HUD.pxPerDeg, vm);
+    const card = drawAlert(pAlert.g, HUD.pxPerDeg, vm, HUD.alert.maxCardDeg, HUD.alert.glowDeg);
     pAlert.tex.needsUpdate = true;
+    drawAlertGlow(pEdge.g, HUD.pxPerDeg, card);
+    pEdge.tex.needsUpdate = true;
     pAlert.mesh.visible = !!vm.alert; // an empty panel in the centre would still cost a draw
     dirty.banner = false;
   }
