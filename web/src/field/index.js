@@ -205,7 +205,7 @@ function makePalmMap() {
   const geometry = new THREE.PlaneGeometry(FIELD.mapM, FIELD.mapM, N, N).rotateX(-Math.PI / 2);
   geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array((N + 1) * (N + 1) * 3).fill(1), 3));
   // alphaTest: the empty parts of the picture are not drawn at all (and hide nothing behind them).
-  const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false, transparent: true, alphaTest: 0.5 }));
+  const surface = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, side: THREE.DoubleSide, toneMapped: false, transparent: true, alphaTest: 0.05 }));
   surface.name = 'field-map-surface';
   surface.frustumCulled = false; // its heights change without the bounding sphere being recomputed
   const beam = makeBeam('field-palm-beam');
@@ -217,8 +217,9 @@ function makePalmMap() {
 
 // ---------- map drawing ----------
 // Scan colours: structure, and floor the headset has seen to be clear.
-const STRUCTURE = [255, 169, 77, 240];
-const CLEAR = [60, 70, 86, 215];
+// [r, g, b, a] 0-255. Both let the room show through: the floor about half, structure only a little.
+const STRUCTURE = [255, 169, 77, 215];
+const CLEAR = [60, 70, 86, 115];
 
 function drawGridCanvas() {
   if (!grid) return;
