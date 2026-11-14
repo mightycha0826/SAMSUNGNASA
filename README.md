@@ -328,6 +328,13 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 2. Get past the certificate warning and press **Start AR** (the button labelled `AR 시작`). Without a Jetson, append `?mock=1` to the address.
 3. Give the Jetson address with `?jetson=<address>:8443`. The default is port 8443 on the same host as the page. If the Jetson also uses a self-signed certificate, open `https://<Jetson address>:8443/` once in the headset browser and accept the warning, or the WebSocket will not connect.
 
+**Two ways in** — the start page has two buttons.
+
+- **Mars map**: the NASA terrain on the left palm, layers, the route between base and survey site. Walking moves your marker on the map (one real metre counts as 100 m by default, `?walkScale=`).
+- **Field map**: the premise is that you stand at the base on Mars. The palm map is the Mars map zoomed to 20 m around you, 1 : 1 with the room; wherever the headset has scanned the room, the map is rewritten with the structure that is really there, and everywhere else it is still the Mars data. Say **"Mark target"** where you stand, walk away, and the way back is drawn as arrows on the floor and as a line on the map. The scan is the room geometry the Quest 3 keeps (run Space Setup once); it is not live depth.
+
+In both, turning the back of the left hand up shows the voice commands as a menu. Point with the right index finger and pinch to pick one.
+
 **Device check page** — open `https://<PC address>:5173/check.html` in the headset browser. Press **Start AR check** (`AR 점검 시작`), look around the room for 10 seconds and raise both hands: a table shows the granted session features and whether hands, depth, mesh and planes were received. The microphone is checked separately with the **Microphone check** (`마이크 점검`) button.
 
 **Build and test**

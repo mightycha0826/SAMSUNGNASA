@@ -429,21 +429,7 @@ export function drawLayers(g, d, vm) {
     let kx = lp;
     for (const k of lg.keys) kx += text(g, k, kx, y, { size, color: T.muted }) + 0.55 * d;
   }
-  // Fingertip cursor: a ring that tightens as the finger gets closer to the menu.
-  if (vm.cursor) {
-    const { x, y, near } = vm.cursor;
-    g.beginPath();
-    g.arc(x, y, (1.6 - 1.1 * near) * d, 0, Math.PI * 2);
-    g.strokeStyle = T.primary;
-    g.globalAlpha = 0.35 + 0.65 * near;
-    g.lineWidth = 0.22 * d;
-    g.stroke();
-    g.beginPath();
-    g.arc(x, y, 0.22 * d, 0, Math.PI * 2);
-    g.fillStyle = T.ink;
-    g.fill();
-    g.globalAlpha = 1;
-  }
+  drawCursor(g, d, vm.cursor);
   return hits;
 }
 
@@ -504,4 +490,61 @@ function drawEdgeQuest3(g, W, H) {
   g.shadowBlur = 0.012 * W;
   g.stroke();
   g.shadowBlur = 0;
+}
+
+/** Fingertip cursor on a menu: a ring that tightens as the finger nears, solid once it is locked
+ *  for a pinch. */
+function drawCursor(g, d, cursor) {
+  if (!cursor) return;
+  const { x, y, near, locked } = cursor;
+  g.beginPath();
+  g.arc(x, y, (locked ? 0.75 : 1.6 - 0.9 * near) * d, 0, Math.PI * 2);
+  g.strokeStyle = locked ? T.ink : T.primary;
+  g.globalAlpha = locked ? 1 : 0.4 + 0.6 * near;
+  g.lineWidth = (locked ? 0.3 : 0.22) * d;
+  g.stroke();
+  g.beginPath();
+  g.arc(x, y, 0.22 * d, 0, Math.PI * 2);
+  g.fillStyle = T.ink;
+  g.fill();
+  g.globalAlpha = 1;
+}
+
+// ---- voice command menu (back of the left hand) ----
+// vm: { title, hint, items: [{ id, label, hover, pressed }], cursor }
+// Returns the pressable cells in canvas pixels: [{ id, x, y, w, h }]
+export function drawCommands(g, d, vm) {
+  const W = g.canvas.width;
+  g.clearRect(0, 0, W, g.canvas.height);
+  const hits = [];
+  if (!vm.items.length) return hits;
+  const pad = 0.5 * d;
+  const headH = 3.4 * d;
+  const cellH = 3.3 * d;
+  const gap = 0.35 * d;
+  const rows = Math.ceil(vm.items.length / 2);
+  const total = pad + headH + rows * cellH + Math.max(0, rows - 1) * gap + pad;
+  box(g, 0, 0, W, total, 1.4 * d, T.surface);
+  ring(g, 0, 0, W, total, 1.4 * d);
+  icon(g, 'navigation', pad + 1.2 * d, pad + headH / 2 - 0.2 * d, 1.5 * d, T.primaryIcon, T.row);
+  text(g, vm.title, pad + 2.5 * d, pad + headH / 2 - 0.55 * d, { weight: 700, size: 1.25 * d });
+  text(g, vm.hint, pad + 2.5 * d, pad + headH / 2 + 0.75 * d, { size: 0.9 * d, color: T.muted });
+  const cellW = (W - pad * 2 - gap) / 2;
+  vm.items.forEach((item, i) => {
+    const x = pad + (i % 2) * (cellW + gap);
+    const y = pad + headH + Math.floor(i / 2) * (cellH + gap);
+    hits.push({ id: item.id, x, y, w: cellW, h: cellH });
+    box(g, x, y, cellW, cellH, 0.8 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
+    if (item.hover || item.pressed) {
+      g.beginPath();
+      g.roundRect(x + 0.1 * d, y + 0.1 * d, cellW - 0.2 * d, cellH - 0.2 * d, 0.7 * d);
+      g.strokeStyle = item.pressed ? T.ink : 'rgba(255, 255, 255, 0.85)';
+      g.lineWidth = 0.2 * d;
+      g.stroke();
+    }
+    const size = 1.15 * d;
+    text(g, fit(g, item.label, cellW - 1.2 * d, 600, size), x + cellW / 2, y + cellH / 2, { weight: 600, size, align: 'center' });
+  });
+  drawCursor(g, d, vm.cursor);
+  return hits;
 }

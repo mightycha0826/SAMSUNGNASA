@@ -20,6 +20,7 @@
 import { bus } from './bus.js';
 import { config, mock } from './config.js';
 import { handleVoiceMessage, initVoice, resetVoice, voiceLinkOpened } from './voice.js';
+import { initDiag, flushDiag } from './diag.js';
 
 let ws = null;
 let linkLost = false;
@@ -42,6 +43,9 @@ export function handleMessage(msg) {
       break;
     case 'voice.command':
       handleVoiceCommand(payload);
+      break;
+    case 'voice.commands':
+      bus.emit('voice:commands', { commands: payload.commands ?? [] });
       break;
     case 'tts.begin':
     case 'tts.end':
@@ -120,6 +124,7 @@ function connect() {
     send('hello', { client: 'quest', mock: false });
     send('state', state);
     voiceLinkOpened();
+    flushDiag();
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') {
@@ -151,8 +156,14 @@ function sendState(patch) {
 }
 
 /** 연결을 시작한다. 모든 모듈의 init이 끝난 뒤에 부른다. */
-export async function initLink() {
+export async function initLink(xr) {
+  if (xr) initDiag(send, xr);
   bus.on('voice:say', ({ text, priority = 'normal' }) => send('voice.say', { text, priority }));
+  // A command picked from a menu runs exactly like a spoken one: the hub matches the text and
+  // answers. Without a hub (mock mode, link lost) the intent that came with it is used as is.
+  bus.on('voice:text', ({ text, intent, slots }) => {
+    if (!send('voice.text', { text }) && intent) handleVoiceCommand({ intent, slots: slots ?? {}, text });
+  });
   bus.on('mode:change', ({ mode }) => sendState({ mode }));
   bus.on('nav:route', ({ status, targetId }) => sendState({ navStatus: status, targetId: targetId ?? null }));
 

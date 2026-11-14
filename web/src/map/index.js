@@ -224,7 +224,8 @@ export function init(context) {
   dispose(); ctx = context; root = new THREE.Group(); root.name = 'palm-map'; ctx.scene.add(root);
   root.position.set(0, 0.85, 0); root.scale.setScalar(MAP.desktopScale); root.rotation.x = MAP.desktopTiltRad;
   off.push(ctx.bus.on('layers:ready', load), ctx.bus.on('layer:toggle', ({ id, visible }) => { void selectLayer(id, visible); }),
-    ctx.bus.on('nav:route', event => {
+    ctx.bus.on('nav:position', ({ point }) => setCurrent(point)), ctx.bus.on('nav:route', event => {
+      if (event.frame === 'room') return; // field-mode routes are in room coordinates, not map metres
       if (event.points?.length) setCurrent(event.points[0]);
       routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
     }));

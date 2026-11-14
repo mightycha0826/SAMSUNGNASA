@@ -58,16 +58,40 @@ export const HUD = {
     /** Opacity of the menu and legend backgrounds (0 to 1). 0.9 is the mockup's `--h-surface`.
      *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
     faceOpacity: 0.9,
-    /** The fingertip cursor appears within this distance in front of the menu (m) */
-    hoverDistM: 0.09,
+    /** (see `touch` below for how the menus are pressed) */
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
     /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다. 헤드셋에서 미확인 */
     palmUpDot: -0.35,
     /** 검지 끝이 이 거리 안으로 들어오면 누른 것으로 본다 (m) */
-    pokeDistM: 0.02,
+    pokeDistM: 0.02, // kept for reference; the live value is touch.pokeDistM
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },
+  /** Pressing the floating menus with the right hand.
+   *  The cursor is where the index fingertip points at the menu, shown from hoverDistM away.
+   *  A pinch (thumb tip to index tip) clicks at the cursor. Pinching moves the fingertip, so
+   *  the cursor freezes once the fingers come within lockDistM of each other and the click
+   *  lands where the cursor was, not where the fingertip ends up. Touching the menu with an
+   *  open hand also presses it (pokeDistM); a pinching hand never pokes. */
+  touch: {
+    hoverDistM: 0.3,
+    lockDistM: 0.05,
+    pinchOnM: 0.02,
+    pinchOffM: 0.04,
+    pokeDistM: 0.015,
+    /** The frozen cursor is the one from this long before the fingers started closing (ms) */
+    settleMs: 140,
+  },
+  /** Voice command menu: floats over the back of the left hand when it faces up. */
+  commands: {
+    wDeg: 22,
+    hDeg: 30,
+    /** Back of the hand counts as up when its direction (wrist +Y) points this far up */
+    backUpDot: 0.5,
+    /** Above the wrist and toward the fingers (m), size factor */
+    liftM: 0.13,
+    scale: 0.6,
+  },
   toastMs: 4000,
 };
