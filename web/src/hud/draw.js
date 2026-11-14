@@ -309,8 +309,25 @@ export function drawLayers(g, d, vm) {
     const y = pad + Math.floor(i / 2) * (tabH + pad);
     hits.push({ id: tab.id, x, y, w: tabW, h: tabH });
     const size = 1.2 * d;
-    if (tab.active) {
-      box(g, x, y, tabW, tabH, 0.8 * d, T.badge);
+    // Feedback for a fingertip: an outline while it hovers, a filled flash when it presses.
+    if (tab.pressed) {
+      box(g, x, y, tabW, tabH, 0.8 * d, T.primary);
+    } else if (tab.hover && !tab.active) {
+      box(g, x, y, tabW, tabH, 0.8 * d, T.row);
+    }
+    if (tab.hover || tab.pressed) {
+      g.beginPath();
+      g.roundRect(x + 0.1 * d, y + 0.1 * d, tabW - 0.2 * d, tabH - 0.2 * d, 0.7 * d);
+      g.strokeStyle = tab.pressed ? T.ink : 'rgba(255, 255, 255, 0.85)';
+      g.lineWidth = 0.2 * d;
+      g.stroke();
+    }
+    if (tab.pressed) {
+      const tw = measure(g, tab.label, 600, size);
+      text(g, tab.label, x + (tabW - tw) / 2, y + tabH / 2, { weight: 600, size });
+    } else if (tab.active) {
+      if (!tab.hover) box(g, x, y, tabW, tabH, 0.8 * d, T.badge);
+      else { box(g, x + 0.2 * d, y + 0.2 * d, tabW - 0.4 * d, tabH - 0.4 * d, 0.6 * d, T.badge); }
       const tw = measure(g, tab.label, 600, size);
       const total = 1.4 * d + 0.4 * d + tw;
       const sx = x + (tabW - total) / 2;
@@ -346,6 +363,21 @@ export function drawLayers(g, d, vm) {
     y += line + 0.3 * d;
     let kx = lp;
     for (const k of lg.keys) kx += text(g, k, kx, y, { size, color: T.muted }) + 0.55 * d;
+  }
+  // Fingertip cursor: a ring that tightens as the finger gets closer to the menu.
+  if (vm.cursor) {
+    const { x, y, near } = vm.cursor;
+    g.beginPath();
+    g.arc(x, y, (1.6 - 1.1 * near) * d, 0, Math.PI * 2);
+    g.strokeStyle = T.primary;
+    g.globalAlpha = 0.35 + 0.65 * near;
+    g.lineWidth = 0.22 * d;
+    g.stroke();
+    g.beginPath();
+    g.arc(x, y, 0.22 * d, 0, Math.PI * 2);
+    g.fillStyle = T.ink;
+    g.fill();
+    g.globalAlpha = 1;
   }
   return hits;
 }

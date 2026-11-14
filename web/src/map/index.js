@@ -28,12 +28,39 @@
 import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
 import { mapPoint, range, terrainArrays } from './terrain.js';
+import { leftPalm, makePalmState } from '../core/palm.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
 let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
 let routePoints = [], routeLine, off = [], textures = new Map();
 const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
+const palmState = makePalmState();
+let beam = null;
+
+// A faint cone of light from the palm up to the map, so the map reads as projected from the hand.
+function makeBeam() {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((BEAM_SEGMENTS + 2) * 3), 3));
+  const index = [];
+  for (let i = 1; i <= BEAM_SEGMENTS; i++) index.push(0, i, i + 1);
+  geometry.setIndex(index);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x8ab4ff, transparent: true, opacity: 0.13,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }));
+  mesh.name = 'palm-beam'; mesh.frustumCulled = false; mesh.renderOrder = -1;
+  return mesh;
+}
+const BEAM_SEGMENTS = 24;
+// Apex at the palm (given in the map's own frame), rim under the edge of the map.
+function updateBeam(apex) {
+  const p = beam.geometry.attributes.position, r = MAP.widthM * 0.42;
+  p.setXYZ(0, apex.x, apex.y, apex.z);
+  for (let i = 0; i <= BEAM_SEGMENTS; i++) {
+    const t = (i / BEAM_SEGMENTS) * Math.PI * 2;
+    p.setXYZ(i + 1, Math.cos(t) * r, -0.004, Math.sin(t) * r);
+  }
+  p.needsUpdate = true;
+}
 
 function disposeObject(object) {
   object?.traverse(o => { o.geometry?.dispose(); if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose(); });
@@ -148,7 +175,7 @@ function clearData() {
   for (const texture of textures.values()) texture.dispose(); textures.clear();
   if (label) label.userData.texture.dispose();
   if (root) for (const child of [...root.children]) disposeObject(child);
-  surface = label = currentMarker = routeLine = null; data = arrays = transform = null;
+  surface = label = currentMarker = routeLine = beam = null; data = arrays = transform = null;
   routePoints = []; activeLayer = null;
 }
 function load(payload) {
@@ -190,6 +217,7 @@ export function init(context) {
     const cleanup = () => session.removeEventListener('select', select);
     session.addEventListener('end', cleanup, { once: true }); off.push(cleanup);
   }), ctx.xr.onSessionEnd(() => {
+    if (beam) beam.visible = false;
     root.visible = true; root.position.set(0, 0.85, 0); root.quaternion.identity(); root.rotation.x = MAP.desktopTiltRad;
     root.scale.setScalar(MAP.desktopScale); shownSince = null; if (label) label.position.z = -0.19;
   }));
@@ -211,8 +239,12 @@ export function update(frame) {
     if (!up) { shownSince = null; root.visible = false; return; }
     if (shownSince === null) shownSince = time;
     if (time - shownSince < MAP.holdMs) { root.visible = false; return; }
-    const p = wrist.transform.position; position.set(p.x, p.y + 0.06, p.z);
+    // Float above and a little in front of the palm instead of sitting on the wrist.
+    if (leftPalm(frame, ctx.camera, palmState)) position.copy(palmState.anchor);
+    else { const p = wrist.transform.position; position.set(p.x, p.y + 0.06, p.z); }
+    if (!beam) { beam = makeBeam(); root.add(beam); }
   } else {
+    if (beam) beam.visible = false;
     shownSince = null;
     if (!controllerShown) { root.visible = false; return; }
     const source = [...session.inputSources].find(s => !s.hand && (s.gripSpace || s.targetRaySpace));
@@ -223,8 +255,9 @@ export function update(frame) {
   if (!root.visible) root.position.copy(position);
   else root.position.lerp(position, 1 - Math.exp(-MAP.followRate * dt));
   root.quaternion.identity(); root.visible = true;
+  if (beam && left) { beam.visible = true; updateBeam(normal.copy(palmState.palm).sub(root.position)); }
 }
 export function dispose() {
   off.forEach(fn => fn()); off = []; clearData();
-  root?.removeFromParent(); root = null; ctx = null; shownSince = null; controllerShown = false;
+  beam = null; root?.removeFromParent(); root = null; ctx = null; shownSince = null; controllerShown = false;
 }
