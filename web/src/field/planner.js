@@ -8,7 +8,7 @@ export const PLAN = {
   clearanceM: 0.3, // the route keeps this far from obstacles where it can (about half a body width)
   squeezeM: 0.3, // the narrowest gap a person can still get through, walking sideways
   squeezeCost: 4, // walking right beside an obstacle costs up to 1 + this: a wide way is taken unless it is some 3 m longer
-  unknownCost: 1.4, // walking through unseen floor is allowed but costs more
+  unknownCost: 3, // a step on floor nobody has seen costs three steps on floor that is known clear, as on the Mars map (nav: unknown terrain risk x3): a route through known ground is taken unless it is three times as long
   snapM: 0.8, // a start or goal on an obstacle may move this far to free floor
 };
 
@@ -135,8 +135,9 @@ function nearestFree(grid, blocked, c, r, maxCells) {
 }
 
 /**
- * True when the straight segment between two cells crosses no blocked cell, and none closer to
- * an obstacle than maxCrowd allows (so a shortcut never hugs a wall the path had kept away from).
+ * True when the straight segment between two cells crosses no blocked cell, and none that costs
+ * more than maxCrowd (so a shortcut never hugs a wall the path had kept away from, and never
+ * crosses unseen floor the path had gone around).
  */
 function clear(grid, blocked, a, b, crowd, maxCrowd) {
   const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2);
@@ -201,7 +202,11 @@ export function planPath(grid, start, goal, opts = {}) {
   if (!grid?.cells?.length) return straight();
 
   const blocked = impassable(grid, P.squeezeM);
+  // What a step onto each cell costs, per metre: more beside an obstacle, and more on floor
+  // nobody has seen. The search uses it, and so does the straightening afterwards: a shortcut
+  // across unseen floor must not undo a way around it that the search chose.
   const crowd = crowding(grid, P.clearanceM, P.squeezeCost);
+  for (let i = 0; i < crowd.length; i++) if (grid.cells[i] === 255) crowd[i] *= P.unknownCost;
   const snap = Math.ceil(P.snapM / grid.cellSizeM);
   const s0 = cellOf(grid, start[0], start[1]);
   const g0 = cellOf(grid, goal[0], goal[1]);
@@ -238,7 +243,7 @@ export function planPath(grid, start, goal, opts = {}) {
       if (done[j] || blocked[j]) continue;
       // no cutting corners between two blocked cells
       if (dc && dr && (blocked[r * cols + cc] || blocked[rr * cols + c])) continue;
-      const step = w * crowd[j] * (cells[j] === 255 ? P.unknownCost : 1);
+      const step = w * crowd[j];
       if (cost[i] + step < cost[j]) {
         cost[j] = cost[i] + step;
         from[j] = i;
@@ -252,7 +257,8 @@ export function planPath(grid, start, goal, opts = {}) {
   for (let i = gi; i !== -1; i = from[i]) path.push([i % cols, Math.floor(i / cols)]);
   path.reverse();
   // String pulling: drop every cell that can be skipped in a straight line, as long as the
-  // shortcut comes no closer to an obstacle than the stretch of path it replaces.
+  // shortcut crosses no cell that costs more than the stretch of path it replaces: it comes no
+  // closer to an obstacle, and it does not leave known floor for unseen floor.
   const at = ([c, r]) => crowd[r * cols + c];
   const kept = [path[0]];
   let anchor = 0;

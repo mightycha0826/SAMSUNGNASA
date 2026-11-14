@@ -123,3 +123,29 @@ test('the squeeze is taken when the wide way is far', () => {
   assert.equal(r.blocked, false);
   assert.ok(r.points.every((p) => p[0] > -1), `expected the gap at x = 0: ${JSON.stringify(r.points)}`);
 });
+
+test('known floor is preferred to unseen floor: the known way is taken unless it is three times as long', () => {
+  // The straight way from A to B (4 m) lies on floor nobody has seen; a corridor of known floor
+  // goes around it.
+  const make = (detourHalfM) => {
+    const g = room(120, 120); // 12 m square, origin -3
+    g.originXZ = [-6, -6];
+    g.cells.fill(255);
+    const known = (x0, z0, x1, z1) => {
+      for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) {
+        const x = g.originXZ[0] + (c + 0.5) * g.cellSizeM;
+        const z = g.originXZ[1] + (r + 0.5) * g.cellSizeM;
+        if (x >= x0 && x <= x1 && z >= z0 && z <= z1) g.cells[r * g.cols + c] = 0;
+      }
+    };
+    known(-2.6, -0.6, -1.4, detourHalfM + 0.6); // up from A
+    known(-2.6, detourHalfM - 0.6, 2.6, detourHalfM + 0.6); // across
+    known(1.4, -0.6, 2.6, detourHalfM + 0.6); // down to B
+    return g;
+  };
+  const viaKnown = (r) => r.points.some((p) => p[1] > 0.5);
+  // The known way is 4 + 2 x 1.5 = 7 m against 4 m of unseen floor (costing 12): it is taken.
+  assert.equal(viaKnown(planPath(make(1.5), [-2, 0], [2, 0])), true);
+  // A known way of 4 + 2 x 5 = 14 m is more than three times the direct 4 m: straight across.
+  assert.equal(viaKnown(planPath(make(5), [-2, 0], [2, 0])), false);
+});
