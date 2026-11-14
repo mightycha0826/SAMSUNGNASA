@@ -6,8 +6,10 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createPointer, pickHit, rayOnPanel } from './pointer.js';
 
-// K is the shipped tuning, so a slipped digit or a renamed key in HUD.pointer fails here, off the
-// headset. config.js reads location.search as it loads and node has no `location`: the stand-in
+// K is the shipped tuning, so the hover, press-repeat and smoothing tests run on the real numbers
+// (stick, snap, repeatMs, smooth*). The other pointer settings change no result here: a mistake
+// in one of those is not caught by this file.
+// config.js reads location.search as it loads and node has no `location`: the stand-in
 // has to exist first, which a static import (hoisted above every statement) would not allow.
 globalThis.location ??= { search: '' };
 const { HUD } = await import('./config.js');
