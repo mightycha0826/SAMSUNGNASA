@@ -6,9 +6,12 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SCAN } from './index.js';
 import { createGrid, viewOf, addDepthView, depthBufferToMeters, mergeLayers, PASSABLE, OBSTACLE, UNKNOWN } from './grid.js';
+import { TILES, moveWindow } from './tiles.js';
 
-const COLS = Math.round(SCAN.sizeM / SCAN.cellM);
-const ORIGIN = [-SCAN.sizeM / 2, -SCAN.sizeM / 2];
+// A 16 m grid around the origin: the arithmetic is the same on the scan's larger window.
+const SIZE_M = 16;
+const COLS = Math.round(SIZE_M / SCAN.cellM);
+const ORIGIN = [-SIZE_M / 2, -SIZE_M / 2];
 const newGrid = () => createGrid(COLS, COLS, SCAN.cellM, ORIGIN, SCAN);
 const cellOf = (x, z) => Math.floor((z - ORIGIN[1]) / SCAN.cellM) * COLS + Math.floor((x - ORIGIN[0]) / SCAN.cellM);
 
@@ -358,4 +361,112 @@ test('with settleScans 0 nothing ever settles', () => {
   for (let i = 0; i < 40; i++) readAt(grid, view, 0.05, -1.55, SCAN.minPoints * 3, 0);
   assert.equal(grid.settledCount, 0);
   assert.equal(grid.unsettledInView(view), true);
+});
+
+// ---- the window moves: shift and restore (tiles.js) ----
+
+const T = TILES.cells;
+const WIN = T * TILES.window;
+const TILE_M = T * SCAN.cellM;
+// The scan's window as it starts: two tiles either side of the room origin.
+const windowGrid = (cfg = SCAN) => createGrid(WIN, WIN, SCAN.cellM, [-2 * TILE_M, -2 * TILE_M], cfg);
+// The cell of a window grid that holds the room position (x, z), wherever the window is now.
+const at = (grid, x, z) => grid.cells[Math.floor((z - grid.originXZ[1]) / SCAN.cellM) * WIN + Math.floor((x - grid.originXZ[0]) / SCAN.cellM)];
+// One read of the cell at (x, z) with the wearer at `view`, on a window grid. The read is
+// folded in without the view, so the cells around it are not given up on along the way: these
+// tests count settled cells.
+function look(grid, view, x, z, obstaclePoints, floorPoints) {
+  grid.reopen(view);
+  for (let k = 0; k < obstaclePoints; k++) grid.add(x, 0.5, z);
+  for (let k = 0; k < floorPoints; k++) grid.add(x, 0, z);
+  grid.commit();
+  return at(grid, x, z);
+}
+// Move a window grid from tile `from` to tile `to` the way the scan does, with the archive.
+function move(grid, from, to, archive) {
+  return moveWindow({ live: grid.cells }, from, to, archive, {
+    live: {
+      shift: (dCols, dRows) => grid.shift(dCols, dRows, [to[0] * TILE_M, to[1] * TILE_M]),
+      paste: (col, row, tile) => grid.restore(col, row, T, tile),
+    },
+  });
+}
+
+test('shift: a cell that stays in the window keeps its state and what was counted for it', () => {
+  const grid = windowGrid();
+  const many = SCAN.minPoints * 3;
+  const view = headAt(0, 0);
+  const [x, z] = [0.05, -1.55]; // a thing being confirmed: seen once less than it takes
+  const [fx, fz] = [1.05, -1.55]; // floor, read once less than it takes to settle
+  const [sx, sz] = [-1.05, -1.55]; // an obstacle that has settled
+  for (let i = 0; i < SCAN.setScans + SCAN.settleScans; i++) look(grid, view, sx, sz, many, 0);
+  for (let i = 0; i < SCAN.settleScans; i++) look(grid, view, fx, fz, 0, many); // the first read makes it floor, the others confirm it
+  for (let i = 1; i < SCAN.setScans; i++) assert.notEqual(look(grid, view, x, z, many, 0), OBSTACLE); // last: sightings count in a row
+  assert.equal(grid.settledCount, 1);
+
+  grid.shift(T, 0, [-TILE_M, -2 * TILE_M]); // the window moves one tile in +x
+  assert.deepEqual(grid.originXZ, [-TILE_M, -2 * TILE_M]);
+  assert.equal(at(grid, sx, sz), OBSTACLE, 'the same room position still holds the obstacle');
+  assert.equal(at(grid, fx, fz), PASSABLE);
+  assert.equal(grid.settledCount, 1, 'what was settled is still settled');
+  // The sighting from before the move still counts: one more makes it an obstacle.
+  assert.equal(look(grid, view, x, z, many, 0), OBSTACLE);
+  // So does the count towards settling: one more read of the floor settles it.
+  look(grid, view, fx, fz, 0, many);
+  assert.equal(grid.settledCount, 2);
+  // And the settled obstacle does not look again, as before the move.
+  for (let i = 0; i < SCAN.clearScans * 2; i++) assert.equal(look(grid, view, sx, sz, 0, many), OBSTACLE);
+});
+
+test('shift: ground that comes in is unknown and open; a settled cell that leaves is no longer counted', () => {
+  const grid = windowGrid();
+  const many = SCAN.minPoints * 3;
+  const far = [-2 * TILE_M + 1.05, 0.05]; // in the column of tiles that leaves
+  const view = headAt(far[0], far[1] + 1.5);
+  for (let i = 0; i < SCAN.setScans + SCAN.settleScans; i++) look(grid, view, far[0], far[1], many, 0);
+  assert.equal(grid.settledCount, 1);
+  grid.shift(T, 0, [-TILE_M, -2 * TILE_M]);
+  assert.equal(grid.settledCount, 0);
+  assert.ok(!grid.cells.includes(OBSTACLE), 'it left with its tile');
+  // The same cell of the array now stands for ground a tile further on: nothing is known there,
+  // and it takes the usual number of sightings to mark it.
+  const fresh = [far[0] + WIN * SCAN.cellM, far[1]];
+  assert.equal(at(grid, fresh[0], fresh[1]), UNKNOWN);
+  const there = headAt(fresh[0], fresh[1] + 1.5);
+  for (let i = 1; i < SCAN.setScans; i++) assert.notEqual(look(grid, there, fresh[0], fresh[1], many, 0), OBSTACLE);
+  assert.equal(look(grid, there, fresh[0], fresh[1], many, 0), OBSTACLE);
+});
+
+test('a known cell that comes back into the window is settled and left alone until the wearer is back at it', () => {
+  const grid = windowGrid();
+  const archive = new Map();
+  const many = SCAN.minPoints * 3;
+  const chair = [-10.05, 0.05]; // in tile -2, the first column of the window
+  const floor = [-10.55, 0.05];
+  const beside = headAt(-10.05, 1.55); // 1.5 m from both
+  for (let i = 0; i < SCAN.setScans; i++) look(grid, beside, chair[0], chair[1], many, 0);
+  look(grid, beside, floor[0], floor[1], 0, many);
+  assert.equal(at(grid, chair[0], chair[1]), OBSTACLE);
+  assert.equal(grid.settledCount, 0, 'seen, but not often enough to be settled');
+
+  // The wearer walks a tile on: the window follows and the chair's tile goes to the archive.
+  move(grid, [-2, -2], [-1, -2], archive);
+  assert.ok(!grid.cells.includes(OBSTACLE));
+  assert.equal(archive.get('-2,0').live.filter((v) => v === OBSTACLE).length, 1);
+  // And back by a tile: the window takes the tile in again, far from the wearer.
+  move(grid, [-1, -2], [-2, -2], archive);
+  assert.equal(at(grid, chair[0], chair[1]), OBSTACLE);
+  assert.equal(at(grid, floor[0], floor[1]), PASSABLE);
+  assert.equal(grid.settledCount, 2, 'both known cells came back settled; the unknown ones are open');
+
+  // From 10 m away nothing is read into them, whatever the sensor says.
+  const distant = headAt(0, 0);
+  for (let i = 0; i < SCAN.clearScans * 2; i++) assert.equal(look(grid, distant, chair[0], chair[1], 0, many), OBSTACLE);
+  assert.equal(grid.settledCount, 2);
+  // Back within depth range they are opened, like any cell the wearer returns to.
+  assert.equal(grid.reopen(beside), 2);
+  assert.equal(grid.settledCount, 0);
+  // The chair is gone by now: it takes the usual clearScans reads of bare floor to say so.
+  for (let i = 1; i < SCAN.clearScans; i++) assert.equal(look(grid, beside, chair[0], chair[1], 0, many), OBSTACLE, `still held after ${i} clear read(s)`);
+  assert.equal(look(grid, beside, chair[0], chair[1], 0, many), PASSABLE);
 });
