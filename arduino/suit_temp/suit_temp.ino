@@ -54,16 +54,39 @@ DHT dht22(PIN, DHT22);
 Sensor  sensor = S_NONE;
 uint8_t failures = 0;
 
-// Mean of several ADC samples, in volts. Smooths the jitter of the analog sensors.
+// LM35 and TMP36 put out well under 1.1 V, so they are read against the board's internal 1.1 V
+// reference instead of the 5 V supply: one ADC step is then 0.1 degC instead of 0.5 degC, and
+// the reading no longer follows the noise on the USB supply.
+#if defined(INTERNAL1V1)
+  #define LOW_REF INTERNAL1V1       // Mega
+#elif defined(INTERNAL)
+  #define LOW_REF INTERNAL          // Uno, Nano
+#endif
+const float LOW_VREF = 1.1;
+bool lowRef = false;
+
+void useLowRef(bool on) {
+#ifdef LOW_REF
+  if (on == lowRef) return;
+  lowRef = on;
+  analogReference(on ? LOW_REF : DEFAULT);
+  for (uint8_t i = 0; i < 12; i++) { analogRead(PIN); delay(5); }   // let the reference settle
+#endif
+}
+
+// Mean of many ADC samples, in volts. Smooths the jitter of the analog sensors.
 float readVolts() {
   pinMode(PIN, INPUT);
   uint32_t sum = 0;
-  for (uint8_t i = 0; i < 16; i++) { sum += analogRead(PIN); delay(2); }
-  return (sum / 16.0) * VREF / ADC_MAX;
+  for (uint8_t i = 0; i < 64; i++) { sum += analogRead(PIN); delay(1); }
+  return (sum / 64.0) * (lowRef ? LOW_VREF : VREF) / ADC_MAX;
 }
 
 // True when nothing drives the pin: the weak internal pull-up then lifts it to the rail.
 bool pinFloating() {
+  // Measured against the supply: with the pull-up on, an LM35 (which can barely sink current)
+  // rises above 1.1 V and would look disconnected on the low reference.
+  useLowRef(false);
   pinMode(PIN, INPUT_PULLUP);
   delay(5);
   int up = analogRead(PIN);
@@ -73,6 +96,7 @@ bool pinFloating() {
 }
 
 Sensor detect() {
+  useLowRef(false);   // the voltage ranges below are measured against the supply
   uint8_t addr[8];
   oneWire.reset_search();
   if (oneWire.search(addr) && OneWire::crc8(addr, 7) == addr[7]) { probe.begin(); return S_DS18B20; }
@@ -106,10 +130,12 @@ bool readTempC(float &t) {
     case S_DHT22: t = dht22.readTemperature(); return !isnan(t);
     case S_LM35:
       if (pinFloating()) return false;
+      useLowRef(true);
       t = readVolts() * 100.0;
       return true;
     case S_TMP36:
       if (pinFloating()) return false;
+      useLowRef(true);
       t = (readVolts() - 0.5) * 100.0;
       return true;
     case S_NTC: {
