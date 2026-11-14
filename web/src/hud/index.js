@@ -28,7 +28,7 @@ import { T, loadFont } from './tokens.js';
 import { drawBanner, drawAlert, drawAlertGlow, drawLayers, drawCommands } from './draw.js';
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
-import { createPointer } from './pointer.js';
+import { createPointer, tipDown } from './pointer.js';
 import { createSuit } from './suit.js';
 import { createRescue } from './rescue.js';
 import { handOpen } from '../core/palm.js';
@@ -100,14 +100,7 @@ let pPick = null;
 let pickHits = [];
 const pickTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
-const tipped = new THREE.Vector3();
-const tipAxis = new THREE.Vector3();
-/** `dir` turned downward by `deg` about its own horizontal axis (a ray already pointing straight up or down is left as it is). */
-function tipDown(dir, deg) {
-  tipAxis.crossVectors(dir, UP); // to the right of the ray
-  if (!(deg > 0) || tipAxis.lengthSq() < 1e-4) return dir;
-  return tipped.copy(dir).applyAxisAngle(tipAxis.normalize(), -THREE.MathUtils.degToRad(deg));
-}
+const tipped = new THREE.Vector3(); // the pointer's ray as it is used on the map (pointer.js: tipDown)
 let lastSosDraw = 0;
 let mapPointed = false; // the right hand's pointer is on the map this frame
 let suit = null; // the right hand: the vitals hologram over the palm (suit.js)
@@ -659,9 +652,11 @@ function initInput() {
   // In the headset every press comes from the pointer (pointer.js): hands and controllers alike.
   pointer = createPointer(ctx, HUD.pointer);
   pointerTargets = [
-    { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer },
+    // The layer tabs stand beside the map and the pick card over it: both are met by the ray
+    // the map is met by, so the cursor passes between map and menu without a jump.
+    { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer, pitchDeg: HUD.pointer.mapPitchDeg },
     { id: 'commands', panel: pCommands, hits: () => commandHits, press: pressCommand },
-    { id: 'pick', panel: pPick, hits: () => pickHits, press: pressPick },
+    { id: 'pick', panel: pPick, hits: () => pickHits, press: pressPick, pitchDeg: HUD.pointer.mapPitchDeg },
   ];
   // PC: mouse click
   const el = ctx.renderer.domElement;
@@ -881,7 +876,7 @@ function updatePointer(frame, now) {
     // The map lies flat, and a hand's pointer runs nearly level: it would meet the map at a
     // shallow angle, where a small turn of the wrist sends the cursor far across it. For the
     // map the ray is tipped downward, so it comes down on the map steeply.
-    const dir = tipDown(ray.dir, HUD.pointer.mapPitchDeg);
+    const dir = tipDown(ray.dir, HUD.pointer.mapPitchDeg, tipped);
     const hit = onMars ? pickOnMap(ray.origin, dir, HUD.pointer.maxM) : pickOnFieldMap(ray.origin, dir, HUD.pointer.maxM);
     if (!hit) continue;
     ray.show(hit.point, UP);

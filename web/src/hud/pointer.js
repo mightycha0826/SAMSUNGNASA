@@ -36,6 +36,23 @@ const a = new THREE.Vector3();
 const b = new THREE.Vector3();
 const q = new THREE.Quaternion();
 const Y = new THREE.Vector3(0, 1, 0);
+const tipAxis = new THREE.Vector3();
+const tipped = new THREE.Vector3();
+
+/**
+ * `dir` turned downward by `deg` about its own horizontal axis, written into `out`. A ray that
+ * already points straight up or down is copied as it is.
+ * The palm map lies flat and a hand's pointer runs nearly level: tipped down, the ray meets the
+ * map steeply and the cursor is easier to steer. The menus that belong to the map (the layer
+ * tabs beside it, the card over a picked place) use the same tipped ray, so the cursor goes
+ * from the map onto them and back without a jump.
+ */
+export function tipDown(dir, deg, out) {
+  out.copy(dir);
+  tipAxis.crossVectors(dir, Y); // to the right of the ray
+  if (deg > 0 && tipAxis.lengthSq() >= 1e-4) out.applyAxisAngle(tipAxis.normalize(), -THREE.MathUtils.degToRad(deg));
+  return out;
+}
 
 /** The hit rectangle to hover: the current one while the cursor is still about on it, else the
  *  one under the cursor, else the nearest one within reach. Lengths are in canvas pixels. */
@@ -217,7 +234,8 @@ export function createPointer(ctx, K) {
   /**
    * One frame of pointing.
    * targets: [{ id, panel, hits: () => [{ id, x, y, w, h }], press: (hitId) => void, enabled: () => boolean,
-   *             hands: ['left'] (tracked hands that may press it; default K.hands) }]
+   *             hands: ['left'] (tracked hands that may press it; default K.hands),
+   *             pitchDeg: 30 (the ray is tipped down by this much for this menu; default 0) }]
    * Returns Map(target id -> { hoverId, engaged }) for every target.
    */
   function update(frame, targets, now, dt) {
@@ -268,7 +286,8 @@ export function createPointer(ctx, K) {
         if (!t.panel.mesh.visible || t.enabled?.() === false) continue;
         // A menu is pressed by the hand that does not hold it: K.hands unless the menu says otherwise.
         if (st.hand && !(t.hands ?? K.hands).includes(st.hand)) continue;
-        const hit = rayOnPanel(t.panel, st.origin, st.dir, K.maxM, K.margin);
+        // A menu of the map is met by the ray the map is met by (pitchDeg).
+        const hit = rayOnPanel(t.panel, st.origin, t.pitchDeg ? tipDown(st.dir, t.pitchDeg, tipped) : st.dir, K.maxM, K.margin);
         if (hit && (!bestHit || hit.t < bestHit.t)) {
           best = t;
           bestHit = hit;

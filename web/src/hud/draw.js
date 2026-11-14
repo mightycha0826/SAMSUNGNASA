@@ -535,3 +535,35 @@ export function drawCommands(g, d, vm) {
   }
   return hits;
 }
+
+// ---- a vital sign (one chip beside the figure over the right palm, suit.js) ----
+// chip: { label, value, unit, tag, state: '' | 'warn' | 'crit' }                         one reading, or
+//       { label, unit, rows: [{ label, value, tag, state }], state }                     a short table
+// A dark card with its outline in the state's colour: label and where the number comes from on
+// the first line, the number large under it. The chip fills its canvas.
+export function drawVitalChip(g, d, chip) {
+  const W = g.canvas.width;
+  const H = g.canvas.height;
+  g.clearRect(0, 0, W, H);
+  const tone = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : null);
+  box(g, 0, 0, W, H, 1.0 * d, T.surface);
+  g.beginPath();
+  g.roundRect(0.12 * d, 0.12 * d, W - 0.24 * d, H - 0.24 * d, 0.9 * d);
+  g.strokeStyle = tone(chip.state) ?? 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = chip.state ? 0.32 * d : 0.14 * d;
+  g.stroke();
+  text(g, chip.rows && chip.unit ? `${chip.label} · ${chip.unit}` : chip.label, 0.8 * d, 1.3 * d, { weight: 600, size: 1.0 * d, color: T.muted });
+  if (chip.tag) tag(g, chip.tag, W - 0.6 * d, 1.3 * d, d, true);
+  if (chip.rows) {
+    chip.rows.forEach((row, k) => {
+      const ry = 2.5 * d + (k + 0.5) * 1.75 * d;
+      const lw = text(g, row.label, 0.8 * d, ry, { weight: 600, size: 1.05 * d, color: tone(row.state) ?? T.muted });
+      if (row.tag) text(g, row.tag, 0.8 * d + lw + 0.4 * d, ry + 0.08 * d, { weight: 600, size: 0.75 * d, color: T.muted });
+      text(g, row.value, W - 0.8 * d, ry, { weight: 700, size: 1.3 * d, color: tone(row.state) ?? T.ink, align: 'right', tight: true });
+    });
+    return;
+  }
+  const size = 2.1 * d;
+  const vw = text(g, chip.value, 0.8 * d, 3.55 * d, { weight: 700, size, color: tone(chip.state) ?? T.ink, tight: true });
+  if (chip.unit) text(g, chip.unit, 0.8 * d + vw + 0.35 * d, 3.85 * d, { weight: 600, size: 1.05 * d, color: T.muted });
+}

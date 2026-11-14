@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createPointer, pickHit, rayOnPanel } from './pointer.js';
+import { createPointer, pickHit, rayOnPanel, tipDown } from './pointer.js';
 
 // K is the shipped tuning, so the hover, press-repeat and smoothing tests run on the real numbers
 // (stick, snap, repeatMs, smooth*). The other pointer settings change no result here: a mistake
@@ -165,4 +165,20 @@ test('a hidden menu is not hit; of two menus the nearer one takes the ray', () =
     { id: 'near', panel: near, hits: () => HITS, press() {} },
   ], 16, 0.016);
   assert.deepEqual([out.get('near').engaged, out.get('far').engaged], [true, false]);
+});
+
+test('tipDown turns a level ray downward by the angle given, keeping its heading', () => {
+  const out = new THREE.Vector3();
+  tipDown(new THREE.Vector3(0, 0, -1), 30, out);
+  assert.ok(Math.abs(out.y + 0.5) < 1e-9 && Math.abs(out.z + Math.cos(Math.PI / 6)) < 1e-9 && Math.abs(out.x) < 1e-9, out.toArray().join());
+  // Any heading: the same drop, the same compass direction.
+  const dir = new THREE.Vector3(1, 0.2, -1).normalize();
+  tipDown(dir, 30, out);
+  assert.ok(Math.abs(out.length() - 1) < 1e-9);
+  assert.ok(Math.abs(Math.atan2(out.x, -out.z) - Math.atan2(dir.x, -dir.z)) < 1e-9, 'heading kept');
+  const drop = Math.asin(dir.y) - Math.asin(out.y);
+  assert.ok(Math.abs(drop - Math.PI / 6) < 1e-9, `dropped ${(drop * 180) / Math.PI} degrees`);
+  // Straight down, or no angle: as it is.
+  assert.deepEqual(tipDown(new THREE.Vector3(0, -1, 0), 30, out).toArray(), [0, -1, 0]);
+  assert.deepEqual(tipDown(new THREE.Vector3(0, 0, -1), 0, out).toArray(), [0, 0, -1]);
 });

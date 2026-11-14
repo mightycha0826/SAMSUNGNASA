@@ -1,11 +1,17 @@
 // The right hand: the wearer's vital signs and the suit's, at a glance.
 //
 // Open right palm turned up: a figure of the wearer turns slowly over the palm, as on the
-// display of a powered suit in the films. It is the same kind of object as the map over the
-// left palm (core/hologram.js): it floats a little above the palm, a little away from the
-// wearer and a little toward the middle of the body, a cone of light rises to it from the
-// palm, and everything written about it is on the caption card that goes around its
-// "cylinder", just under the plate the figure stands on, always on the side facing the wearer.
+// display of a powered suit in the films. It floats as the map does over the left palm
+// (core/hologram.js): a little above the palm, a little away from the wearer and a little
+// toward the middle of the body, with a cone of light rising to it from the palm.
+//
+// The readings use the map's "cylinder" in their own way. The map has one caption card on the
+// side of its cylinder; here an imaginary cylinder stands around the figure, wide enough to
+// clear its arms, and every reading is a chip of its own: three to the wearer's left of the
+// cylinder and three to the right, each standing out from the cylinder's side like a wing,
+// square to the wearer, with a thin line to the part of the figure it belongs to. As the
+// wearer moves around the hand the chips go around the cylinder, so they are always seen
+// straight on and never in front of the figure.
 //
 // Each reading belongs to a part of the figure, and that part turns orange or red when the
 // reading is out of range:
@@ -19,8 +25,8 @@
 //     backpack  battery (%)                     the headset's own battery (navigator.getBattery)
 //   There is no sensor on the body: every body temperature is simulated (HUD.suit.body). The
 //   one real temperature, the sensor on the Jetson, is the air around the wearer: it is shown
-//   in the caption as "Ambient", not on the figure, and the simulated body warms a little when
-//   it is hot, so heating the sensor shows here too. The caption marks what is simulated "sim".
+//   on its own chip as "Ambient", with no line to the figure, and the simulated body warms a
+//   little when it is hot, so heating the sensor shows here too. Simulated readings say "sim".
 //   ?simO2=12, ?simPressure=24, ?simHeart=160 and ?simBody=38.5 set values from the address,
 //   window.__hud.suit.set({ o2, pressureKpa, heart, bodyC, battery, headC, armsC, legsC }) from the console.
 //
@@ -34,7 +40,8 @@ import { HUD } from './config.js';
 import { T } from './tokens.js';
 import { suitStates, worst } from './suit-limits.js';
 import { makePalmState } from '../core/palm.js';
-import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm } from '../core/hologram.js';
+import { makeBeam, floatOverPalm } from '../core/hologram.js';
+import { drawVitalChip } from './draw.js';
 
 const HOLO = '#7fd4ff'; // the figure when all is well
 const Y = new THREE.Vector3(0, 1, 0);
@@ -239,7 +246,97 @@ export function createSuit(ctx) {
   const figure = makeFigure();
   figure.root.scale.setScalar(K.figureM);
   root.add(figure.root, makePlate(K.plateM));
-  const caption = makeCaption(root, 'suit-caption', K.caption);
+  // ---- the readings: chips beside the cylinder ----
+  // side: -1 to the wearer's left of the cylinder, +1 to the right. partY: the height on the
+  // figure (0 feet, 1 top of the head) its line goes to, or null for a reading that belongs to
+  // no part. rows: a table of that many rows instead of one number.
+  const UNITS_W = 9.8; // a chip is this many drawing units wide (draw.js: drawVitalChip)
+  function makeChip(id, side, partY, rows = 0) {
+    const units = rows ? 2.5 + rows * 1.75 + 0.5 : 5.2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(K.chipWM * K.pxPerM);
+    canvas.height = Math.round((canvas.width * units) / UNITS_W);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const hM = (K.chipWM * units) / UNITS_W;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(K.chipWM, hM), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+    mesh.renderOrder = 10;
+    mesh.frustumCulled = false;
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: HOLO, transparent: true, opacity: 0.75, depthTest: false }));
+    line.renderOrder = 9;
+    line.frustumCulled = false;
+    line.visible = partY != null;
+    root.add(mesh, line);
+    return { id, side, partY, hM, canvas, g: canvas.getContext('2d'), texture, mesh, line, sig: null };
+  }
+  const chips = [
+    makeChip('o2', -1, 0.9),
+    makeChip('heart', -1, 0.68),
+    makeChip('pressure', -1, 0.3),
+    makeChip('battery', 1, 0.72),
+    makeChip('body', 1, 0.56, 4),
+    makeChip('ambient', 1, null),
+  ];
+  const toViewer = new THREE.Vector3();
+  const across = new THREE.Vector3();
+  const facing = new THREE.Matrix4();
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  /** Stand the chips to the wearer's left and right of the cylinder, square to the wearer. */
+  function placeChips() {
+    root.updateWorldMatrix(true, false);
+    ctx.camera.getWorldPosition(toViewer);
+    root.worldToLocal(toViewer);
+    toViewer.y = 0; // around the figure's own upright axis
+    if (toViewer.lengthSq() < 1e-8) toViewer.set(0, 0, 1);
+    toViewer.normalize();
+    across.crossVectors(UP, toViewer).normalize(); // to the wearer's right
+    facing.makeBasis(across, UP, toViewer);
+    for (const side of [-1, 1]) {
+      const column = chips.filter((c) => c.side === side);
+      const total = column.reduce((sum, c) => sum + c.hM, 0) + K.gapM * (column.length - 1);
+      let top = K.figureM / 2 + total / 2; // the column is centred on the figure's middle
+      for (const c of column) {
+        const y = top - c.hM / 2;
+        const inner = K.ringM + K.gapM; // where the chip's near edge meets the cylinder's side
+        c.mesh.quaternion.setFromRotationMatrix(facing);
+        c.mesh.position.copy(across).multiplyScalar(side * (inner + K.chipWM / 2));
+        c.mesh.position.y = y;
+        if (c.partY != null) {
+          const at = c.line.geometry.attributes.position;
+          at.setXYZ(0, across.x * side * inner, y, across.z * side * inner);
+          at.setXYZ(1, across.x * side * 0.02, c.partY * K.figureM, across.z * side * 0.02);
+          at.needsUpdate = true;
+        }
+        top -= c.hM + K.gapM;
+      }
+    }
+  }
+
+  /** What each chip shows now. */
+  function chipVMs(z) {
+    const show_ = (v, digits) => (v == null ? '—' : v.toFixed(digits));
+    return {
+      o2: { label: 'Oxygen', value: show_(reading.o2, 0), unit: '%', tag: 'sim', state: z.o2 },
+      heart: { label: 'Heart rate', value: show_(reading.heart, 0), unit: 'bpm', tag: 'sim', state: z.heart },
+      pressure: { label: 'Pressure', value: show_(reading.pressureKpa, 1), unit: 'kPa', tag: 'sim', state: z.pressure },
+      battery: { label: 'Battery', value: show_(reading.battery, 0), unit: '%', tag: reading.battery == null ? 'n/a' : reading.charging ? 'charging' : 'headset', state: z.battery },
+      body: {
+        label: 'Body temp',
+        unit: '°C',
+        tag: 'sim',
+        state: worst(z.temp, z.headTemp, z.armsTemp, z.legsTemp),
+        rows: [
+          { label: 'Head', value: show_(reading.headC, 1), state: z.headTemp },
+          { label: 'Torso', value: show_(reading.torsoC, 1), state: z.temp },
+          { label: 'Arms', value: show_(reading.armsC, 1), state: z.armsTemp },
+          { label: 'Legs', value: show_(reading.legsC, 1), state: z.legsTemp },
+        ],
+      },
+      // The one real temperature: the sensor on the suit, the air around the wearer.
+      ambient: { label: 'Ambient', value: show_(reading.ambientC, 1), unit: '°C', tag: reading.ambientC == null ? 'n/a' : reading.tempSource === 'mock' ? 'mock' : 'sensor', state: reading.ambientC == null ? '' : reading.ambientC >= HUD.suitGauge.crit ? 'crit' : reading.ambientC >= HUD.suitGauge.warn ? 'warn' : '' },
+    };
+  }
   const beam = makeBeam('suit-beam');
   root.add(beam);
   const palmState = makePalmState();
@@ -249,7 +346,7 @@ export function createSuit(ctx) {
   const colourOf = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : HOLO);
   const show = (v, digits) => (v == null ? '—' : v.toFixed(digits));
 
-  /** The six lines of the caption, and the states behind them. */
+  /** The readings in words, and the states behind them (console and tests). */
   function describe() {
     const z = suitStates(reading, HUD.suit);
     const wrong = [];
@@ -279,10 +376,18 @@ export function createSuit(ctx) {
   }
 
   function redraw() {
-    const d = describe();
-    // The line to notice is orange as on the map; red when something is critical, quiet when all is well.
-    writeCaption(caption, d.lines, { 3: d.level === 'crit' ? '#ff7a7a' : d.level === 'warn' ? '#f4b575' : '#8fd9a8' });
-    const z = d.states;
+    const z = suitStates(reading, HUD.suit);
+    const vms = chipVMs(z);
+    for (const c of chips) {
+      const vm = vms[c.id];
+      const sig = JSON.stringify(vm);
+      if (sig !== c.sig) {
+        c.sig = sig;
+        drawVitalChip(c.g, c.canvas.width / UNITS_W, vm);
+        c.texture.needsUpdate = true;
+      }
+      c.line.material.color.set(colourOf(vm.state));
+    }
     const of = {
       head: worst(z.o2, z.headTemp),
       torso: worst(z.temp, z.heart),
@@ -323,7 +428,7 @@ export function createSuit(ctx) {
     if (!root.visible) return;
     figure.spinner.rotation.y += (dt * Math.PI * 2) / K.turnS;
     if (dirty) redraw();
-    placeCaption(caption, root, ctx.camera, K.plateM);
+    placeChips();
     // A part in trouble pulses, so it is noticed from whichever side the figure shows.
     const beat = 0.5 + 0.5 * Math.sin(now / 180);
     for (const p of Object.values(figure.parts)) {

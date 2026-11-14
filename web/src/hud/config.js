@@ -123,8 +123,9 @@ export const HUD = {
     shoulderDownM: 0.2,
     shoulderSideM: 0.16,
     /** When pointing at the palm map, which lies flat, the ray is tipped down by this much (deg):
-     *  it then meets the map steeply and the cursor is easier to steer */
-    mapPitchDeg: 25,
+     *  it then meets the map steeply and the cursor is easier to steer. The layer tabs beside
+     *  the map and the card over a picked place are met by the same tipped ray */
+    mapPitchDeg: 30,
     /** A menu farther along the ray than this is not hit (m) */
     maxM: 3,
     /** The cursor may leave the panel by this fraction of its size before it disappears */
@@ -188,11 +189,19 @@ export const HUD = {
    *  does over the left palm, with its readings on the caption card around its cylinder; a part
    *  turns orange or red when a reading that belongs to it is out of range (hud/suit.js). */
   suit: {
-    /** Height of the figure (m) and width of the plate it stands on: the hologram's cylinder */
+    /** Height of the figure (m) and width of the plate it stands on */
     figureM: 0.15,
     plateM: 0.16,
-    /** The caption card: larger than the map's, because here the text is the content (m) */
-    caption: { wM: 0.34, hM: 0.085 },
+    /** The readings stand on an imaginary cylinder around the figure, wide enough to clear its
+     *  arms: each is a chip of its own, to the wearer's left and right of the cylinder, standing
+     *  out from its side like a wing and facing the wearer. As the wearer moves around the hand
+     *  the chips go around the cylinder, so they are always seen square on.
+     *  ringM: the cylinder's radius; chipWM: a chip's width; gapM: between a chip and the
+     *  cylinder, and between chips; pxPerM: the chips' resolution */
+    ringM: 0.075,
+    chipWM: 0.088,
+    gapM: 0.006,
+    pxPerM: 3200,
     /** Seconds for one turn of the figure */
     turnS: 14,
     /** The open palm must be up this long before the hologram appears (ms), and how fast it follows the hand (1/s) */
