@@ -2,6 +2,8 @@
 // 길이 단위 "도"는 목업(mockups/hud-mockup.html)의 d와 같다: 눈앞 distanceM 거리의 평면에서
 // distanceM × tan(1°) ≈ 17.5mm. 시야 가운데에서는 시야각 1도이고, 가장자리로 갈수록 조금 작아진다.
 
+import { PALM } from '../core/palm.js';
+
 const q = new URLSearchParams(location.search);
 
 export const HUD = {
@@ -75,8 +77,9 @@ export const HUD = {
     /** (see `pointer` below for how the menus are pressed) */
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
-    /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다 */
-    palmUpDot: -0.35,
+    /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다.
+     *  메뉴는 지도 옆에 뜨므로 지도와 같은 값이어야 한다: core/palm.js 의 PALM.upDot 을 그대로 쓴다 */
+    palmUpDot: PALM.upDot,
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },

@@ -3,7 +3,7 @@
 // 20초 주기로 방 한쪽(x≈0.5, z≈-0.6)에 의자 크기(0.5m) 장애물이 12초 동안 놓였다 사라진다.
 // 격자 가장자리 두 줄은 "아직 모름"(255)이다.
 //
-// A가 scan/에서 실제 스캔을 만들면 scan/index.js가 이 함수 호출을 자기 것으로 바꾼다.
+// scan/index.js가 mock.hazard(?mock=1 또는 ?mock=hazard)일 때 실제 스캔 대신 이 함수를 부른다.
 
 const COLS = 40;
 const ROWS = 40;

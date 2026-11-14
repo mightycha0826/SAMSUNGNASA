@@ -6,11 +6,14 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createPointer, pickHit, rayOnPanel } from './pointer.js';
 
-const K = {
-  hands: ['right'], ownRay: false, shoulderDownM: 0.2, shoulderSideM: 0.16, maxM: 3, margin: 0.06,
-  pinchOnM: 0.018, pinchOffM: 0.035, pinchFarM: 0.075, repeatMs: 300,
-  smoothMin: 9, smoothMax: 60, smoothTravel: 0.04, stick: 0.3, snap: 0.7, cursorM: 0.0075, beamStartM: 0.06,
-};
+// K is the shipped tuning, so the hover, press-repeat and smoothing tests run on the real numbers
+// (stick, snap, repeatMs, smooth*). The other pointer settings change no result here: a mistake
+// in one of those is not caught by this file.
+// config.js reads location.search as it loads and node has no `location`: the stand-in
+// has to exist first, which a static import (hoisted above every statement) would not allow.
+globalThis.location ??= { search: '' };
+const { HUD } = await import('./config.js');
+const K = HUD.pointer;
 
 // A 0.4 m x 0.2 m panel with a 400 x 200 canvas, facing +z, centred at (0, 1.2, -0.5).
 function makePanel(z = -0.5) {

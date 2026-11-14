@@ -3,16 +3,18 @@
 // Sends: hazard:update (docs/INTERFACES.md section 3): a floor grid in room coordinates,
 //        0 = passable, 1 = obstacle, 255 = not seen yet. At most twice a second, only on change.
 //
-// Where the data comes from: the room geometry the Quest 3 already keeps (Space Setup), read
-// through WebXR `mesh-detection` (the room mesh and furniture volumes) and `plane-detection`
-// (walls, tables, the floor). Every surface between FLOOR_BAND_M and HEAD_M above the floor
-// blocks the cell under it; surfaces near the floor mark the cell as passable.
+// Two layers on the same cells, merged when the grid is sent (mergeLayers in grid.js).
 //
-// Limits, stated plainly:
-//   - The room scan is the room as the headset last scanned it. A chair moved after the scan is
-//     not in it until the headset updates its room model.
+// The room scan (room.js): the room geometry the Quest 3 already keeps (Space Setup), read
+// through WebXR `mesh-detection` (the room mesh and furniture volumes) and `plane-detection`
+// (walls, tables, the floor). Every surface between floorBandM and headM above the floor blocks
+// the cell under it; surfaces near the floor mark the cell as passable. Its limits:
+//   - It is the room as the headset last scanned it. A chair moved after the scan is not in it
+//     until the headset updates its room model.
 //   - If the headset has no room scan, nothing arrives from it and every cell stays "not seen".
 //     The wearer has to run Space Setup once (Settings > Environment setup).
+//   - Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid,
+//     until the wearer walks through it (below).
 //
 // Live depth (when the session has `depth-sensing`: field mode, or ?depth=1): twice a second
 // the depth image of the left eye is laid over the same cells (depth.js, grid.js). It adds what
@@ -28,14 +30,12 @@
 // always the window, so its originXZ changes when the window moves. Not yet checked on the headset.
 //
 // Where the wearer has walked is clear floor: the cells under them are freed at once and the
-// room scan cannot block them again (standAt).
+// room scan cannot block them again (standAt, room.js).
 //
 // The map is kept on the Jetson (memory.js): the tiles that changed go to the hub as
 // `map:store` (at most every storeMs) and the hub writes them to disk. When a session starts
 // the hub hands back the map it stored last (`map:stored`); once the new scan lines up with
 // it, it fills in what this session has not seen yet. ?remember=0 turns the handing back off.
-//
-// Known gap: Space Setup stores a wall as one rectangle, so an open doorway is closed in the grid.
 //
 // The obstacles also glow red on the real floor in field mode (overlay.js).
 //
@@ -43,6 +43,7 @@
 
 import { mode } from '../core/mode.js';
 import { startMockHazard } from '../mock/hazard.js';
+import { createRoom } from './room.js';
 import { createGrid, mergeLayers, viewOf } from './grid.js';
 import { readDepth } from './depth.js';
 import { initOverlay } from './overlay.js';
@@ -89,17 +90,14 @@ export const SCAN = {
 };
 
 let ctx;
-let cells; // the room scan, on the window
-let walked; // 0 where the wearer has stood, 255 elsewhere: the room scan may not block those cells again
+let room; // the room scan, on the window: what the headset stored at Space Setup (room.js)
 let cols; // cells per side of the window
 let origin; // room coordinates of the window's cell [0, 0]
 let originTile; // the same in tiles: the window's first tile
 const archive = new Map(); // tiles outside the window: tileKey -> { room, live }, each Uint8Array(tile)
 let lastFollow = 0; // time the window was last checked against the head
-let dirty = false;
+let dirty = false; // a layer changed since the grid was last sent
 let lastEmit = 0;
-const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when rasterised, at: when that was }
-const jobs = []; // triangles waiting to be rasterised: { m: Float32Array(16), v, idx, at }
 let stats = { meshes: 0, planes: 0, obstacles: 0, floor: 0, depth: 0 };
 let reads = 0; // depth reads made
 let skips = 0; // depth reads not made because everything in view was settled
@@ -133,16 +131,13 @@ const storedUnder = (tile) => stored && assemble((key) => stored.get(key), tile)
 
 function reset() {
   cols = TILES.cells * TILES.window;
-  cells = new Uint8Array(cols * cols).fill(255);
-  walked = new Uint8Array(cols * cols).fill(255);
   // Around the room origin, where a session starts. If the wearer is somewhere else (a space
   // that kept its origin from before), the first look at the head moves the window there.
   originTile = [follow(null, 0), follow(null, 0)];
   origin = originOf(originTile);
   archive.clear();
   lastFollow = 0;
-  seen.clear();
-  jobs.length = 0;
+  room = createRoom(cols, cols, origin, SCAN);
   dirty = true;
   live = createGrid(cols, cols, SCAN.cellM, origin, SCAN);
   depthOn = ctx.xr.has('depth-sensing') === true;
@@ -171,7 +166,7 @@ function followHead(x, z) {
   const next = [follow(originTile[0], inTiles(x, SCAN.cellM)), follow(originTile[1], inTiles(z, SCAN.cellM))];
   if (next[0] === originTile[0] && next[1] === originTile[1]) return;
   const nextOrigin = originOf(next);
-  const { left } = moveWindow({ room: cells, live: live.cells, walked }, originTile, next, archive, {
+  const { left } = moveWindow({ room: room.cells, live: live.cells, walked: room.walked }, originTile, next, archive, {
     live: {
       shift: (dCols, dRows) => live.shift(dCols, dRows, nextOrigin),
       paste: (col, row, tile) => live.restore(col, row, TILES.cells, tile),
@@ -182,12 +177,13 @@ function followHead(x, z) {
   storedWin = storedUnder(originTile);
   for (const key of left) offer(key, restTile(key));
   if (outbox.size) toStore = true;
-  // mark() drops what falls outside the window, so the room scan of the ground that just came
-  // in was never rasterised (or only as far as the archive has it). Forgetting what has been
-  // rasterised queues every mesh and plane again. shortcut: that is the whole room model on
-  // every move, trianglesPerFrame a frame, and no hazard:update goes out until the queue is
-  // empty. If that shows as a pause when walking, queue only what reaches into the new tiles.
-  seen.clear();
+  // The room layer drops what falls outside the window, so the room scan of the ground that
+  // just came in was never rasterised (or only as far as the archive has it). room.moved()
+  // forgets what has been rasterised, which queues every mesh and plane again. shortcut: that
+  // is the whole room model on every move, trianglesPerFrame a frame, and no hazard:update goes
+  // out until the queue is empty. If that shows as a pause when walking, queue only what
+  // reaches into the new tiles.
+  room.moved(nextOrigin);
   sent = null; // the next hazard:update is a window somewhere else: nothing to compare it with
   dirty = true;
   console.info('[scan] window moved to', origin, 'tiles kept outside it:', archive.size);
@@ -285,120 +281,8 @@ function store(time) {
  * chair put there afterwards is found.
  */
 function standAt(x, z) {
-  const k = Math.ceil(SCAN.walkedM / SCAN.cellM);
-  const c0 = Math.floor((x - origin[0]) / SCAN.cellM);
-  const r0 = Math.floor((z - origin[1]) / SCAN.cellM);
-  for (let r = r0 - k; r <= r0 + k; r++) {
-    for (let c = c0 - k; c <= c0 + k; c++) {
-      if (c < 0 || r < 0 || c >= cols || r >= cols) continue;
-      const dx = origin[0] + (c + 0.5) * SCAN.cellM - x;
-      const dz = origin[1] + (r + 0.5) * SCAN.cellM - z;
-      if (dx * dx + dz * dz > SCAN.walkedM * SCAN.walkedM) continue;
-      const i = r * cols + c;
-      walked[i] = 0;
-      if (cells[i] !== 0) {
-        cells[i] = 0;
-        dirty = true;
-      }
-    }
-  }
+  if (room.stoodAt(x, z, SCAN.walkedM)) dirty = true;
   if (live.freeAround(x, z, SCAN.walkedM)) dirty = true;
-}
-
-function mark(x, y, z) {
-  const c = Math.floor((x - origin[0]) / SCAN.cellM);
-  const r = Math.floor((z - origin[1]) / SCAN.cellM);
-  if (c < 0 || r < 0 || c >= cols || r >= cols) return;
-  const i = r * cols + c;
-  if (y > SCAN.floorBandM && y < SCAN.headM) {
-    if (walked[i] === 0) return; // the wearer has stood here: whatever the room model says, it is not in the way
-    if (cells[i] !== 1) {
-      cells[i] = 1;
-      dirty = true;
-    }
-  } else if (y <= SCAN.floorBandM && cells[i] === 255) {
-    cells[i] = 0; // floor seen and nothing on it (so far)
-    dirty = true;
-  }
-}
-
-// Transform a local point by a column-major 4x4 matrix and mark it.
-function markLocal(m, x, y, z) {
-  mark(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
-}
-
-// Sample a triangle (local coordinates) densely enough that no cell under it is missed.
-function rasterTriangle(m, ax, ay, az, bx, by, bz, cx, cy, cz) {
-  const ab = Math.hypot(bx - ax, by - ay, bz - az);
-  const ac = Math.hypot(cx - ax, cy - ay, cz - az);
-  // At most 550 steps (38 m, more than the window's diagonal): one vertex at infinity must not hang the frame.
-  const n = Math.min(550,Math.max(1, Math.ceil(Math.max(ab, ac) / SCAN.sampleM)));
-  for (let i = 0; i <= n; i++) {
-    for (let j = 0; j <= n - i; j++) {
-      const u = i / n;
-      const v = j / n;
-      markLocal(m, ax + (bx - ax) * u + (cx - ax) * v, ay + (by - ay) * u + (cy - ay) * v, az + (bz - az) * u + (cz - az) * v);
-    }
-  }
-}
-
-// A mesh or plane is rasterised when it is new or says it changed, but the same one not more
-// often than rescanMs: the spec lets a browser move lastChangedTime every frame, and each time
-// would queue the whole room again, so the queue would never empty and nothing would be sent.
-function due(thing, time) {
-  const last = seen.get(thing);
-  return !last || (last.changed !== thing.lastChangedTime && time - last.at >= SCAN.rescanMs);
-}
-
-// The browser may say a mesh or plane changed when its shape is what it was (the Quest moves
-// lastChangedTime for a room that stands still). A cheap fingerprint of the shape and of where
-// it stands tells: the same one is not rasterised again.
-function fingerprint(pose, values) {
-  let sum = values.length;
-  const step = Math.max(1, Math.floor(values.length / 64));
-  for (let i = 0; i < values.length; i += step) sum = (sum * 31 + Math.round(values[i] * 1000)) | 0;
-  for (const v of pose.transform.matrix) sum = (sum * 31 + Math.round(v * 1000)) | 0;
-  return sum;
-}
-
-/** True when this mesh or plane has to be rasterised: new, or really different from last time. */
-function changed(thing, pose, values, time) {
-  const print = fingerprint(pose, values);
-  const same = seen.get(thing)?.print === print;
-  seen.set(thing, { changed: thing.lastChangedTime, at: time, print });
-  return !same;
-}
-
-function queueMesh(pose, vertices, indices) {
-  jobs.push({ m: Float32Array.from(pose.transform.matrix), v: vertices, idx: indices, at: 0 });
-}
-
-// An XRPlane is a polygon in its own x-z plane: fan-triangulate it.
-function queuePlane(pose, polygon) {
-  const n = polygon.length;
-  if (n < 3) return;
-  const v = new Float32Array(n * 3);
-  polygon.forEach((p, i) => v.set([p.x, p.y, p.z], i * 3));
-  const idx = [];
-  for (let i = 1; i < n - 1; i++) idx.push(0, i, i + 1);
-  jobs.push({ m: Float32Array.from(pose.transform.matrix), v, idx: Uint32Array.from(idx), at: 0 });
-}
-
-function work() {
-  let budget = SCAN.trianglesPerFrame;
-  while (budget > 0 && jobs.length) {
-    const job = jobs[0];
-    const { m, v, idx } = job;
-    while (budget > 0 && job.at < idx.length) {
-      const a = idx[job.at] * 3;
-      const b = idx[job.at + 1] * 3;
-      const c = idx[job.at + 2] * 3;
-      rasterTriangle(m, v[a], v[a + 1], v[a + 2], v[b], v[b + 1], v[b + 2], v[c], v[c + 1], v[c + 2]);
-      job.at += 3;
-      budget--;
-    }
-    if (job.at >= idx.length) jobs.shift();
-  }
 }
 
 export function init(context) {
@@ -416,7 +300,7 @@ export function init(context) {
   ctx.renderer.xr.hasDepthSensing = () => false;
   initOverlay(ctx, SCAN);
   window.__scan = {
-    stats: () => ({ ...stats, queued: jobs.length, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0, archived: archive.size, windowXZ: [...origin] }),
+    stats: () => ({ ...stats, queued: room.pending, run, stored: !!stored, trusted, reads, skips, settled: live?.settledCount ?? 0, archived: archive.size, windowXZ: [...origin] }),
   };
 }
 
@@ -424,136 +308,138 @@ export function update(frame) {
   const { xrFrame, refSpace, time } = frame;
   if (!xrFrame || !refSpace || ctx.mock.hazard) return;
 
-  // After a recentre every stored coordinate is in the old frame: start over. The space in use
-  // can be swapped during a session (?space=unbounded), so follow whichever one it is.
-  if (space !== refSpace) {
-    space = refSpace;
-    space.addEventListener('reset', reset);
+  followSpace(refSpace);
+  followWearer(xrFrame, refSpace, time);
+  room.collect(xrFrame, refSpace, time);
+  if (room.work()) dirty = true;
+  warnIfNoRoom(time);
+  const read = readLive(frame);
+  // Not in the frame that read depth: the read and the consumers of the event each take time.
+  if (dirty && !read && !room.pending && time - lastEmit >= SCAN.emitMs) {
+    if (!send(time)) return; // nothing new to say: the frame ends here, and a store that is due waits for the next one
   }
+  if (toStore && time - lastStore >= SCAN.storeMs) store(time);
+}
 
-  // Keep the window around the wearer. Not every frame: a step is far less than the tile of
-  // margin the window has on every side.
+// Keep the window around the wearer, and free the floor they stand on.
+function followWearer(xrFrame, refSpace, time) {
   const at = xrFrame.getViewerPose(refSpace)?.transform.position;
-  if (at && time - lastFollow >= SCAN.followMs) {
+  if (!at) return;
+  // Not every frame: a step is far less than the margin the window has on every side.
+  if (time - lastFollow >= SCAN.followMs) {
     lastFollow = time;
     followHead(at.x, at.z);
   }
   // Every frame: at walking pace a quarter of a second is a longer step than the body is wide.
-  if (at && Number.isFinite(at.x) && Number.isFinite(at.z)) standAt(at.x, at.z);
+  if (Number.isFinite(at.x) && Number.isFinite(at.z)) standAt(at.x, at.z);
+}
 
-  const meshes = xrFrame.detectedMeshes;
-  const planes = xrFrame.detectedPlanes;
-  if (meshes) {
-    for (const mesh of meshes) {
-      if (!due(mesh, time)) continue;
-      const pose = xrFrame.getPose(mesh.meshSpace, refSpace);
-      if (!pose) continue;
-      if (changed(mesh, pose, mesh.vertices, time)) queueMesh(pose, mesh.vertices, mesh.indices);
-    }
+// After a recentre every stored coordinate is in the old frame: start over. The space in use
+// can be swapped during a session (?space=unbounded), so follow whichever one it is.
+function followSpace(refSpace) {
+  if (space !== refSpace) {
+    space = refSpace;
+    space.addEventListener('reset', reset);
   }
-  if (planes) {
-    for (const plane of planes) {
-      if (!due(plane, time)) continue;
-      const pose = xrFrame.getPose(plane.planeSpace, refSpace);
-      if (!pose) continue;
-      if (changed(plane, pose, plane.polygon.flatMap((p) => [p.x, p.y, p.z]), time)) queuePlane(pose, plane.polygon);
-    }
-  }
-  work();
+}
 
-  // Without a room scan the grid stays empty and a route runs straight through the furniture.
-  // Nothing else tells the wearer, so say it once, a few seconds in.
+// Without a room scan the grid stays empty and a route runs straight through the furniture.
+// Nothing else tells the wearer, so say it once, a few seconds in.
+function warnIfNoRoom(time) {
   started ||= time;
   if (!said.noRoom && time - started > 3000) {
     said.noRoom = true;
-    if (!meshes?.size && !planes?.size) {
+    if (!room.counts.meshes && !room.counts.planes) {
       console.error('[scan] no room scan: run Space Setup in this room. Features:', ctx.xr.enabledFeatures);
       if (mode.current === 'field') ctx.bus.emit('voice:say', { text: 'No room scan. Run Space Setup first.', priority: 'normal' });
     }
   }
+}
 
+// Lay the depth image over the live layer when a read is due. True when this frame read one.
+function readLive(frame) {
+  const { xrFrame, refSpace, time } = frame;
+  if (!(depthOn && time - lastDepth >= SCAN.depthMs)) return false;
   let read = false;
-  if (depthOn && time - lastDepth >= SCAN.depthMs) {
-    try {
-      // Where the wearer is and faces, on the floor: decides what is in view (grid.js).
-      const head = xrFrame.getViewerPose(refSpace)?.transform.matrix;
-      let view = null;
-      if (head) {
-        view = viewOf(head, SCAN.vantageM);
-        live.reopen(view);
-        // Everything the image could show has been read often enough: no read, the frame is free.
-        if (!live.unsettledInView(view)) {
-          skips++;
-          lastDepth = time;
-          waitFrom = 0;
-          view = null;
-        }
-      }
-      read = !!view && readDepth(ctx.renderer, frame, live, SCAN);
-      if (read) {
-        reads++;
+  try {
+    // Where the wearer is and faces, on the floor: decides what is in view (grid.js).
+    const head = xrFrame.getViewerPose(refSpace)?.transform.matrix;
+    let view = null;
+    if (head) {
+      view = viewOf(head, SCAN.vantageM);
+      live.reopen(view);
+      // Everything the image could show has been read often enough: no read, the frame is free.
+      if (!live.unsettledInView(view)) {
+        skips++;
         lastDepth = time;
         waitFrom = 0;
-        depthSeen = true;
-        if (live.commit(view)) dirty = true;
-      } else if (!view) {
-        // nothing to read this time (all settled), or no head pose yet
-      } else if (!waitFrom) {
-        waitFrom = time; // no image on this frame (the sensor is slower than the display): try the next
-      } else if (time - waitFrom > 5000) {
-        lastDepth = time; // none for 5 s: keep trying, but every depthMs and not every frame
-        if (!said.noDepth) console.error('[scan] depth-sensing is on but no depth image arrives');
-        said.noDepth = true;
-      }
-    } catch (err) {
-      depthOn = false; // the room scan carries on without it; what it had marked stays on the map
-      console.error('[scan] live depth switched off:', err);
-    }
-  }
-
-  // Not in the frame that read depth: the read and the consumers of the event each take time.
-  if (dirty && !read && !jobs.length && time - lastEmit >= SCAN.emitMs) {
-    dirty = false;
-    const { cells: merged, ...counts } = mergeLayers(cells, live.cells);
-    // The map the hub kept from before: used once this session's scan has found enough of the
-    // same obstacles in the same places, and only where this session has seen nothing yet.
-    // Both are judged on the window: the part of the stored map that lies under it (storedWin,
-    // laid together again whenever the window moves, so ground that comes in later is filled too).
-    let kept = 0;
-    if (storedWin) {
-      if (!trusted && linesUp(storedWin, merged, cols, cols)) {
-        trusted = true;
-        restDue = toStore = true; // its tiles outside the window belong to this run's map on the hub as well
-        console.info('[scan] the stored map lines up with this room: using it for what is not seen yet');
-      }
-      if (trusted) {
-        kept = fillUnknown(merged, storedWin);
-        counts.obstacles = counts.floor = 0;
-        for (const cell of merged) {
-          if (cell === 1) counts.obstacles++;
-          else if (cell === 0) counts.floor++;
-        }
+        view = null;
       }
     }
-    // A live cell can change without changing what is sent (floor seen where the room scan
-    // already has floor, flicker on a cell the room scan blocks): nothing to say then.
-    if (sent && merged.every((cell, i) => cell === sent[i])) return;
-    sent = merged;
-    lastEmit = time;
-    toStore = true;
-    // archived, windowXZ: how many tiles are kept outside the window and where the window is, for diagnosis.
-    stats = { meshes: meshes?.size ?? 0, planes: planes?.size ?? 0, ...counts, stored: kept, settled: live.settledCount, reads, skips, archived: archive.size, windowXZ: [...origin] };
-    ctx.bus.emit('hazard:update', {
-      originXZ: [...origin],
-      cellSizeM: SCAN.cellM,
-      cols,
-      rows: cols,
-      cells: merged,
-      ts: Date.now(),
-      source: depthSeen ? 'room-scan+depth' : 'room-scan',
-      stats,
-    });
+    read = !!view && readDepth(ctx.renderer, frame, live, SCAN);
+    if (read) {
+      reads++;
+      lastDepth = time;
+      waitFrom = 0;
+      depthSeen = true;
+      if (live.commit(view)) dirty = true;
+    } else if (!view) {
+      // nothing to read this time (all settled), or no head pose yet
+    } else if (!waitFrom) {
+      waitFrom = time; // no image on this frame (the sensor is slower than the display): try the next
+    } else if (time - waitFrom > 5000) {
+      lastDepth = time; // none for 5 s: keep trying, but every depthMs and not every frame
+      if (!said.noDepth) console.error('[scan] depth-sensing is on but no depth image arrives');
+      said.noDepth = true;
+    }
+  } catch (err) {
+    depthOn = false; // the room scan carries on without it; what it had marked stays on the map
+    console.error('[scan] live depth switched off:', err);
   }
+  return read;
+}
 
-  if (toStore && time - lastStore >= SCAN.storeMs) store(time);
+// Merge the layers and send the grid when it differs from the last one sent. True when it was sent.
+function send(time) {
+  dirty = false;
+  const { cells: merged, ...counts } = mergeLayers(room.cells, live.cells);
+  // The map the hub kept from before: used once this session's scan has found enough of the
+  // same obstacles in the same places, and only where this session has seen nothing yet.
+  // Both are judged on the window: the part of the stored map that lies under it (storedWin,
+  // laid together again whenever the window moves, so ground that comes in later is filled too).
+  let kept = 0;
+  if (storedWin) {
+    if (!trusted && linesUp(storedWin, merged, cols, cols)) {
+      trusted = true;
+      restDue = toStore = true; // its tiles outside the window belong to this run's map on the hub as well
+      console.info('[scan] the stored map lines up with this room: using it for what is not seen yet');
+    }
+    if (trusted) {
+      kept = fillUnknown(merged, storedWin);
+      counts.obstacles = counts.floor = 0;
+      for (const cell of merged) {
+        if (cell === 1) counts.obstacles++;
+        else if (cell === 0) counts.floor++;
+      }
+    }
+  }
+  // A live cell can change without changing what is sent (floor seen where the room scan
+  // already has floor, flicker on a cell the room scan blocks): nothing to say then.
+  if (sent && merged.every((cell, i) => cell === sent[i])) return false;
+  sent = merged;
+  lastEmit = time;
+  toStore = true;
+  // archived, windowXZ: how many tiles are kept outside the window and where the window is, for diagnosis.
+  stats = { ...room.counts, ...counts, stored: kept, settled: live.settledCount, reads, skips, archived: archive.size, windowXZ: [...origin] };
+  ctx.bus.emit('hazard:update', {
+    originXZ: [...origin],
+    cellSizeM: SCAN.cellM,
+    cols,
+    rows: cols,
+    cells: merged,
+    ts: Date.now(),
+    source: depthSeen ? 'room-scan+depth' : 'room-scan',
+    stats,
+  });
+  return true;
 }
