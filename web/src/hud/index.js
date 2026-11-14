@@ -506,6 +506,13 @@ export function update(frame) {
     s = Math.min(1, (halfH * ctx.camera.aspect) / ((HUD.stage.wDeg / 2) * UNIT), halfH / ((HUD.stage.hDeg / 2) * UNIT));
   }
   rigid.scale.set(s, s, 1);
+  // The alert frame runs around the whole viewport: on a PC screen that is the window edge,
+  // in the headset it is the size set in HUD.edge.
+  if (ctx.xr.presenting) pEdge.mesh.scale.set(1, 1, 1);
+  else {
+    const halfH = Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov / 2)) * HUD.distanceM;
+    pEdge.mesh.scale.set((halfH * ctx.camera.aspect) / (HUD.edge.halfWDeg * UNIT) / s, halfH / (HUD.edge.halfHDeg * UNIT) / s, 1);
+  }
 
   if (HUD.followRate > 0) {
     const k = 1 - Math.exp(-HUD.followRate * frame.dt);

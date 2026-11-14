@@ -15,25 +15,27 @@ export const HUD = {
   followRate: 0,
   /** 목업의 화면 크기 (도). 아래 위치는 이 화면의 왼쪽 위 기준 */
   stage: { wDeg: 80.26, hDeg: 50.16 },
-  // Tuned on the Quest 3: cards near the stage corners were hard to see, so the status panel is
-  // centred on the horizontal midline and everything sits a little closer to the middle of the
-  // view. With the real data (pressure and air temperature rows shown) the drawn status card
-  // is about 27 deg tall, so top = (50.16 - 27) / 2.
-  status: { leftDeg: 8, topDeg: 11.3, wDeg: 21.1, hDeg: 31.6 },
+  // Layout follows mockups/hud-mockup.html, which the UI owner keeps refining: change the mockup
+  // first, then these numbers. The status card is 20.5 deg wide at (3.5, 4.5); the panel is 0.3 deg
+  // larger on every side for its outline and text glow.
+  status: { leftDeg: 3.2, topDeg: 4.2, wDeg: 21.1, hDeg: 31.6 },
   /** Toast strip, top centre */
-  banner: { topDeg: 8, wDeg: 38, hDeg: 4 },
+  banner: { topDeg: 4.5, wDeg: 38, hDeg: 4 },
   /** Alert card, centred in the view (updated mockup: alerts sit in the line of sight) */
   alert: { wDeg: 36, hDeg: 8 },
-  /** 경보 테두리 (critical 빨강, warn 주황): 가운데에서 좌우·상하 절반 크기 (도, 기본은 목업 화면 전체 = 실제 시야각 약 ±35° × ±23.5°), 밝아지는 주기 (초) */
-  edge: { halfWDeg: 40.13, halfHDeg: 25.08, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },
+  /** Alert frame (critical red, warn orange). The mockup runs it around the whole viewport, so
+   *  here it sits near the edge of the headset's field of view instead of around the stage:
+   *  half-sizes in stage degrees from the centre of view (66 and 52 are about 49 and 42 real
+   *  degrees on the 1 m plane; Quest 3 shows roughly 55 and 48). Its glow reaches about 7 real
+   *  degrees inward. If the frame is cut off or invisible, lower these; periodS is the pulse. */
+  edge: { halfWDeg: 66, halfHDeg: 52, periodS: 1.6, minOpacity: 0.28, ackedOpacity: 0.5 },
   /** 레이어 탭 + 범례 */
   layers: {
     wDeg: 16,
     hDeg: 21,
     /** 손 추적이 없을 때(PC 포함) 화면에 고정하는 자리 */
-    // right side, centred on the horizontal midline (mirrors the status panel)
-    fixedLeftDeg: 56.26,
-    fixedBottomDeg: 17.33,
+    fixedLeftDeg: 26,
+    fixedBottomDeg: 3.5,
     /** Beside the palm map: distance of the menu centre to the right of the map centre and
      *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.17 m,
      *  so 0.27 leaves a gap of about 6 cm between them. */

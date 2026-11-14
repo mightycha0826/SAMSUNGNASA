@@ -10,7 +10,7 @@ export const PALM = {
   /** Height of the hologram above the palm (m) */
   liftM: 0.14,
   /** How far it sits in front of the palm, away from the wearer (m) */
-  forwardM: 0.07,
+  forwardM: 0.18,
   /** The palm counts as facing up when the back-of-hand direction (wrist +Y) points this far down */
   upDot: -0.35,
 };
