@@ -450,9 +450,13 @@ export function drawLayers(g, d, vm) {
 // ---- 비상 테두리 ----
 // 가장자리만 칠하고 가운데는 비운다 (지도와 화살표를 가리지 않게).
 // 흰색으로 그려 두고, 색은 index.js가 경보 등급에 따라 입힌다 (critical 빨강, warn 주황).
-export function drawEdge(g) {
+export function drawEdge(g, shape = 'rect') {
   const { width: W, height: H } = g.canvas;
   g.clearRect(0, 0, W, H);
+  if (shape === 'quest3') {
+    drawEdgeQuest3(g, W, H);
+    return;
+  }
   const depth = Math.round(W * 0.075);
   g.strokeStyle = '#ffffff';
   g.lineWidth = 1.5;
@@ -463,4 +467,41 @@ export function drawEdge(g) {
     g.stroke();
   }
   g.globalAlpha = 1;
+}
+
+// Quest 3 lens contour (mockup): a rounded oval. The glow is clear in the middle, 46% at 87% of
+// the oval and solid at its edge and beyond; a soft rim line follows a superellipse (n = 2.6).
+function drawEdgeQuest3(g, W, H) {
+  g.save();
+  g.translate(W / 2, H / 2);
+  g.scale(0.52 * W, 0.5 * H);
+  const grad = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  grad.addColorStop(0.64, 'rgba(255, 255, 255, 0)');
+  grad.addColorStop(0.87, 'rgba(255, 255, 255, 0.46)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 1)');
+  g.fillStyle = grad;
+  g.fillRect(-1.2, -1.2, 2.4, 2.4);
+  g.restore();
+
+  const rx = 0.492 * W;
+  const ry = 0.488 * H;
+  const exp = 2 / 2.6;
+  g.beginPath();
+  for (let i = 0; i <= 160; i++) {
+    const t = (i / 160) * Math.PI * 2;
+    const ct = Math.cos(t);
+    const st = Math.sin(t);
+    const x = W / 2 + rx * Math.sign(ct) * Math.abs(ct) ** exp;
+    const y = H / 2 + ry * Math.sign(st) * Math.abs(st) ** exp;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.closePath();
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 0.014 * W;
+  g.shadowColor = '#ffffff';
+  g.shadowBlur = 0.012 * W;
+  g.stroke();
+  g.shadowBlur = 0;
 }
