@@ -24,6 +24,7 @@ import { HUD } from './config.js';
 import { STRINGS } from './strings.js';
 import { T, loadFont } from './tokens.js';
 import { drawStatus, drawBanner, drawLayers, drawEdge } from './draw.js';
+import { leftPalm, makePalmState } from '../core/palm.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -51,6 +52,36 @@ let cards; // 상태창·경보 카드 묶음
 let pStatus, pBanner, pLayers, pEdge;
 let layerHits = [];
 let layersOnPalm = false;
+const palmState = makePalmState();
+// Fingertip feedback on the layer menu: which tab is under the finger, how close it is, and
+// which tab was just pressed.
+const touch = { hoverId: null, cursor: null, pressedId: null, pressedUntil: 0 };
+let audio = null;
+
+/** Short click, so a press is heard as well as seen. */
+function clickSound() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state !== 'running') audio.resume();
+    const t = audio.currentTime;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1250, t);
+    osc.frequency.exponentialRampToValueAtTime(700, t + 0.06);
+    gain.gain.setValueAtTime(0.18, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(t);
+    osc.stop(t + 0.1);
+  } catch {
+    /* no audio: the visual feedback is enough */
+  }
+}
+
+function tabAt(x, y) {
+  return layerHits.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) ?? null;
+}
 
 function makePanel(wDeg, hDeg, pxW = Math.round(wDeg * HUD.pxPerDeg), pxH = Math.round(hDeg * HUD.pxPerDeg)) {
   const canvas = document.createElement('canvas');
@@ -168,7 +199,14 @@ function bannerVM() {
 
 function layersVM() {
   const layers = state.layerSet?.layers ?? [];
-  const tabs = layers.map((l) => ({ id: l.id, label: layerLabel(l.id), active: l.id === state.activeLayer }));
+  const pressedId = performance.now() < touch.pressedUntil ? touch.pressedId : null;
+  const tabs = layers.map((l) => ({
+    id: l.id,
+    label: layerLabel(l.id),
+    active: l.id === state.activeLayer,
+    hover: l.id === touch.hoverId,
+    pressed: l.id === pressedId,
+  }));
   const layer = layers.find((l) => l.id === state.activeLayer);
   let legend = null;
   if (layer) {
@@ -183,7 +221,7 @@ function layersVM() {
       keys: S.keys,
     };
   }
-  return { tabs, legend };
+  return { tabs, legend, cursor: touch.cursor };
 }
 
 // ---- 상태 변경 ----
@@ -287,8 +325,14 @@ let pokeArmed = true;
 function pressAtUV(u, v) {
   const x = u * pLayers.canvas.width;
   const y = (1 - v) * pLayers.canvas.height;
-  const hit = layerHits.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-  if (hit) selectLayer(hit.id);
+  const hit = tabAt(x, y);
+  if (hit) {
+    touch.pressedId = hit.id;
+    touch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
+    dirty.layers = true;
+    clickSound();
+    selectLayer(hit.id);
+  }
   return !!hit;
 }
 
@@ -354,26 +398,46 @@ function updateHands(frame) {
     ctx.scene.add(pLayers.mesh);
     layersOnPalm = true;
   }
-  const p = wrist.transform.position;
+  // To the right of the floating map (core/palm.js), with a gap, facing the wearer.
   ctx.camera.getWorldPosition(v2);
-  v1.set(1, 0, 0).applyQuaternion(ctx.camera.getWorldQuaternion(q1)); // 보는 사람 기준 오른쪽
-  pLayers.mesh.position.set(p.x + v1.x * L.palmOffsetRightM, p.y + L.palmOffsetUpM, p.z + v1.z * L.palmOffsetRightM);
+  if (leftPalm(frame, ctx.camera, palmState)) {
+    pLayers.mesh.position.copy(palmState.anchor).addScaledVector(palmState.right, L.palmOffsetRightM);
+    pLayers.mesh.position.y += L.palmOffsetUpM;
+  } else {
+    const p = wrist.transform.position;
+    pLayers.mesh.position.set(p.x, p.y + 0.1, p.z);
+  }
   pLayers.mesh.lookAt(v2);
   pLayers.mesh.scale.setScalar(L.palmScale);
 
+  // Right index fingertip: show where it points while it approaches, press when it touches.
   const tip = right && xrFrame.getJointPose?.(right.get('index-finger-tip'), refSpace);
-  if (!tip) return;
-  pLayers.mesh.updateWorldMatrix(true, false);
-  v1.set(tip.transform.position.x, tip.transform.position.y, tip.transform.position.z);
-  pLayers.mesh.worldToLocal(v1);
-  const dist = Math.abs(v1.z) * L.palmScale;
-  const inside = Math.abs(v1.x) <= pLayers.wM / 2 && Math.abs(v1.y) <= pLayers.hM / 2;
-  if (inside && dist < L.pokeDistM) {
-    if (pokeArmed) pressAtUV(v1.x / pLayers.wM + 0.5, v1.y / pLayers.hM + 0.5);
-    pokeArmed = false;
-  } else if (!inside || dist > L.pokeDistM * 2) {
-    pokeArmed = true; // 손가락을 뗀 뒤에야 다시 누를 수 있다
+  let hoverId = null;
+  let cursor = null;
+  if (tip) {
+    pLayers.mesh.updateWorldMatrix(true, false);
+    v1.set(tip.transform.position.x, tip.transform.position.y, tip.transform.position.z);
+    pLayers.mesh.worldToLocal(v1);
+    const dist = Math.abs(v1.z) * L.palmScale;
+    const inside = Math.abs(v1.x) <= pLayers.wM / 2 && Math.abs(v1.y) <= pLayers.hM / 2;
+    const u = v1.x / pLayers.wM + 0.5;
+    const v = v1.y / pLayers.hM + 0.5;
+    if (inside && dist < L.hoverDistM) {
+      const x = u * pLayers.canvas.width;
+      const y = (1 - v) * pLayers.canvas.height;
+      cursor = { x, y, near: 1 - Math.min(1, dist / L.hoverDistM) };
+      hoverId = tabAt(x, y)?.id ?? null;
+    }
+    if (inside && dist < L.pokeDistM) {
+      if (pokeArmed) pressAtUV(u, v);
+      pokeArmed = false;
+    } else if (!inside || dist > L.pokeDistM * 2) {
+      pokeArmed = true; // the finger has to pull back before it can press again
+    }
   }
+  if (cursor || touch.cursor || hoverId !== touch.hoverId) dirty.layers = true;
+  touch.hoverId = hoverId;
+  touch.cursor = cursor;
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -448,6 +512,10 @@ export function update(frame) {
   }
 
   updateHands(frame);
+  if (touch.pressedId && now > touch.pressedUntil) {
+    touch.pressedId = null;
+    dirty.layers = true;
+  }
 
   if (state.toast && now > state.toast.until) {
     state.toast = null;

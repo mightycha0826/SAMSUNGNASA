@@ -31,14 +31,20 @@ export const HUD = {
     // right side, centred on the horizontal midline (mirrors the status panel)
     fixedLeftDeg: 56.26,
     fixedBottomDeg: 17.33,
-    /** 손바닥 옆에 띄울 때: 손목에서 오른쪽·위로 (m), 크기 배율 */
-    palmOffsetRightM: 0.17,
-    palmOffsetUpM: 0.06,
-    palmScale: 0.45,
+    /** Beside the palm map: distance of the menu centre to the right of the map centre and
+     *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.17 m,
+     *  so 0.27 leaves a gap of about 6 cm between them. */
+    palmOffsetRightM: 0.27,
+    palmOffsetUpM: 0.02,
+    palmScale: 0.6,
+    /** The fingertip cursor appears within this distance in front of the menu (m) */
+    hoverDistM: 0.09,
+    /** How long a pressed tab stays lit (ms) */
+    pressFlashMs: 220,
     /** 손등 방향(손목 관절의 +Y)의 위쪽 성분이 이 값보다 작으면 손바닥이 위를 본다고 본다. 헤드셋에서 미확인 */
     palmUpDot: -0.35,
     /** 검지 끝이 이 거리 안으로 들어오면 누른 것으로 본다 (m) */
-    pokeDistM: 0.025,
+    pokeDistM: 0.02,
   },
   /** 슈트 온도 막대의 범위와 눈금 (°C). 기준은 INTERFACES 4장의 시작값 */
   suitGauge: { min: 20, max: 40, warn: 30, crit: 35 },
