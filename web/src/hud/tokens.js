@@ -15,7 +15,7 @@ function alpha(hex, a) {
 }
 
 export const T = {
-  surface: alpha(dark.surface, 0.9), // the mockup's --h-surface: rgba(38,38,38,.90)
+  surface: alpha(dark.surface, 0.92), // the mockup's --h-surface: rgba(38,38,38,.92)
   /** Background of the layer menu and legend, which sit next to the map (HUD.layers.faceOpacity) */
   menu: alpha(dark.surface, HUD.layers.faceOpacity),
   row: dark.row,

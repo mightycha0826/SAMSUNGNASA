@@ -15,49 +15,49 @@ export const HUD = {
   followRate: 0,
   /** 목업의 화면 크기 (도). 아래 위치는 이 화면의 왼쪽 위 기준 */
   stage: { wDeg: 80.26, hDeg: 50.16 },
-  // Layout follows mockups/hud-mockup.html, which the UI owner keeps refining: change the mockup
-  // first, then these numbers. The status card is 20.5 deg wide at (3.5, 4.5); the panel is 0.3 deg
-  // larger on every side for its outline and text glow.
   status: {
-    leftDeg: 3.2, topDeg: 4.2, wDeg: 21.1, hDeg: 31.6,
+    // Layout follows mockups/hud-mockup.html, which the UI owner keeps refining: change the
+    // mockup first, then these numbers. The status card is 19.5 deg wide, bottom right, 5.5 deg
+    // from the right edge and 7 deg from the bottom, pulled inward for the Quest 3's narrower
+    // field of view. The panel is 0.3 deg larger on every side for its outline and text glow,
+    // and the card is drawn against the panel's bottom edge.
+    leftDeg: 54.96, topDeg: 11.86, wDeg: 20.1, hDeg: 31.6,
     /** Opacity of the whole status card (0 to 1). Both values are 1, as in the mockup: the card's
-     *  face is already transparent there and its outlines and text are at full strength.
+     *  face is already clear and only its outlines and text are drawn.
      *  `mapOpacity` applies while the map is in view (palm up in the headset; always on a PC
-     *  screen); lower it (for example 0.55) to fade the card while looking at the map. Any active
+     *  screen), in case the card should fade further over the map. A warning or critical
      *  alert brings the card back to full opacity. `fadeRate` is how fast it changes (1/s). */
     opacity: 1, mapOpacity: 1, fadeRate: 6,
   },
   /** Toast strip, top centre */
-  banner: { topDeg: 4.5, wDeg: 38, hDeg: 4 },
-  /** Alert card, centred in the view (updated mockup: alerts sit in the line of sight) */
-  alert: { wDeg: 36, hDeg: 8 },
-  /** Alert frame (critical red, warn orange), as in the mockup: it follows the outline of the
-   *  display. In the headset that is the rounded oval of the Quest 3 lenses; on a PC screen it
-   *  is the window edge. Half-sizes are in stage degrees from the centre of view (66 and 52 are
-   *  about 49 and 42 real degrees on the 1 m plane; Quest 3 shows roughly 55 and 48). If the
-   *  frame is cut off or invisible in the headset, lower them.
-   *  Pulse: full brightness at the start of every period, fading to lowOpacity by 48% of it,
-   *  0.1 s after the alarm beep. "Confirm" stops the pulse and the beep (ackedOpacity). */
-  edge: { halfWDeg: 66, halfHDeg: 52, periodS: 1.6, lowOpacity: 0.16, ackedOpacity: 0.42, flashDelayS: 0.1 },
+  banner: { topDeg: 6, wDeg: 38, hDeg: 4 },
+  /** Alert card: bottom centre, its bottom edge bottomDeg above the bottom of the stage, at
+   *  most 26 deg wide. The panel is glowDeg larger on every side for the light around it. */
+  alert: { wDeg: 31, hDeg: 12, bottomDeg: 7, glowDeg: 2.5, maxCardDeg: 26 },
+  /** The light around the alert card (critical red, warn orange). Pulse: full brightness at the
+   *  start of every period, fading to lowOpacity by 48% of it, 0.1 s after the alarm beep.
+   *  "Confirm" stops the pulse and the beep (ackedOpacity). */
+  edge: { periodS: 1.6, lowOpacity: 0.16, ackedOpacity: 0.36, flashDelayS: 0.1 },
   /** Alarm beep before each flash: one soft 880 Hz tone for warn, two sharp 2350 Hz pulses for
    *  critical (mockup). `?sound=0` turns it off. */
   alarm: { enabled: q.get('sound') !== '0', warnHz: 880, criticalHz: 2350, gain: 0.2 },
   /** 레이어 탭 + 범례 */
   layers: {
-    wDeg: 16,
+    wDeg: 14.5,
     hDeg: 21,
     /** 손 추적이 없을 때(PC 포함) 화면에 고정하는 자리 */
-    fixedLeftDeg: 26,
-    fixedBottomDeg: 3.5,
+    // Left of the bottom-centre alert card, so the two never overlap (PC screen, controllers).
+    fixedLeftDeg: 11.5,
+    fixedBottomDeg: 6.5,
     /** Beside the palm map: distance of the menu centre to the right of the map centre and
      *  above it (m), and the size factor. The map is 0.25 m wide and the menu about 0.17 m,
      *  so 0.27 leaves a gap of about 6 cm between them. */
     palmOffsetRightM: 0.27,
     palmOffsetUpM: 0.02,
     palmScale: 0.6,
-    /** Opacity of the menu and legend backgrounds (0 to 1). 0.9 is the mockup's `--h-surface`.
+    /** Opacity of the menu and legend backgrounds (0 to 1). 0.92 is the mockup's `--h-surface`.
      *  Lower it to see more of the map behind them; the text and colour ramp stay opaque. */
-    faceOpacity: 0.9,
+    faceOpacity: 0.92,
     /** (see `touch` below for how the menus are pressed) */
     /** How long a pressed tab stays lit (ms) */
     pressFlashMs: 220,
