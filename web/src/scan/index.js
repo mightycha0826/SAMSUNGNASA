@@ -27,6 +27,9 @@
 // out of it are kept (the archive) and come back when the wearer returns. `hazard:update` is
 // always the window, so its originXZ changes when the window moves. Not yet checked on the headset.
 //
+// Where the wearer has walked is clear floor: the cells under them are freed at once and the
+// room scan cannot block them again (standAt).
+//
 // The map is kept on the Jetson (memory.js): the tiles that changed go to the hub as
 // `map:store` (at most every storeMs) and the hub writes them to disk. When a session starts
 // the hub hands back the map it stored last (`map:stored`); once the new scan lines up with
@@ -74,17 +77,20 @@ export const SCAN = {
   viewHalfDeg: 40, // half the width of what the depth image sees, for deciding what was in view
   forgetScans: 0, // reads out of sight before a live obstacle is forgotten; 0 = never: the map keeps what it has seen
 
+  walkedM: 0.25, // where the wearer stands, the floor within this radius is clear (about half a body width)
+
   // The map on the Jetson.
   storeMs: 2000, // a changed map goes to the hub at most this often
   remember: new URLSearchParams(globalThis.location?.search ?? '').get('remember') !== '0', // take the stored map back
 
   // Highlight on the floor (overlay.js), [r, g, b] 0-255.
-  glowRGB: [255, 48, 48], // the fill, the outline and the halo
+  glowRGB: [255, 48, 48], // the fill
   glintRGB: [255, 214, 208], // where the travelling light and the sparks are brightest
 };
 
 let ctx;
 let cells; // the room scan, on the window
+let walked; // 0 where the wearer has stood, 255 elsewhere: the room scan may not block those cells again
 let cols; // cells per side of the window
 let origin; // room coordinates of the window's cell [0, 0]
 let originTile; // the same in tiles: the window's first tile
@@ -128,6 +134,7 @@ const storedUnder = (tile) => stored && assemble((key) => stored.get(key), tile)
 function reset() {
   cols = TILES.cells * TILES.window;
   cells = new Uint8Array(cols * cols).fill(255);
+  walked = new Uint8Array(cols * cols).fill(255);
   // Around the room origin, where a session starts. If the wearer is somewhere else (a space
   // that kept its origin from before), the first look at the head moves the window there.
   originTile = [follow(null, 0), follow(null, 0)];
@@ -164,7 +171,7 @@ function followHead(x, z) {
   const next = [follow(originTile[0], inTiles(x, SCAN.cellM)), follow(originTile[1], inTiles(z, SCAN.cellM))];
   if (next[0] === originTile[0] && next[1] === originTile[1]) return;
   const nextOrigin = originOf(next);
-  const { left } = moveWindow({ room: cells, live: live.cells }, originTile, next, archive, {
+  const { left } = moveWindow({ room: cells, live: live.cells, walked }, originTile, next, archive, {
     live: {
       shift: (dCols, dRows) => live.shift(dCols, dRows, nextOrigin),
       paste: (col, row, tile) => live.restore(col, row, TILES.cells, tile),
@@ -271,12 +278,40 @@ function store(time) {
   });
 }
 
+/**
+ * Where the wearer stands there is no obstacle: the cells under them are clear floor at once,
+ * in both layers, and the room scan may not block them again (a doorway that was shut when the
+ * room was scanned stays open once someone has walked through it). Live depth still can: a
+ * chair put there afterwards is found.
+ */
+function standAt(x, z) {
+  const k = Math.ceil(SCAN.walkedM / SCAN.cellM);
+  const c0 = Math.floor((x - origin[0]) / SCAN.cellM);
+  const r0 = Math.floor((z - origin[1]) / SCAN.cellM);
+  for (let r = r0 - k; r <= r0 + k; r++) {
+    for (let c = c0 - k; c <= c0 + k; c++) {
+      if (c < 0 || r < 0 || c >= cols || r >= cols) continue;
+      const dx = origin[0] + (c + 0.5) * SCAN.cellM - x;
+      const dz = origin[1] + (r + 0.5) * SCAN.cellM - z;
+      if (dx * dx + dz * dz > SCAN.walkedM * SCAN.walkedM) continue;
+      const i = r * cols + c;
+      walked[i] = 0;
+      if (cells[i] !== 0) {
+        cells[i] = 0;
+        dirty = true;
+      }
+    }
+  }
+  if (live.freeAround(x, z, SCAN.walkedM)) dirty = true;
+}
+
 function mark(x, y, z) {
   const c = Math.floor((x - origin[0]) / SCAN.cellM);
   const r = Math.floor((z - origin[1]) / SCAN.cellM);
   if (c < 0 || r < 0 || c >= cols || r >= cols) return;
   const i = r * cols + c;
   if (y > SCAN.floorBandM && y < SCAN.headM) {
+    if (walked[i] === 0) return; // the wearer has stood here: whatever the room model says, it is not in the way
     if (cells[i] !== 1) {
       cells[i] = 1;
       dirty = true;
@@ -398,11 +433,13 @@ export function update(frame) {
 
   // Keep the window around the wearer. Not every frame: a step is far less than the tile of
   // margin the window has on every side.
-  if (time - lastFollow >= SCAN.followMs) {
+  const at = xrFrame.getViewerPose(refSpace)?.transform.position;
+  if (at && time - lastFollow >= SCAN.followMs) {
     lastFollow = time;
-    const at = xrFrame.getViewerPose(refSpace)?.transform.position;
-    if (at) followHead(at.x, at.z);
+    followHead(at.x, at.z);
   }
+  // Every frame: at walking pace a quarter of a second is a longer step than the body is wide.
+  if (at && Number.isFinite(at.x) && Number.isFinite(at.z)) standAt(at.x, at.z);
 
   const meshes = xrFrame.detectedMeshes;
   const planes = xrFrame.detectedPlanes;

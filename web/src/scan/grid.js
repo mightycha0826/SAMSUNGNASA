@@ -198,6 +198,37 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
     },
 
     /**
+     * The wearer has stood here: every cell within `radiusM` of (x, z) is clear floor, now,
+     * whatever was believed before. The cells stay open, so something put down there later is
+     * still found. True when a cell changed.
+     */
+    freeAround(x, z, radiusM) {
+      const k = Math.ceil(radiusM / cellM);
+      const c0 = Math.floor((x - origin[0]) / cellM);
+      const r0 = Math.floor((z - origin[1]) / cellM);
+      let changed = false;
+      for (let r = r0 - k; r <= r0 + k; r++) {
+        for (let c = c0 - k; c <= c0 + k; c++) {
+          if (!(c >= 0 && r >= 0 && c < cols && r < rows)) continue;
+          const dx = origin[0] + (c + 0.5) * cellM - x;
+          const dz = origin[1] + (r + 0.5) * cellM - z;
+          if (dx * dx + dz * dz > radiusM * radiusM) continue;
+          const i = r * cols + c;
+          if (cells[i] !== PASSABLE) {
+            cells[i] = PASSABLE;
+            changed = true;
+          }
+          sightings[i] = hold[i] = same[i] = idle[i] = 0;
+          if (settled[i]) {
+            settled[i] = away[i] = gaveUp[i] = 0;
+            settledCount--;
+          }
+        }
+      }
+      return changed;
+    },
+
+    /**
      * Lay back a square of cells that were in the window before (`values`, side x side, at
      * column col, row row). What is known comes back settled and marked as left behind: it
      * is not read from where the wearer stands now, and is opened like any cell the wearer

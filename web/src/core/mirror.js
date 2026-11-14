@@ -19,17 +19,17 @@
 // What it does not show by itself: the room. WebXR gives a page no picture of what the wearer
 // sees, so the background is plain where the wearer sees the real world.
 //
-// ?mirror=cam tries to put the room behind it: it asks the browser for a camera
-// (getUserMedia) and, if one is given, draws its picture as the background. On our Quest 3
-// the browser offers "camera 0, facing front" (a virtual camera that shows the wearer's
-// avatar) and two cameras "facing back" (the passthrough cameras): a back one is taken. The
-// camera sits beside the eye and its lens is not the one the mirror draws with, so the virtual
-// things sit roughly, not exactly, where the wearer sees them (?mirrorFov= adjusts). What the
-// browser offered and gave is shown on the monitor page and in the hub's log.
+// The room behind it: on a headset the page asks the browser for a camera (getUserMedia) and
+// draws its picture as the background. Our Quest 3 offers "camera 0, facing front" (a virtual
+// camera that shows the wearer's avatar) and two cameras "facing back" (the passthrough
+// cameras): a back one is taken; ?mirrorCam=camera 1 picks by name. The camera sits beside the
+// eye and its lens is not the one the mirror draws with, so the virtual things sit roughly,
+// not exactly, where the wearer sees them (?mirrorFov= adjusts). What the browser offered and
+// gave is shown on the monitor page and in the hub's log. ?mirror=nocam leaves the camera out.
 //
 // It costs nothing while nobody watches: the hub says how many viewers there are, and pictures
 // are only made while there is at least one. ?mirror=0 turns it off, ?mirror=1 also mirrors the
-// PC view (outside AR), ?mirrorFps= changes the rate.
+// PC view (outside AR, without a camera), ?mirrorFps= changes the rate.
 //
 // This is the one WebSocket besides link.js (INTERFACES section 4): pictures must not queue up
 // in front of the microphone stream and the alerts.
@@ -43,7 +43,7 @@ const q = new URLSearchParams(location.search);
 export const MIRROR = {
   enabled: q.get('mirror') !== '0' && !mock.link,
   outsideAR: q.get('mirror') === '1',
-  camera: q.get('mirror') === 'cam', // try to put the headset's camera picture behind the mirror
+  camera: !['0', '1', 'nocam'].includes(q.get('mirror')), // the headset's camera picture behind the mirror; ?mirror=nocam leaves it out
   cameraName: q.get('mirrorCam'), // ?mirrorCam=camera 1 picks a camera by (part of) its name, when the default choice is the wrong one
   width: 480,
   height: 360,
@@ -118,7 +118,18 @@ export function initMirror({ renderer, scene, camera, xr }) {
     }
     console.info('[mirror] camera:', cameraNote);
   }
-  if (MIRROR.camera) openCamera();
+  // Asked for when the page loads, like the microphone (a prompt that comes up while an AR
+  // session starts is lost behind it), and only on a device that has AR: a desk computer
+  // should not be asked for its webcam.
+  if (MIRROR.camera) {
+    navigator.xr
+      ?.isSessionSupported('immersive-ar')
+      .then((ar) => {
+        if (ar) openCamera();
+        else cameraNote = 'off (no AR here)';
+      })
+      .catch(() => {});
+  }
 
   let viewers = 0;
   let busy = false; // a picture is with the GPU or the worker

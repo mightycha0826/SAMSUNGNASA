@@ -42,17 +42,17 @@ test('tiles: keys there and back', () => {
   for (const bad of ['', '1', '1,2,3', 'a,b', '1.5,2', '1, 2']) assert.equal(parseKey(bad), null, `"${bad}"`);
 });
 
-test('the window starts around the wearer and stays while the wearer is in its two middle tiles', () => {
+test('the window starts around the wearer and stays while the wearer is within 0.6 tiles of its centre', () => {
   assert.equal(follow(null, 0), -2, 'a session starts at the origin: two tiles either side');
   assert.equal(follow(null, inTiles(-7, 0.1)), -3, 'centred on the tile border nearest to the head');
-  for (const headT of [-1, -0.5, 0, 0.5, 0.999]) assert.equal(follow(-2, headT), -2, `head at ${headT} tiles`);
-  assert.equal(follow(-2, 1), -1, 'into the last tile: the window moves one tile on');
-  assert.equal(follow(-2, -1.001), -3, 'and the same the other way');
+  for (const headT of [-0.6, -0.3, 0, 0.3, 0.599]) assert.equal(follow(-2, headT), -2, `head at ${headT} tiles`);
+  assert.equal(follow(-2, 0.6), -1, 'more than 0.6 tiles from the centre: the window moves one tile on');
+  assert.equal(follow(-2, -0.601), -3, 'and the same the other way');
   assert.equal(follow(-2, 7.4), 5, 'a jump (the headset found itself somewhere else) lands centred too');
 });
 
 test('the window does not move back and forth at a tile border', () => {
-  // Walk in +x across the border that moves the window, then pace half a metre either side of it.
+  // Walk in +x past the point that moves the window, then pace half a metre either side of its new centre.
   let start = follow(null, 0);
   let moves = 0;
   const walk = (x) => {
@@ -64,11 +64,11 @@ test('the window does not move back and forth at a tile border', () => {
   assert.equal(moves, 1);
   for (let i = 0; i < 50; i++) walk(6.4 + (i % 2 ? 0.5 : -0.5));
   assert.equal(moves, 1, 'pacing over the border that moved it does not move it again');
-  // It takes a whole tile from the new centre, in either direction.
-  walk(6.4 - 6.3);
-  walk(6.4 + 6.3);
+  // It takes 0.6 tiles (3.84 m) from the new centre, in either direction.
+  walk(6.4 - 3.7);
+  walk(6.4 + 3.7);
   assert.equal(moves, 1);
-  walk(6.4 + 6.5);
+  walk(6.4 + 3.9);
   assert.equal(moves, 2);
 });
 

@@ -34,17 +34,24 @@ export const tileOfCell = (cell, tileCells = TILES.cells) => Math.floor(cell / t
 export const inTiles = (m, cellM, tileCells = TILES.cells) => m / (cellM * tileCells);
 
 /**
+ * How far from the window's centre the head may be, in tiles, before the window moves. With a
+ * window of four tiles that leaves 1.4 tiles (9 m) of map on every side of the wearer, about
+ * what the palm map shows around them (10 m).
+ */
+export const FOLLOW_SLACK = 0.6;
+
+/**
  * Where the window starts along one axis, in tiles, for a head at `headT` (inTiles).
- * It stays where it is while the head is in one of its two middle tiles. Once the head is out
- * of them, the window is put down again with its centre on the tile border nearest to the head.
- * That is the slack that keeps it from moving back and forth: right after a move the head is
- * within half a tile of the centre, and it takes a whole tile of walking, in either direction,
- * before the window moves again.
+ * It stays where it is while the head is within FOLLOW_SLACK of its centre. Once the head is
+ * farther out, the window is put down again with its centre on the tile border nearest to the
+ * head. It does not move back and forth: right after a move the head is within half a tile of
+ * the centre, and it takes most of a tile of walking, in either direction, before the window
+ * moves again.
  * @param start where it starts now, or null when there is no window yet
  */
 export function follow(start, headT, windowTiles = TILES.window) {
   const half = windowTiles / 2;
-  if (start !== null && headT >= start + half - 1 && headT < start + half + 1) return start;
+  if (start !== null && headT >= start + half - FOLLOW_SLACK && headT < start + half + FOLLOW_SLACK) return start;
   return Math.round(headT) - half;
 }
 

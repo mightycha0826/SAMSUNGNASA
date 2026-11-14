@@ -222,3 +222,26 @@ test('map:stored that is not a map of these tiles is ignored', () => {
     assert.doesNotThrow(() => on['map:stored'](bad));
   }
 });
+
+test('where the wearer has walked is clear floor at once, and the room model cannot close it again', () => {
+  // A wall across the corridor that the room model has (a door that was shut when the room was scanned).
+  const here = head[0];
+  const DOOR = quad([[here + 1.5, 0, -3.05], [here + 1.5, 0, 2.95], [here + 1.5, 2.5, 2.95], [here + 1.5, 2.5, -3.05]]);
+  meshes.add(DOOR);
+  frames(12000); // the room model is rasterised again (at most every rescanMs)
+  let h = taken('hazard:update').at(-1);
+  assert.equal(cellAt(h, here + 1.5, 0), 1, 'the wall is in the map');
+  // Walk through it.
+  walkTo(here + 3);
+  h = taken('hazard:update').at(-1);
+  // Cells whose centre is within walkedM of the path (the path runs along z = 0).
+  for (const dz of [-0.15, -0.05, 0.05, 0.15]) assert.equal(cellAt(h, here + 1.5, dz), 0, `where the wearer went through (z ${dz}) is floor`);
+  assert.equal(cellAt(h, here + 1.5, 1.5), 1, 'the wall beside the path stands');
+  // The model changes again (the Quest refreshes it): the opening stays.
+  DOOR.lastChangedTime++;
+  DOOR.vertices[1] += 0.001;
+  frames(12000);
+  const again = taken('hazard:update').at(-1) ?? h;
+  assert.equal(cellAt(again, here + 1.5, 0), 0, 'still open after the room model was rasterised again');
+  meshes.delete(DOOR);
+});
