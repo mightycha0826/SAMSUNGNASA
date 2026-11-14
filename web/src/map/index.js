@@ -28,7 +28,7 @@
 import * as THREE from 'three';
 import { MAP, rampColor } from './config.js';
 import { mapPoint, range, terrainArrays } from './terrain.js';
-import { leftPalm, makePalmState } from '../core/palm.js';
+import { PALM, leftPalm, makePalmState } from '../core/palm.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
@@ -36,6 +36,7 @@ let activeLayer = null, request = 0, generation = 0, shownSince = null, controll
 let routePoints = [], routeLine, off = [], textures = new Map();
 const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
 const palmState = makePalmState();
+const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
 let beam = null;
 
 // A faint cone of light from the palm up to the map, so the map reads as projected from the hand.
@@ -255,7 +256,17 @@ export function update(frame) {
   if (!root.visible) root.position.copy(position);
   else root.position.lerp(position, 1 - Math.exp(-MAP.followRate * dt));
   root.quaternion.identity(); root.visible = true;
-  if (beam && left) { beam.visible = true; updateBeam(normal.copy(palmState.palm).sub(root.position)); }
+  if (left) {
+    // Lean the map toward the wearer: its up direction tips back along the line of sight.
+    const tilt = THREE.MathUtils.degToRad(PALM.tiltDeg);
+    tiltAxis.copy(upAxis).multiplyScalar(Math.cos(tilt)).addScaledVector(palmState.forward, -Math.sin(tilt));
+    root.quaternion.copy(tiltQuat.setFromUnitVectors(upAxis, tiltAxis));
+  }
+  if (beam && left) {
+    beam.visible = true;
+    // palm position in the map's own (tilted) frame
+    updateBeam(normal.copy(palmState.palm).sub(root.position).applyQuaternion(tiltQuat.invert()));
+  }
 }
 export function dispose() {
   off.forEach(fn => fn()); off = []; clearData();
