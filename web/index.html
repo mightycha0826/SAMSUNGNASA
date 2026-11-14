@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Marswalk Visor</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0d10; color: #e8eaed; font-family: system-ui, sans-serif; overflow: hidden; }
+      #app { position: fixed; inset: 0; }
+      #xr-button { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 16px 32px; font-size: 20px; font-weight: 700;
+        border: 0; border-radius: 12px; background: #e8562a; color: #fff; cursor: pointer; z-index: 10; }
+      #xr-button:disabled { background: #3a3f47; color: #9aa0a6; cursor: default; }
+      #debug { position: fixed; top: 12px; left: 12px; width: 360px; max-height: calc(100% - 24px); overflow: auto; z-index: 9;
+        background: rgba(11, 13, 16, 0.82); border: 1px solid #2a2f36; border-radius: 10px; padding: 10px 12px; font: 12px/1.5 ui-monospace, monospace; }
+      #debug h1 { font-size: 13px; margin: 0 0 6px; }
+      #debug table { border-collapse: collapse; width: 100%; }
+      #debug td { padding: 1px 4px; vertical-align: top; }
+      #debug .n { text-align: right; color: #8ab4f8; }
+      #debug .p { color: #9aa0a6; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #debug .tag { color: #f6b26b; }
+      a { color: #8ab4f8; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="debug"></div>
+    <button id="xr-button" disabled>확인 중…</button>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
