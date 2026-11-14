@@ -11,10 +11,10 @@ import { PASSABLE, OBSTACLE, UNKNOWN } from './grid.js';
 /** cfg: cellM, floorBandM, headM, sampleM, trianglesPerFrame, rescanMs (SCAN in index.js). */
 export function createRoom(cols, rows, originXZ, cfg) {
   const cells = new Uint8Array(cols * rows).fill(UNKNOWN);
-  const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when rasterised, at: when that was }
+  const seen = new Map(); // XRMesh / XRPlane -> { changed: its lastChangedTime when last looked at, at: when that was, print: its fingerprint }
   const jobs = []; // triangles waiting to be rasterised: { m: Float32Array(16), v, idx, at }
   const counts = { meshes: 0, planes: 0 };
-  let changed = false; // set by mark() during this work()
+  let marked = false; // a cell was set during this work()
 
   function mark(x, y, z) {
     const c = Math.floor((x - originXZ[0]) / cfg.cellM);
@@ -24,11 +24,11 @@ export function createRoom(cols, rows, originXZ, cfg) {
     if (y > cfg.floorBandM && y < cfg.headM) {
       if (cells[i] !== OBSTACLE) {
         cells[i] = OBSTACLE;
-        changed = true;
+        marked = true;
       }
     } else if (y <= cfg.floorBandM && cells[i] === UNKNOWN) {
       cells[i] = PASSABLE; // floor seen and nothing on it (so far)
-      changed = true;
+      marked = true;
     }
   }
 
@@ -60,6 +60,25 @@ export function createRoom(cols, rows, originXZ, cfg) {
     return !last || (last.changed !== thing.lastChangedTime && time - last.at >= cfg.rescanMs);
   }
 
+  // The browser may say a mesh or plane changed when its shape is what it was (the Quest moves
+  // lastChangedTime for a room that stands still). A cheap fingerprint of the shape and of where
+  // it stands tells: the same one is not rasterised again.
+  function fingerprint(pose, values) {
+    let sum = values.length;
+    const step = Math.max(1, Math.floor(values.length / 64));
+    for (let i = 0; i < values.length; i += step) sum = (sum * 31 + Math.round(values[i] * 1000)) | 0;
+    for (const v of pose.transform.matrix) sum = (sum * 31 + Math.round(v * 1000)) | 0;
+    return sum;
+  }
+
+  /** True when this mesh or plane has to be rasterised: new, or really different from last time. */
+  function changed(thing, pose, values, time) {
+    const print = fingerprint(pose, values);
+    const same = seen.get(thing)?.print === print;
+    seen.set(thing, { changed: thing.lastChangedTime, at: time, print });
+    return !same;
+  }
+
   function queueMesh(pose, vertices, indices) {
     jobs.push({ m: Float32Array.from(pose.transform.matrix), v: vertices, idx: indices, at: 0 });
   }
@@ -88,7 +107,7 @@ export function createRoom(cols, rows, originXZ, cfg) {
       return jobs.length;
     },
 
-    /** Queue the meshes and planes of this frame that are due. Call every frame. */
+    /** Queue the meshes and planes of this frame that are due and are not what they were. Call every frame. */
     collect(xrFrame, refSpace, time) {
       const meshes = xrFrame.detectedMeshes;
       const planes = xrFrame.detectedPlanes;
@@ -99,8 +118,7 @@ export function createRoom(cols, rows, originXZ, cfg) {
           if (!due(mesh, time)) continue;
           const pose = xrFrame.getPose(mesh.meshSpace, refSpace);
           if (!pose) continue;
-          seen.set(mesh, { changed: mesh.lastChangedTime, at: time });
-          queueMesh(pose, mesh.vertices, mesh.indices);
+          if (changed(mesh, pose, mesh.vertices, time)) queueMesh(pose, mesh.vertices, mesh.indices);
         }
       }
       if (planes) {
@@ -108,15 +126,14 @@ export function createRoom(cols, rows, originXZ, cfg) {
           if (!due(plane, time)) continue;
           const pose = xrFrame.getPose(plane.planeSpace, refSpace);
           if (!pose) continue;
-          seen.set(plane, { changed: plane.lastChangedTime, at: time });
-          queuePlane(pose, plane.polygon);
+          if (changed(plane, pose, plane.polygon.flatMap((p) => [p.x, p.y, p.z]), time)) queuePlane(pose, plane.polygon);
         }
       }
     },
 
     /** Rasterise queued triangles, at most trianglesPerFrame of them. True when the cells may have changed. */
     work() {
-      changed = false;
+      marked = false;
       let budget = cfg.trianglesPerFrame;
       while (budget > 0 && jobs.length) {
         const job = jobs[0];
@@ -131,7 +148,7 @@ export function createRoom(cols, rows, originXZ, cfg) {
         }
         if (job.at >= idx.length) jobs.shift();
       }
-      return changed;
+      return marked;
     },
   };
 }

@@ -12,15 +12,62 @@ export const PASSABLE = 0;
 export const OBSTACLE = 1;
 export const UNKNOWN = 255;
 
-/** cfg: thingMinM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans (SCAN in index.js). */
+/**
+ * cfg: thingMinM, headM, floorNoiseM, minPoints, setScans, clearScans, forgetScans, and for
+ * settling: settleScans, giveUpScans, leaveM, vantageM, depthRangeM, bodyM, viewHalfDeg (SCAN in index.js).
+ *
+ * Settling (cfg.settleScans > 0): a cell that has been read settleScans times in a row with the
+ * same answer is settled and is not read any more: points that fall into it are dropped. So is
+ * a cell that stayed in view giveUpScans times without ever giving an answer (behind something,
+ * under the lower edge of the image). The sensor's time then goes to cells that are still open,
+ * and unsettledInView says when there are none in view, so the caller can skip the read.
+ * A settled cell is opened again when the wearer comes back after having been more than leaveM
+ * away from it. A given-up one is also opened as soon as the wearer looks from somewhere else
+ * or in another direction (view.sig changes): it may be in the picture now.
+ */
 export function createGrid(cols, rows, cellM, originXZ, cfg) {
   const n = cols * rows;
   const cells = new Uint8Array(n).fill(UNKNOWN);
   const sightings = new Uint8Array(n); // reads so far that saw an obstacle here, up to setScans
   const hold = new Uint8Array(n); // floor-only reads still needed before the obstacle is cleared
-  const unseen = new Uint8Array(n); // reads since the cell last got a point, up to forgetScans
+  const unseen = new Uint8Array(n); // reads since the cell last got a point, up to forgetScans (when that is on)
   const obstacle = new Uint16Array(n); // points that fell into the cell during this read
   const floor = new Uint16Array(n);
+  const settled = new Uint8Array(n); // 1: read often enough, left alone until the wearer comes back
+  const same = new Uint8Array(n); // reads in a row that gave the answer the cell already has
+  const idle = new Uint8Array(n); // reads in a row in which the cell was in view and gave no answer
+  const away = new Uint8Array(n); // the wearer has been more than leaveM from this settled cell
+  const gaveUp = new Int32Array(n); // for a cell settled without an answer: the view.sig it was given up from, else 0
+  const settling = cfg.settleScans > 0;
+  let settledCount = 0;
+  const cosHalf = Math.cos(((cfg.viewHalfDeg ?? 40) * Math.PI) / 180);
+
+  // Whether cell i is where the depth image can see it from `view` { x, z, dirX, dirZ }: within
+  // range along the floor and within viewHalfDeg of where the wearer faces. (dirX, dirZ) is the
+  // facing direction on the floor, unit length, or 0, 0 when looking straight down or up.
+  function inView(i, view) {
+    const dx = originXZ[0] + ((i % cols) + 0.5) * cellM - view.x;
+    const dz = originXZ[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < cfg.bodyM ** 2 || d2 > cfg.depthRangeM ** 2) return false;
+    if (!view.dirX && !view.dirZ) return true;
+    return dx * view.dirX + dz * view.dirZ >= cosHalf * Math.sqrt(d2);
+  }
+
+  // Rows and columns that hold every cell within depthRangeM of the wearer.
+  function reach(view) {
+    const k = Math.ceil(cfg.depthRangeM / cellM) + 1;
+    const c = Math.floor((view.x - originXZ[0]) / cellM);
+    const r = Math.floor((view.z - originXZ[1]) / cellM);
+    return [Math.max(0, c - k), Math.min(cols - 1, c + k), Math.max(0, r - k), Math.min(rows - 1, r + k)];
+  }
+
+  function settle(i, sig = 0) {
+    settled[i] = 1;
+    settledCount++;
+    away[i] = 0;
+    gaveUp[i] = sig;
+  }
 
   return {
     cells,
@@ -31,6 +78,7 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       const row = Math.floor((z - originXZ[1]) / cellM);
       if (!(col >= 0 && row >= 0 && col < cols && row < rows)) return; // also drops NaN
       const i = row * cols + col;
+      if (settled[i]) return; // read often enough: nothing more to learn here for now
       if (y > cfg.thingMinM && y < cfg.headM) obstacle[i]++;
       // Between floorNoiseM and thingMinM a noisy depth point could be either: it counts as neither.
       else if (Math.abs(y) <= cfg.floorNoiseM) floor[i]++;
@@ -39,14 +87,17 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
     /**
      * Fold the current read into the cells. True when a cell changed.
      * A cell where the read is unclear (too few points, or floor with a little of something
-     * else) keeps its state. So does a cell that was not seen, until it has been out of sight
-     * for forgetScans reads: an obstacle is then forgotten, because what stood there (a person,
-     * a chair that was carried off) may be gone and nothing would ever clear it.
+     * else) keeps its state. So does a cell that was not seen: an obstacle stays on the map
+     * until the sensor sees clear floor where it stood. Only with cfg.forgetScans > 0 is an
+     * obstacle forgotten after that many reads out of sight.
+     * @param view the wearer's view for this read (viewOf); needed for giving up on cells
      */
-    commit() {
+    commit(view = null) {
       let changed = false;
       for (let i = 0; i < n; i++) {
+        if (settled[i]) continue;
         let next = cells[i];
+        const answered = obstacle[i] >= cfg.minPoints || (floor[i] >= cfg.minPoints && obstacle[i] === 0);
         if (obstacle[i] >= cfg.minPoints) {
           // Seen in setScans reads in a row before it counts: someone walking past and stray depth do not.
           if (sightings[i] < cfg.setScans) sightings[i]++;
@@ -62,9 +113,23 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
           sightings[i] = 0; // not seen as a thing in this read: the count starts over
         }
         if (obstacle[i] || floor[i]) unseen[i] = 0;
-        else if (unseen[i] < cfg.forgetScans && ++unseen[i] === cfg.forgetScans) {
+        else if (cfg.forgetScans > 0 && unseen[i] < cfg.forgetScans && ++unseen[i] === cfg.forgetScans) {
           sightings[i] = hold[i] = 0;
           if (next === OBSTACLE) next = UNKNOWN;
+        }
+        if (settling) {
+          // The read says what the cell already is: a thing seen where an obstacle stands,
+          // bare floor seen where the floor is clear. (A first sighting of something on clear
+          // floor is an answer too, but the opposite one.)
+          const thing = obstacle[i] >= cfg.minPoints;
+          if (answered && next === cells[i] && next === (thing ? OBSTACLE : PASSABLE)) {
+            idle[i] = 0;
+            if (++same[i] >= cfg.settleScans) settle(i);
+          } else if (answered || next !== cells[i]) {
+            same[i] = idle[i] = 0; // still changing, or an obstacle being confirmed
+          } else if (view && cfg.giveUpScans > 0 && inView(i, view)) {
+            if (++idle[i] >= cfg.giveUpScans) settle(i, view.sig || 1); // in view all this time and nothing to see
+          }
         }
         if (next !== cells[i]) {
           cells[i] = next;
@@ -74,7 +139,67 @@ export function createGrid(cols, rows, cellM, originXZ, cfg) {
       }
       return changed;
     },
+
+    /**
+     * Open settled cells again where the wearer has come back: call before each read.
+     * Returns how many were opened.
+     */
+    reopen(view) {
+      if (!settledCount) return 0;
+      let opened = 0;
+      const leave2 = cfg.leaveM ** 2;
+      const range2 = cfg.depthRangeM ** 2;
+      for (let i = 0; i < n; i++) {
+        if (!settled[i]) continue;
+        const dx = originXZ[0] + ((i % cols) + 0.5) * cellM - view.x;
+        const dz = originXZ[1] + (Math.floor(i / cols) + 0.5) * cellM - view.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > leave2) away[i] = 1;
+        else if (d2 <= range2 && (away[i] || (gaveUp[i] && gaveUp[i] !== (view.sig || 1)))) {
+          settled[i] = same[i] = idle[i] = away[i] = 0;
+          settledCount--;
+          opened++;
+        }
+      }
+      return opened;
+    },
+
+    /** True when a cell the depth image can see from `view` is still open: worth a read. */
+    unsettledInView(view) {
+      if (!settling) return true;
+      const [c0, c1, r0, r1] = reach(view);
+      for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+          const i = r * cols + c;
+          if (!settled[i] && inView(i, view)) return true;
+        }
+      }
+      return false;
+    },
+
+    get settledCount() {
+      return settledCount;
+    },
   };
+}
+
+/**
+ * Where the wearer is and looks, from the head's matrix (column-major, head -> room):
+ * x, z on the floor; dirX, dirZ the facing direction along the floor (0, 0 when looking nearly
+ * straight up or down); sig, a number that changes when the wearer has moved about vantageM,
+ * turned about 30 degrees or tilted the head about 20 degrees: a different picture.
+ */
+export function viewOf(m, vantageM = 1) {
+  const fx = -m[8];
+  const fy = -m[9];
+  const fz = -m[10];
+  const flat = Math.hypot(fx, fz);
+  const level = flat > 0.2;
+  const turn = level ? Math.round(Math.atan2(fx, fz) / (Math.PI / 6)) + 6 : 13; // 0..12, 13 = straight up or down
+  const tilt = Math.round(Math.asin(Math.max(-1, Math.min(1, fy))) / (Math.PI / 9)) + 5; // 0..10
+  const px = Math.round(m[12] / vantageM) + 512;
+  const pz = Math.round(m[14] / vantageM) + 512;
+  return { x: m[12], z: m[14], dirX: level ? fx / flat : 0, dirZ: level ? fz / flat : 0, sig: 1 + turn + 16 * (tilt + 16 * (px + 1024 * pz)) };
 }
 
 /**

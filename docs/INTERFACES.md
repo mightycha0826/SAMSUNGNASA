@@ -222,7 +222,7 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `layers:ready` | B (core) | D, F | Once, when `layerset.json` and the files are loaded |
 | `layer:toggle` | F, B (from voice) | D | A layer is turned on or off |
 | `env:update` | B (core) | F | The next `env.json` sample is replayed |
-| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second) |
+| `hazard:update` | A | D, F | The field obstacle grid changes (at most twice a second). An obstacle stays in it until clear floor is seen where it stood |
 | `nav:request` | F, B (from voice) | D | A route is requested |
 | `nav:route` | D | F | A route was computed |
 | `telemetry:update` | B (from the Jetson) | F | Suit temperature arrives (once a second) |
@@ -235,6 +235,11 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `nav:position` | field (B) | D | The headset's tracking moved the wearer (5 times a second) |
 | `voice:commands` | B (from the Jetson) | F | The hub's command list, for the menu above the back of the hand |
 | `voice:text` | F | B (to the Jetson) | A command was picked from that menu; it runs like a spoken one |
+| `map:store` | A | B (to the Jetson) | The field map changed (at most every 2 s): `{ run, originXZ, cellSizeM, cols, rows, runs, source, stats }`. `runs` is the cells as `[value, count, ...]` |
+| `map:request` | A | B (to the Jetson) | A session started or the room coordinates were reset: ask the hub for the map it stored last |
+| `map:stored` | B (from the Jetson) | A | The hub's last stored map, same fields as `map:store` plus `savedAt` |
+| `rescue:signal` | F (`hud/suit.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
+| `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
 
 ### Payload formats and mock data
 
@@ -379,6 +384,8 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `tts.begin` | `{ "sampleRate": 22050, "priority": "normal" }` | (B prepares playback) |
 | (binary) | 16-bit PCM, mono | (B plays it) |
 | `tts.end` | `{}` | (B ends playback) |
+| `map.stored` | the fields of `map.store` plus `startedAt`, `savedAt`, `updates` | `map:stored`. The answer to `map.request`; nothing is sent when no map is stored |
+| `rescue.state` | `{ "active": true, "from", "at", "position", "acknowledged": false, "by": null }` | `rescue:state`. To the headset that sent the signal. The other headsets get `alert.raise` `{ "id": "crew-rescue", "level": "warn", "message": "Rescue signal from a crew member" }` and `alert.clear` when it is cancelled |
 
 ### Headset → Jetson
 
@@ -393,6 +400,21 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `client.log` | `{ "kind": "error", "message": "..." }` | Headset diagnostics: errors, AR session events, a position heartbeat every 5 s. Written to `jetson/logs/headset.log` |
 | `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
 | `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
+| `map.store` | `{ "run": "abc-0", "originXZ": [-8, -8], "cellSizeM": 0.1, "cols": 160, "rows": 160, "runs": [255, 25300, 1, 100, 0, 200], "source": "room-scan+depth", "stats": {} }` | The field map changed, at most every 2 s. The hub writes it to `jetson/maps/field-<time>-<run>.json` (one file per run, replaced whole). A run is one stretch in one set of room coordinates |
+| `map.request` | `{}` | After connecting, and when a session starts or the room coordinates are reset |
+| `rescue.signal` | `{ "active": true, "position": [12.0, -3.5], "suitTempC": 24.5, "batteryPct": 76 }` | The emergency button. `"active": false` withdraws it. The crew is virtual: the hub acknowledges after 5 s and marks the acknowledgement as simulated |
+
+### The mirror: a second WebSocket
+
+`wss://<Jetson address>:8443/mirror` carries what the app draws to the hub, so it can be watched on a monitor without a Meta account or developer mode (`web/src/core/mirror.js`, `jetson/marswalk/mirror.py`). It is separate from `/ws` so that pictures never queue in front of the microphone stream and the alerts.
+
+| Direction | Message | Meaning |
+|---|---|---|
+| headset → hub | binary | One JPEG, 480 × 360, about five a second, only while someone is watching |
+| headset → hub | `{ "info": { "width", "height", "fps", "ar", "mode", "space", "camera" } }` | When any of these change |
+| hub → headset | `{ "viewers": 1 }` | How many monitor pages are open; at 0 the headset makes no pictures |
+
+The hub serves `/monitor` (the page), `/monitor.mjpg` (the pictures as one multipart response) and `/monitor.json` (state, including a rescue signal that is up).
 
 ### Suit temperature thresholds (starting values)
 

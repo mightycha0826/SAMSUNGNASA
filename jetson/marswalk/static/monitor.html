@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marswalk monitor</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #07080b; color: #d7dde8; font: 14px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; }
+  header { display: flex; gap: 16px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid #1c212b; flex-wrap: wrap; }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+  #state { font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; margin-right: 6px; }
+  .live .dot { background: #34d399; }
+  .stale .dot { background: #f59e0b; }
+  main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; }
+  #view { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: auto; background: #0b0d12; aspect-ratio: 4 / 3; }
+  #wait { position: absolute; text-align: center; max-width: 34em; padding: 0 16px; color: #9aa4b5; }
+  #wait b { color: #d7dde8; }
+  #rescue { background: #b91c1c; color: #fff; padding: 10px 16px; font-weight: 600; letter-spacing: 0.01em; }
+  #rescue[hidden] { display: none; }
+  footer { padding: 8px 16px; color: #7c8798; border-top: 1px solid #1c212b; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Marswalk monitor</h1>
+  <span id="state"><span class="dot"></span><span id="text">Connecting to the hub</span></span>
+</header>
+<div id="rescue" hidden></div>
+<main>
+  <img id="view" alt="What the headset app is drawing">
+  <div id="wait" hidden></div>
+</main>
+<footer>Shows what the app draws, from the wearer's head: HUD, map, menus, pointer, arrows, obstacle outline, plus a 1 m floor grid and dots on the hand joints. The room is not in the picture unless the app was opened with ?mirror=cam and the browser gave it a camera.</footer>
+<script>
+  const view = document.getElementById('view');
+  const text = document.getElementById('text');
+  const state = document.getElementById('state');
+  const wait = document.getElementById('wait');
+  view.src = '/monitor.mjpg';
+  view.onerror = () => setTimeout(() => { view.src = '/monitor.mjpg?' + Date.now(); }, 2000); // the hub restarted
+  let before = null;
+  async function poll() {
+    try {
+      const s = await (await fetch('/monitor.json', { cache: 'no-store' })).json();
+      const fps = before ? Math.max(0, s.frames - before.frames) / ((Date.now() - before.at) / 1000) : 0;
+      before = { frames: s.frames, at: Date.now() };
+      const rescue = document.getElementById('rescue');
+      rescue.hidden = !s.rescue;
+      if (s.rescue) {
+        const r = s.rescue;
+        rescue.textContent = `RESCUE SIGNAL from ${r.from} at ${r.at}` + (r.position ? ` · map position ${r.position[0]} m, ${r.position[1]} m` : '') +
+          (r.suitTempC != null ? ` · suit ${r.suitTempC} °C` : '') + (r.acknowledged ? ` · acknowledged by ${r.by}` : ' · not acknowledged yet');
+      }
+      const live = s.sources > 0 && s.ageS !== null && s.ageS < 2;
+      state.className = live ? 'live' : s.frames ? 'stale' : '';
+      const i = s.info || {};
+      if (live) {
+        text.textContent = `Live from ${s.from} · ${i.ar ? 'in AR' : 'PC view'} · ${i.mode === 'field' ? 'field map' : 'Mars map'} · ${i.width}×${i.height} · ${fps.toFixed(1)} pictures/s${i.camera && i.camera !== 'off' ? ' · camera: ' + i.camera : ''}`;
+        wait.hidden = true;
+      } else if (s.sources > 0) {
+        text.textContent = s.frames ? `App connected, no new picture for ${Math.round(s.ageS)} s` : 'App connected, no picture yet';
+        wait.hidden = false;
+        wait.innerHTML = 'The app is open on the headset but is not in AR. Press <b>Mars map</b> or <b>Field map</b> in the headset.';
+      } else {
+        text.textContent = s.frames ? `Headset gone · last picture ${Math.round(s.ageS)} s ago` : 'Waiting for the headset';
+        wait.hidden = false;
+        wait.innerHTML = 'Open the app in the Quest Browser (<b>https://10.42.0.1:8443/</b>) and start AR. Reload the page there if it was open before the hub was updated.';
+      }
+    } catch {
+      state.className = '';
+      text.textContent = 'The hub does not answer';
+    }
+  }
+  poll();
+  setInterval(poll, 1000);
+</script>
+</body>
+</html>

@@ -29,6 +29,7 @@ import { drawStatus, drawBanner, drawAlert, drawAlertGlow, drawLayers, drawComma
 import { leftPalm, makePalmState } from '../core/palm.js';
 import { mode } from '../core/mode.js';
 import { createPointer } from './pointer.js';
+import { createSuit } from './suit.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -81,7 +82,8 @@ const menuCommands = () => commands.filter((c) => !c.mode || c.mode === mode.cur
 let pointer;
 let pointerTargets = [];
 // Which menus a pointer was on in the last frame: a menu that is being pointed at holds still.
-const engaged = { layers: false, commands: false };
+const engaged = { layers: false, commands: false, sos: false };
+let suit = null; // the right hand: suit view over the palm, emergency button over the back (suit.js)
 // Test hook: keep the command menu up without a hand (PC).
 let commandsPinned = false;
 let audio = null;
@@ -482,6 +484,7 @@ function initInput() {
   pointerTargets = [
     { id: 'layers', panel: pLayers, hits: () => layerHits, press: pressLayer },
     { id: 'commands', panel: pCommands, hits: () => commandHits, press: pressCommand },
+    suit.target, // the emergency button: pressed by the left hand
   ];
   // PC: mouse click
   const el = ctx.renderer.domElement;
@@ -518,11 +521,14 @@ const steady = {
  *    trusted): it does not move at all, and it does not close.
  *  - Otherwise it stays where it is until the hand is more than a dead zone away, then glides
  *    after it and stops again.
- *  - When the gesture ends it stays for a moment before it hides.
+ *  - When the hand turns out of the gesture the menu goes almost at once (turnedMs), and at
+ *    once when the hand turns into the other menu's gesture (`other`). When the hand is lost
+ *    from view instead, it stays for lingerMs: tracking drops out for moments all the time.
  */
-function followMenu(panel, st, wanted, held, scale, now, dt) {
+function followMenu(panel, st, wanted, held, scale, now, dt, { handSeen = false, other = false } = {}) {
   const F = HUD.follow;
-  if (held && st.shown) st.lastSeen = now;
+  if (other && !wanted) st.shown = false; // the hand now shows the other menu: this one goes at once
+  else if (held && st.shown) st.lastSeen = now;
   else if (wanted) {
     if (!st.shown) {
       panel.mesh.position.copy(aim.position);
@@ -541,8 +547,8 @@ function followMenu(panel, st, wanted, held, scale, now, dt) {
     }
     st.shown = true;
     st.lastSeen = now;
-  } else if (st.shown && now - st.lastSeen > F.lingerMs) {
-    st.shown = false;
+  } else if (st.shown && now - st.lastSeen > (handSeen ? F.turnedMs : F.lingerMs)) {
+    st.shown = false; // quickly when the hand has turned away, slowly when it was only lost from view
   }
   panel.mesh.visible = st.shown;
   panel.mesh.scale.setScalar(scale);
@@ -572,6 +578,7 @@ function updateHands(frame) {
     pLayers.mesh.scale.setScalar(1);
     if (!commandsPinned) pCommands.mesh.visible = false;
     steady.layers.shown = steady.commands.shown = false;
+    suit.hide();
     mapInView = !ctx.xr.presenting; // the PC view always shows the map; with controllers we cannot tell
     return;
   }
@@ -601,9 +608,16 @@ function updateHands(frame) {
     palmUp = v1.y < (steady.layers.shown ? L.palmUpDot + F.gestureSlack : L.palmUpDot);
     backUp = v1.y > (steady.commands.shown ? C.backUpDot - F.gestureSlack : C.backUpDot);
   }
+  // The right hand's own two views (suit.js). While its emergency button is up, the left hand
+  // is the one that points: its command card stays away so it does not pop up over the ray.
+  suit.place(frame, now, frame.dt, { right, crowded, engaged: engaged.sos });
+  if (suit.sosShown) backUp = false;
+  // Palm up shows the map in both modes, so in both it sends the command card away at once.
+  const mapUp = palmUp;
   // The layer menu belongs to the Mars map; in field mode the palm shows the field map alone.
   palmUp = palmUp && mode.current !== 'field';
   mapInView = palmUp;
+  const seen = !!wrist && !crowded;
 
   ctx.camera.getWorldPosition(v2);
   if (palmUp && !crowded) {
@@ -621,7 +635,7 @@ function updateHands(frame) {
     }
     aim.lookAt(v2);
   }
-  followMenu(pLayers, steady.layers, palmUp, engaged.layers || (crowded && steady.layers.shown), L.palmScale, now, frame.dt);
+  followMenu(pLayers, steady.layers, palmUp, engaged.layers || (crowded && steady.layers.shown), L.palmScale, now, frame.dt, { handSeen: seen, other: seen && backUp });
 
   if (backUp && !crowded) {
     // Above the back of the hand, facing the eyes: a card standing over the hand, clear of it, so
@@ -641,7 +655,7 @@ function updateHands(frame) {
     if (v3.lengthSq() > 1e-6) aim.position.addScaledVector(v3.normalize(), C.awayM);
     aim.lookAt(v2);
   }
-  followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt);
+  followMenu(pCommands, steady.commands, backUp, engaged.commands || (crowded && steady.commands.shown), C.scale, now, frame.dt, { handSeen: seen, other: seen && mapUp });
 }
 
 /** Pointing and pinching, after the menus have been placed for this frame. */
@@ -655,6 +669,9 @@ function updatePointer(frame, now) {
       dirty[flag] = true;
     }
   }
+  const s = res.get('sos');
+  engaged.sos = s.engaged;
+  suit.setHover(s.hoverId != null);
 }
 
 /** 탭 한 칸의 가운데가 화면 어디에 있는지 (CSS 픽셀). 테스트에서 클릭할 자리를 찾는 데 쓴다. */
@@ -685,7 +702,7 @@ export function init(context) {
   pStatus = makePanel(HUD.status.wDeg, HUD.status.hDeg);
   place(pStatus, HUD.status.leftDeg, HUD.status.topDeg, HUD.status.wDeg, HUD.status.hDeg);
   pBanner = makePanel(HUD.banner.wDeg, HUD.banner.hDeg);
-  place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
+  place(pBanner, (HUD.stage.wDeg - HUD.banner.wDeg) / 2 + HUD.centreShiftDeg, HUD.banner.topDeg, HUD.banner.wDeg, HUD.banner.hDeg);
   pLayers = makePanel(HUD.layers.wDeg, HUD.layers.hDeg);
   // Voice command menu: lives in the room (over the back of the left hand), hidden until then.
   pCommands = makePanel(HUD.commands.wDeg, HUD.commands.hDeg);
@@ -696,16 +713,17 @@ export function init(context) {
   const A = HUD.alert;
   const alertTop = HUD.stage.hDeg - A.bottomDeg + A.glowDeg - A.hDeg;
   pEdge = makePanel(A.wDeg, A.hDeg);
-  place(pEdge, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
+  place(pEdge, (HUD.stage.wDeg - A.wDeg) / 2 + HUD.centreShiftDeg, alertTop, A.wDeg, A.hDeg);
   pEdge.mesh.renderOrder = 999;
   pEdge.mesh.visible = false;
   pAlert = makePanel(A.wDeg, A.hDeg);
-  place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2, alertTop, A.wDeg, A.hDeg);
+  place(pAlert, (HUD.stage.wDeg - A.wDeg) / 2 + HUD.centreShiftDeg, alertTop, A.wDeg, A.hDeg);
   cards.add(pStatus.mesh, pBanner.mesh, pEdge.mesh, pAlert.mesh);
   wash = makeWash();
   camera.add(wash);
   placeLayersFixed();
 
+  suit = createSuit(ctx, { makePanel, followMenu, aim, showToast });
   wire(ctx.bus);
   initInput();
   loadFont().then(() => {
@@ -726,6 +744,7 @@ export function init(context) {
       dirty.commands = true;
     },
     pointer,
+    suit,
     panels: () => ({ layers: pLayers, commands: pCommands, layerHits, commandHits }),
     state,
     statusVM,
@@ -759,6 +778,7 @@ export function update(frame) {
 
   updateHands(frame);
   updatePointer(frame, now);
+  suit.tick(now, frame.dt);
   if (touch.pressedId && now > touch.pressedUntil) {
     touch.pressedId = null;
     dirty.layers = true;

@@ -121,12 +121,12 @@ test('a large mesh is rasterised over several frames, trianglesPerFrame at a tim
   assert.equal(room.work(), false); // nothing left to do: nothing changed
 });
 
-test('a mesh that keeps saying it changed is rasterised again only after rescanMs; one without a pose is tried again', () => {
+test('a mesh that keeps saying it changed is looked at again only after rescanMs, and rasterised again only when its shape or place really changed', () => {
   const room = newRoom();
   const m = mesh(...FLOOR_AND_WALL);
   const lost = new Map([[m, null]]);
   room.collect(frame([m], [], lost), REF, 0);
-  assert.equal(room.pending, 0); // its space cannot be located yet
+  assert.equal(room.pending, 0); // its space cannot be located yet: it is tried again
   room.collect(frame([m]), REF, 100);
   assert.equal(room.pending, 1);
   while (room.pending) room.work();
@@ -135,10 +135,27 @@ test('a mesh that keeps saying it changed is rasterised again only after rescanM
     room.collect(frame([m]), REF, time);
     assert.equal(room.pending, 0, `not again at ${time} ms`);
   }
-  m.lastChangedTime = 100 + SCAN.rescanMs;
-  room.collect(frame([m]), REF, 100 + SCAN.rescanMs);
+  // rescanMs later it is looked at again: the same shape in the same place is not rasterised again
+  let t = 100 + SCAN.rescanMs;
+  m.lastChangedTime = t;
+  room.collect(frame([m]), REF, t);
+  assert.equal(room.pending, 0);
+  // a vertex moved: rasterised again, but not sooner than rescanMs after the last look
+  m.vertices = Float32Array.from(m.vertices, (v, i) => (i === 0 ? v - 0.5 : v));
+  m.lastChangedTime = t + 1;
+  room.collect(frame([m]), REF, t + 1);
+  assert.equal(room.pending, 0, 'too soon after the last look');
+  t += SCAN.rescanMs;
+  m.lastChangedTime = t;
+  room.collect(frame([m]), REF, t);
   assert.equal(room.pending, 1);
   while (room.pending) room.work();
-  room.collect(frame([m]), REF, 100 + 3 * SCAN.rescanMs); // it stopped changing: never again
+  // the same shape somewhere else (its space moved): rasterised again
+  t += SCAN.rescanMs;
+  m.lastChangedTime = t;
+  room.collect(frame([m], [], new Map([[m, new THREE.Matrix4().copy(POSE).setPosition(2, 0, 0.5)]])), REF, t);
+  assert.equal(room.pending, 1);
+  while (room.pending) room.work();
+  room.collect(frame([m]), REF, t + 3 * SCAN.rescanMs); // it stopped saying it changed: never again
   assert.equal(room.pending, 0);
 });

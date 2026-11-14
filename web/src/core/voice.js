@@ -11,7 +11,13 @@
 //   - The microphone permission is asked as soon as the page loads, on the 2D page. Asking for it
 //     in the same tap that starts the AR session loses the prompt behind the session.
 //   - Audio itself only runs after a user gesture, so the AudioContext is resumed on the first
-//     tap, click or key press (the "Start AR" button counts).
+//     tap, click or key press (the "Start AR" button counts), and on every pinch in AR.
+//   - The headset ends the microphone when the wearer takes it off or opens the system menu
+//     (the track fires 'ended' a few seconds after the session is hidden) and never gives it
+//     back by itself. So the microphone is opened again whenever it is found dead: when the
+//     track ends, when the page or the AR session becomes visible again, and by a check every
+//     few seconds that audio is still arriving. Seen on the hub: after one pause the headset
+//     reported "mic ended" for the rest of the evening and no speech reached the recogniser.
 //
 //   ?voice=0     turn the voice link off
 //   ?mockMic=a.wav,b.wav   use these audio files as the microphone (testing without a mic)
@@ -26,7 +32,8 @@ const MOCK_MIC = q.get('mockMic'); // comma-separated audio file URLs to use as 
 let io = null; // { sendJson, sendBinary }
 let ctx = null;
 let streamOpen = false; // mic.begin sent on the current socket
-const status = { mic: 'starting', audio: 'suspended', inputRate: null, level: 0 };
+const status = { mic: 'starting', audio: 'suspended', inputRate: null, level: 0, restarts: 0 };
+const WATCH_MS = 3000; // the microphone is checked this often, and restarted after this long without audio
 
 // ---------- speech output ----------
 let ttsRate = 22050;
@@ -115,6 +122,8 @@ function makeResampler(inRate) {
 }
 
 function report(patch) {
+  // The same state again (the microphone still cannot be opened): nothing new to say.
+  if (Object.entries(patch).every(([k, v]) => status[k] === v)) return;
   Object.assign(status, patch);
   const line = `mic ${status.mic} · audio ${status.audio}`;
   const el = document.getElementById('voice-status');
@@ -168,40 +177,96 @@ async function mockMicStream(urls) {
   return dest.stream;
 }
 
+let mic = null; // { stream, source } of the microphone in use
+let capture = null; // the AudioWorkletNode every microphone stream is connected to
+let opening = false;
+let lastAudioAt = 0; // performance.now() of the last block of samples from the microphone
+let everOn = false;
+
+function closeMic() {
+  try {
+    mic?.source.disconnect();
+  } catch {
+    /* already gone */
+  }
+  mic?.stream.getTracks().forEach((t) => t.stop());
+  mic = null;
+}
+
+/** Open the microphone and feed it to the hub. Safe to call again: the old stream is let go. */
 async function startMic() {
+  if (opening) return;
   if (!MOCK_MIC && !navigator.mediaDevices?.getUserMedia) {
     report({ mic: 'unavailable (page must be HTTPS or localhost)' });
     return;
   }
-  let stream;
+  opening = true;
   try {
-    stream = MOCK_MIC
-      ? await mockMicStream(MOCK_MIC.split(','))
-      : await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-  } catch (err) {
-    report({ mic: `blocked (${err.name})` });
+    let stream;
+    try {
+      stream = MOCK_MIC
+        ? await mockMicStream(MOCK_MIC.split(','))
+        : await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+    } catch (err) {
+      // After a first success this is the headset still asleep: the next check tries again.
+      report({ mic: everOn ? `lost (${err.name})` : `blocked (${err.name})` });
+      return;
+    }
+    try {
+      if (!capture) {
+        const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        capture = new AudioWorkletNode(ctx, 'marswalk-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
+        const resample = makeResampler(ctx.sampleRate);
+        const chunkLen = (MIC_RATE * CHUNK_MS) / 1000;
+        const pending = [];
+        capture.port.onmessage = (ev) => {
+          lastAudioAt = performance.now();
+          resample(ev.data, pending);
+          while (pending.length >= chunkLen) sendChunk(pending.splice(0, chunkLen));
+        };
+      }
+      closeMic();
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(capture);
+      mic = { stream, source };
+      lastAudioAt = performance.now();
+      stream.getAudioTracks()[0]?.addEventListener('ended', () => {
+        if (mic?.stream !== stream) return; // an old stream that was let go on purpose
+        report({ mic: 'ended' });
+        setTimeout(() => checkMic('track ended'), 500);
+      });
+      if (everOn) status.restarts++;
+      everOn = true;
+      report({ mic: 'on', inputRate: ctx.sampleRate });
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      report({ mic: `failed (${err.name}: ${err.message})` });
+    }
+  } finally {
+    opening = false;
+  }
+}
+
+/**
+ * Open the microphone again if it is dead: its track has ended, or no audio has arrived for
+ * WATCH_MS although audio is running. A microphone the wearer never allowed is left alone
+ * (asking again would only fail again), except when the page comes back into view.
+ */
+function checkMic(why, force = false) {
+  if (!ENABLED || MOCK_MIC || !ctx || opening) return;
+  if (ctx.state !== 'running') {
+    ctx.resume().catch(() => {}); // suspended while the headset was off; works without a gesture once one was given
     return;
   }
-  try {
-    const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-    await ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
-    const node = new AudioWorkletNode(ctx, 'marswalk-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
-    const resample = makeResampler(ctx.sampleRate);
-    const chunkLen = (MIC_RATE * CHUNK_MS) / 1000;
-    const pending = [];
-    node.port.onmessage = (ev) => {
-      resample(ev.data, pending);
-      while (pending.length >= chunkLen) sendChunk(pending.splice(0, chunkLen));
-    };
-    ctx.createMediaStreamSource(stream).connect(node);
-    stream.getAudioTracks()[0]?.addEventListener('ended', () => report({ mic: 'ended' }));
-    report({ mic: 'on', inputRate: ctx.sampleRate });
-  } catch (err) {
-    report({ mic: `failed (${err.name}: ${err.message})` });
-  }
+  const track = mic?.stream.getAudioTracks()[0];
+  const alive = track?.readyState === 'live' && performance.now() - lastAudioAt < WATCH_MS;
+  if (alive || (!everOn && !force)) return;
+  console.info('[voice] microphone is not delivering audio, opening it again:', why);
+  startMic();
 }
 
 /** Called when the socket opens: the hub needs a fresh mic.begin and the current state. */
@@ -218,8 +283,9 @@ export function resetVoice() {
 /**
  * @param {{ sendJson: (type: string, payload: object) => boolean,
  *           sendBinary: (data: ArrayBuffer) => boolean }} link
+ * @param {{ onSessionStart: (fn: (session: XRSession) => void) => void }} [xr] core/xr.js
  */
-export function initVoice(link) {
+export function initVoice(link, xr) {
   if (!ENABLED) return;
   io = link;
   ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -233,6 +299,14 @@ export function initVoice(link) {
   for (const ev of ['pointerdown', 'keydown', 'touchend', 'click']) {
     window.addEventListener(ev, resume, { capture: true });
   }
+  // Back in view (headset put on again, system menu closed): audio and the microphone may be gone.
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkMic('page visible', true));
+  xr?.onSessionStart((session) => {
+    checkMic('AR session started', true);
+    session.addEventListener('visibilitychange', () => session.visibilityState === 'visible' && checkMic('AR session visible', true));
+    session.addEventListener('select', resume); // a pinch counts as a gesture: audio may run again
+  });
+  setInterval(() => checkMic('no audio'), WATCH_MS);
   // Every 10 s tell the hub the microphone level, so a silent microphone shows up in its log.
   setInterval(() => io?.sendJson('voice.status', { ...status, level: Number(status.level.toFixed(3)) }), 10000);
 }
