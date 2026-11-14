@@ -49,7 +49,7 @@ Stop the hub before flashing or watching: it holds the serial port. The Arduino 
 
 ## 3. Check with the hub
 
-Start the hub (`jetson/README.md`). The log prints `arduino data, source=arduino`, and `telemetry` messages carry `"source": "arduino"`. Hold the sensor in your hand, note the temperature it reaches, and set `--warn-c` / `--critical-c` / `--clear-c` so the demo crosses them.
+Start the hub (`jetson/README.md`). The log prints `arduino data, source=arduino`, and `telemetry` messages carry `"source": "arduino"`. Hold the sensor in your hand, note the temperature it reaches, and set `--warn-c` / `--critical-c` so the demo crosses them.
 
 ## Status
 

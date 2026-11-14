@@ -43,7 +43,7 @@ class Hub:
         self.args = args
         self.clients: set[web.WebSocketResponse] = set()
         self.suit = SuitTemp(args.serial)
-        self.alert = SuitTempAlert(Thresholds(args.warn_c, args.critical_c, args.clear_c))
+        self.alert = SuitTempAlert(Thresholds(args.warn_c, args.critical_c, args.margin_c))
         self.stt = make_stt(args.stt, args.lang)
         self.tts = make_tts(args.tts, args.lang)
         self.tts.warm(ALERT_SPEECH)
@@ -81,14 +81,16 @@ class Hub:
             if version != self.menu_version:
                 self.menu_version = version
                 await self.broadcast("voice.commands", {"commands": menu})
+            before = self.alert.level
             for type_, payload in self.alert.update(r["suitTempC"]):
-                log.info("%s %s", type_, payload)
+                # The reading goes into the log with the alert, so a surprising alarm can be explained.
+                log.info("%s %s at %.1f C (%s)", type_, payload, r["suitTempC"], r["source"])
                 if type_ == "alert.raise":
                     self.active_alerts[payload["id"]] = payload
                 else:
                     self.active_alerts.pop(payload["id"], None)
                 await self.broadcast(type_, payload)
-                if type_ == "alert.raise" and payload["level"] == "critical":
+                if type_ == "alert.raise" and payload["level"] == "critical" and before != "critical":
                     asyncio.create_task(self.say(payload["message"], "urgent"))
             await asyncio.sleep(1.0)
 
@@ -335,7 +337,8 @@ def main():
                    help="serial port (default: first /dev/ttyACM* or ttyUSB*; 'none' = mock only)")
     p.add_argument("--warn-c", type=float, default=30.0)
     p.add_argument("--critical-c", type=float, default=35.0)
-    p.add_argument("--clear-c", type=float, default=28.0)
+    p.add_argument("--margin-c", type=float, default=1.0,
+                   help="an alert steps down once the temperature is this far under its threshold")
     p.add_argument("--stt", default="auto", help="auto | sensevoice | null")
     p.add_argument("--tts", default="auto", help="auto | supertonic | tone")
     p.add_argument("--lang", default="en", help="speech language code for STT and TTS")

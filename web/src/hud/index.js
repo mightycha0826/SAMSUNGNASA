@@ -374,7 +374,9 @@ function wire(bus) {
   });
   bus.on('alert:raise', ({ id, level, message, ts }) => {
     const before = state.alerts.get(id);
-    if (before?.level !== level) state.acked = false; // 새 경보나 등급이 바뀐 경보는 다시 점멸
+    // A new alert, or one that got worse, rings again. One that eases (critical back to warn)
+    // keeps the wearer's "Confirm": it must not start beeping again on its way down.
+    if (!before || (level === 'critical' && before.level !== 'critical')) state.acked = false;
     state.alerts.set(id, { level, message, ts: ts ?? Date.now() });
     dirty.status = dirty.banner = true;
     updateMode();

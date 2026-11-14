@@ -400,7 +400,10 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | Below 30 °C | Normal |
 | 30 °C or above | `alert.raise` (`warn`) |
 | 35 °C or above | `alert.raise` (`critical`) |
-| Back below 28 °C | `alert.clear` |
+| Critical, then below 34 °C | `alert.raise` (`warn`): the alert steps back down |
+| Below 29 °C | `alert.clear` |
+
+The level follows the temperature in both directions. The 1 °C margin on the way down (`--margin-c`) only keeps a reading that hovers on a threshold from raising and clearing over and over. Until 2026-11-14 an alert never stepped down and cleared only below 28 °C, so the alarm kept ringing as critical while the display showed 29 °C.
 
 Chosen so that holding the sensor in a hand reaches them in the demo. E tunes them after measuring with the real sensor.
 

@@ -28,7 +28,7 @@ Without `uv`: `python3 -m venv .venv && .venv/bin/pip install -r requirements.tx
 | `--http-port 8080` | Also serve plain HTTP (for `adb reverse` / `localhost` only) |
 | `--serial /dev/ttyACM0` | Arduino port. Default: auto-detect. `none`: mock temperature only |
 | `--static ../web/dist` | B's build output. If missing, the connection test page is served |
-| `--warn-c 30 --critical-c 35 --clear-c 28` | Temperature alert thresholds (tune with the real sensor) |
+| `--warn-c 30 --critical-c 35 --margin-c 1` | Temperature alert thresholds (tune with the real sensor). An alert steps down once the temperature is `margin` under its threshold |
 | `--wake-word helmet` | Only obey speech that contains the word ("Helmet, status report"). For rooms where other people talk; off by default |
 | `--stt auto --tts auto` | Speech backends. `auto` uses the models if present, otherwise `null` / `tone` |
 
@@ -114,7 +114,7 @@ journalctl -u marswalk-hub -f
 |---|---|
 | `marswalk/hub.py` | HTTPS + WSS server, 1 Hz telemetry, message handling, voice flow |
 | `marswalk/sensors.py` | Serial reader; falls back to `mock` after 5 s of silence |
-| `marswalk/alerts.py` | Temperature alert state machine (warn → critical, clears below 28 °C) |
+| `marswalk/alerts.py` | Temperature alert state machine (the level follows the temperature up and down, 1 °C margin) |
 | `commands.json` | The voice commands (edit this to add or change one) |
 | `marswalk/intents.py` | Matches what was heard against `commands.json` |
 | `marswalk/speech.py` | Sentences the hub speaks (numbers spelled out) |

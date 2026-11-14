@@ -11,19 +11,39 @@ class AlertTest(unittest.TestCase):
         a = SuitTempAlert()
         return [m for t in temps for m in a.update(t)]
 
-    def test_warn_then_critical_then_clear(self):
-        msgs = self.run_seq([25, 30, 31, 35, 33, 29, 27.9, 26])
-        kinds = [(t, p.get("level")) for t, p in msgs]
-        self.assertEqual(kinds, [("alert.raise", "warn"), ("alert.raise", "critical"),
-                                 ("alert.clear", None)])
+    def kinds(self, temps):
+        return [(t, p.get("level")) for t, p in self.run_seq(temps)]
 
-    def test_straight_to_critical(self):
-        msgs = self.run_seq([24, 36])
-        self.assertEqual([(t, p.get("level")) for t, p in msgs], [("alert.raise", "critical")])
+    def test_level_follows_the_temperature_down(self):
+        # 33.9 is under the critical threshold by more than the margin: back to warn.
+        # 28.9 is under the warn threshold by more than the margin: cleared.
+        self.assertEqual(self.kinds([25, 30, 31, 35, 34.5, 33.9, 31, 29.5, 28.9, 26]),
+                         [("alert.raise", "warn"), ("alert.raise", "critical"),
+                          ("alert.raise", "warn"), ("alert.clear", None)])
+
+    def test_alarm_does_not_outlast_the_temperature(self):
+        # The fault seen on the hub: critical was still raised at 29 degrees after a peak of 36.
+        a = SuitTempAlert()
+        for t in [24, 36, 32.6]:
+            a.update(t)
+        self.assertEqual(a.level, "warn")
+        a.update(28.5)
+        self.assertIsNone(a.level)
+
+    def test_straight_to_critical_and_straight_back(self):
+        self.assertEqual(self.kinds([24, 36, 24]), [("alert.raise", "critical"), ("alert.clear", None)])
+
+    def test_no_alert_below_the_threshold(self):
+        self.assertEqual(self.kinds([24, 29.9, 29.5, 29.99, 28]), [])
 
     def test_hysteresis_no_flapping(self):
-        # hovering around 30 must raise once and not clear until < 28
-        self.assertEqual(len(self.run_seq([30, 29.5, 30.2, 29, 30])), 1)
+        # hovering around a threshold raises once and does not clear inside the margin
+        self.assertEqual(self.kinds([30, 29.5, 30.2, 29, 30]), [("alert.raise", "warn")])
+        self.assertEqual(self.kinds([35, 34.5, 35.2, 34, 35])[1:], [])
+
+    def test_easing_message(self):
+        msgs = self.run_seq([36, 33])
+        self.assertEqual(msgs[1][1]["message"], "Suit temperature is high")
 
     def test_none_ignored(self):
         self.assertEqual(self.run_seq([None, None]), [])

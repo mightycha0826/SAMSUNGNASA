@@ -7,7 +7,7 @@
 //    8초  "조사 지점으로 안내해 줘"     nav.start
 //   20초  "열 지도 꺼 줘"              layer.hide
 //   30~42초 슈트 온도가 24.5 → 36.5°C로 오른다 (30°C warn, 35°C critical)
-//   42~55초 식는다 (28°C 아래에서 alert.clear)
+//   42~55초 식는다 (34°C 아래에서 warn으로 내려가고, 29°C 아래에서 alert.clear)
 //   57초  "안내 그만"                  nav.stop
 //
 // PC 키보드: N 안내 시작, H 기지 복귀, S 안내 그만, L 열 지도 켜고 끄기, T 온도 급상승
@@ -55,16 +55,20 @@ export function startMockJetson(deliver, { speed = 1 } = {}) {
     temp = Math.round(temp * 10) / 10;
     send('telemetry', { suitTempC: temp, source: 'mock' });
 
-    // 경보: INTERFACES 4장의 슈트 온도 기준(시작값)
-    if (temp >= 35 && level !== 'critical') {
-      level = 'critical';
-      send('alert.raise', { id: 'suit-temp', level, message: '슈트 온도가 위험 수준입니다' });
-    } else if (temp >= 30 && level === null) {
-      level = 'warn';
-      send('alert.raise', { id: 'suit-temp', level, message: '슈트 온도가 오르고 있습니다' });
-    } else if (temp < 28 && level !== null) {
-      level = null;
-      send('alert.clear', { id: 'suit-temp' });
+    // Alert: the same rule as the hub (jetson/marswalk/alerts.py, INTERFACES section 4). The
+    // level follows the temperature both ways, with a 1 degree margin on the way down.
+    let next = null;
+    if (temp >= 35) next = 'critical';
+    else if (temp >= 30) next = level === 'critical' && temp >= 34 ? 'critical' : 'warn';
+    else if (temp >= 29) next = level ? 'warn' : null;
+    if (next !== level) {
+      const easing = level === 'critical';
+      level = next;
+      if (!level) send('alert.clear', { id: 'suit-temp' });
+      else {
+        const message = easing ? 'Suit temperature is high' : level === 'critical' ? 'Suit temperature is critical' : 'Suit temperature is rising';
+        send('alert.raise', { id: 'suit-temp', level, message });
+      }
     }
 
     // 음성 명령: 지난 틱과 이번 틱 사이에 걸린 것을 보낸다
