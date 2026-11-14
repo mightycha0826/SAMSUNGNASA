@@ -20,6 +20,11 @@
   #wait b { color: #d7dde8; }
   #rescue { background: #b91c1c; color: #fff; padding: 10px 16px; font-weight: 600; letter-spacing: 0.01em; }
   #rescue[hidden] { display: none; }
+  #tune { margin-left: auto; display: flex; gap: 6px; align-items: center; color: #9aa4b5; font-size: 12px; font-variant-numeric: tabular-nums; }
+  #tune[hidden] { display: none; }
+  #tune button { background: #161a22; color: #d7dde8; border: 1px solid #2a303c; border-radius: 6px; min-width: 28px; height: 26px; font: inherit; cursor: pointer; }
+  #tune button:hover { background: #1f2531; }
+  #tune b { color: #d7dde8; font-weight: 600; min-width: 3.2em; text-align: center; display: inline-block; }
   footer { padding: 8px 16px; color: #7c8798; border-top: 1px solid #1c212b; font-size: 12px; }
 </style>
 </head>
@@ -27,13 +32,19 @@
 <header>
   <h1>Marswalk monitor</h1>
   <span id="state"><span class="dot"></span><span id="text">Connecting to the hub</span></span>
+  <span id="tune" hidden title="Line the grid up with the real floor: the virtual things are drawn over the camera picture with these values">
+    Camera lens
+    <button data-k="fovDeg" data-d="-1" aria-label="Narrower field of view">−</button><b id="fov"></b><button data-k="fovDeg" data-d="1" aria-label="Wider field of view">+</button>
+    tilt
+    <button data-k="tiltDeg" data-d="-1" aria-label="Tilt up">−</button><b id="tilt"></b><button data-k="tiltDeg" data-d="1" aria-label="Tilt down">+</button>
+  </span>
 </header>
 <div id="rescue" hidden></div>
 <main>
   <img id="view" alt="What the headset app is drawing">
   <div id="wait" hidden></div>
 </main>
-<footer>Shows what the app draws, from the wearer's head: HUD, map, menus, pointer, arrows, obstacle outline, plus a 1 m floor grid and dots on the hand joints. The room is not in the picture unless the app was opened with ?mirror=cam and the browser gave it a camera.</footer>
+<footer>Shows what the app draws, from the wearer's head: HUD, map, menus, pointer, arrows, obstacle outline, plus a 1 m floor grid and dots on the hand joints. The room is behind it when the headset's browser gave the app a camera. If the grid does not lie flat on the real floor, set the camera lens at the top right: field of view until the 1 m squares fit the floor near and far, tilt until the grid sits on the floor. The hub keeps the values.</footer>
 <script>
   const view = document.getElementById('view');
   const text = document.getElementById('text');
@@ -42,6 +53,28 @@
   view.src = '/monitor.mjpg';
   view.onerror = () => setTimeout(() => { view.src = '/monitor.mjpg?' + Date.now(); }, 2000); // the hub restarted
   let before = null;
+  // The camera lens: shown while the app draws over a camera picture; the buttons change it by a degree.
+  const tune = document.getElementById('tune');
+  let lens = null;
+  function showLens(l) {
+    lens = l;
+    tune.hidden = !l;
+    if (!l) return;
+    document.getElementById('fov').textContent = `${l.fovDeg}°`;
+    document.getElementById('tilt').textContent = `${l.tiltDeg > 0 ? '+' : ''}${l.tiltDeg}°`;
+  }
+  let tunedAt = 0;
+  tune.addEventListener('click', async (ev) => {
+    const b = ev.target.closest('button');
+    if (!b || !lens) return;
+    const next = { ...lens, [b.dataset.k]: Math.round((lens[b.dataset.k] + Number(b.dataset.d)) * 10) / 10 };
+    showLens(next);
+    tunedAt = Date.now();
+    try {
+      const r = await (await fetch('/monitor/tune', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) })).json();
+      if (r.tune) showLens({ ...next, ...r.tune });
+    } catch { /* the next poll shows what the app really uses */ }
+  });
   async function poll() {
     try {
       const s = await (await fetch('/monitor.json', { cache: 'no-store' })).json();
@@ -57,6 +90,7 @@
       const live = s.sources > 0 && s.ageS !== null && s.ageS < 2;
       state.className = live ? 'live' : s.frames ? 'stale' : '';
       const i = s.info || {};
+      if (Date.now() - tunedAt > 2500) showLens(s.sources > 0 && i.lens ? i.lens : null); // not while the buttons are being pressed
       if (live) {
         text.textContent = `Live from ${s.from} · ${i.ar ? 'in AR' : 'PC view'} · ${i.mode === 'field' ? 'field map' : 'Mars map'} · ${i.width}×${i.height} · ${fps.toFixed(1)} pictures/s${i.camera && i.camera !== 'off' ? ' · camera: ' + i.camera : ''}`;
         wait.hidden = true;

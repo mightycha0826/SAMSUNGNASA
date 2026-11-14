@@ -9,6 +9,7 @@
 //                 { type: 'frame', width, height, pixels, info }  pixels: RGBA as read from the GPU
 //                                                                (rows bottom to top, linear light)
 // To the page:    { type: 'viewers', n }   how many monitor pages are open (0 when not connected)
+//                 { type: 'tune', tune }   the camera lens as set on the monitor page: { fovDeg, tiltDeg }
 //                 { type: 'done' }         a frame was dealt with: the next one may come
 
 const RETRY_MS = 5000;
@@ -36,7 +37,9 @@ function connect() {
   }
   ws.onmessage = (ev) => {
     try {
-      postMessage({ type: 'viewers', n: Number(JSON.parse(ev.data).viewers) || 0 });
+      const msg = JSON.parse(ev.data);
+      if ('viewers' in msg) postMessage({ type: 'viewers', n: Number(msg.viewers) || 0 });
+      if (msg.tune) postMessage({ type: 'tune', tune: msg.tune });
     } catch {
       /* not for us */
     }

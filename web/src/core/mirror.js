@@ -22,10 +22,19 @@
 // The room behind it: on a headset the page asks the browser for a camera (getUserMedia) and
 // draws its picture as the background. Our Quest 3 offers "camera 0, facing front" (a virtual
 // camera that shows the wearer's avatar) and two cameras "facing back" (the passthrough
-// cameras): a back one is taken; ?mirrorCam=camera 1 picks by name. The camera sits beside the
-// eye and its lens is not the one the mirror draws with, so the virtual things sit roughly,
-// not exactly, where the wearer sees them (?mirrorFov= adjusts). What the browser offered and
-// gave is shown on the monitor page and in the hub's log. ?mirror=nocam leaves the camera out.
+// cameras): a back one is taken; ?mirrorCam=camera 1 picks by name.
+//
+// Lining the two up: the virtual things are drawn over the camera picture with a lens of the
+// mirror's own, so they only sit where the wearer sees them if that lens is the camera's. With
+// a lens wider than the camera's everything virtual is drawn too small about the middle of the
+// picture, and the floor grid then looks like a plane tipped against the real floor (it did:
+// the mirror drew with 80 degrees, the camera sees about 58). The browser does not tell a page
+// the camera's lens or where it points, so the values are our estimate for the Quest 3
+// (CAMERA below) and can be corrected while watching: the monitor page has buttons for the
+// field of view and the tilt, the hub keeps what was set and hands it to the app (a "tune"
+// message). ?mirrorFov= and ?mirrorTilt= set them from the address instead.
+// What the browser offered and gave is shown on the monitor page and in the hub's log.
+// ?mirror=nocam leaves the camera out.
 //
 // It costs nothing while nobody watches: the hub says how many viewers there are, and pictures
 // are only made while there is at least one. ?mirror=0 turns it off, ?mirror=1 also mirrors the
@@ -45,11 +54,19 @@ export const MIRROR = {
   outsideAR: q.get('mirror') === '1',
   camera: !['0', '1', 'nocam'].includes(q.get('mirror')), // the headset's camera picture behind the mirror; ?mirror=nocam leaves it out
   cameraName: q.get('mirrorCam'), // ?mirrorCam=camera 1 picks a camera by (part of) its name, when the default choice is the wrong one
-  width: 480,
-  height: 360,
+  width: 640, // 4:3 like the camera picture. 480 x 360 ran well on the headset, so the picture is a step larger and less compressed
+  height: 480,
   fps: Math.min(20, Math.max(1, Number(q.get('mirrorFps')) || 10)),
-  quality: 0.6, // JPEG quality: about 15-25 kB a picture
-  fovDeg: Number(q.get('mirrorFov')) || 80, // vertical; 4:3 makes that about 96 degrees across, close to what the wearer sees
+  quality: 0.72, // JPEG quality: about 40-60 kB a picture
+  fovDeg: 80, // vertical, without a camera picture; 4:3 makes that about 96 degrees across, close to what the wearer sees
+  // With the camera picture behind: the lens the picture was taken with. Estimates for the
+  // Quest 3's passthrough camera at 4:3 (not published for the browser); the monitor page tunes them.
+  lens: {
+    fovDeg: Number(q.get('mirrorFov')) || 58, // vertical
+    tiltDeg: Number(q.get('mirrorTilt')) || 0, // how far the camera looks below the wearer's line of sight
+    fovRange: [35, 110],
+    tiltRange: [-25, 25],
+  },
   backdrop: 0x0b0d12, // where the wearer sees the room
   layer: 31, // things only the mirror's camera sees
 };
@@ -63,6 +80,10 @@ export function initMirror({ renderer, scene, camera, xr }) {
   if (!MIRROR.enabled) return { update() {} };
   const { width, height } = MIRROR;
   const cam = new THREE.PerspectiveCamera(MIRROR.fovDeg, width / height, 0.05, 200);
+  const lens = { fovDeg: MIRROR.lens.fovDeg, tiltDeg: MIRROR.lens.tiltDeg }; // of the camera picture; the hub may correct it
+  const tilt = new THREE.Quaternion();
+  const RIGHT = new THREE.Vector3(1, 0, 0);
+  const within = (v, [lo, hi], fallback) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
   cam.layers.enable(MIRROR.layer);
   const target = new THREE.WebGLRenderTarget(width, height);
   let pixels = new Uint8Array(width * height * 4); // handed to the worker with each picture and handed back
@@ -137,6 +158,11 @@ export function initMirror({ renderer, scene, camera, xr }) {
   const worker = new Worker(new URL('./mirror.worker.js', import.meta.url), { type: 'module' });
   worker.onmessage = ({ data }) => {
     if (data.type === 'viewers') viewers = data.n;
+    else if (data.type === 'tune') {
+      // Set on the monitor page while watching the grid against the real floor.
+      lens.fovDeg = within(Number(data.tune?.fovDeg), MIRROR.lens.fovRange, lens.fovDeg);
+      lens.tiltDeg = within(Number(data.tune?.tiltDeg), MIRROR.lens.tiltRange, lens.tiltDeg);
+    }
     else if (data.type === 'done') {
       pixels = new Uint8Array(data.pixels);
       busy = false;
@@ -178,6 +204,13 @@ export function initMirror({ renderer, scene, camera, xr }) {
     try {
       renderer.xr.enabled = false; // draw into the picture, not into the headset's eyes
       const room = videoTexture && video.readyState >= 2 && !video.paused ? videoTexture : null;
+      // Over the camera picture the mirror draws with the camera's lens, pointed where it points.
+      const fov = room ? lens.fovDeg : MIRROR.fovDeg;
+      if (cam.fov !== fov) {
+        cam.fov = fov;
+        cam.updateProjectionMatrix();
+      }
+      if (room && lens.tiltDeg) cam.quaternion.multiply(tilt.setFromAxisAngle(RIGHT, THREE.MathUtils.degToRad(-lens.tiltDeg)));
       if (room) scene.background = room;
       else if (inAR) scene.background = backdrop;
       renderer.setRenderTarget(target);
@@ -188,7 +221,7 @@ export function initMirror({ renderer, scene, camera, xr }) {
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
       pending = {
         sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0),
-        info: { width, height, fps: MIRROR.fps, ar: inAR, mode: mode.current, space: xr.space ?? null, camera: cameraNote },
+        info: { width, height, fps: MIRROR.fps, ar: inAR, mode: mode.current, space: xr.space ?? null, camera: cameraNote, lens: room ? { ...lens } : null },
         since: frame.time,
       };
       gl.flush();
