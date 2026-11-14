@@ -1,62 +1,147 @@
-"""Keyword rule intent parser (docs/INTERFACES.md section 6). English commands.
+"""Voice command matcher (docs/INTERFACES.md section 6).
 
-Text that matches nothing returns None and is dropped.
-Matching ignores case, spaces and punctuation, and the keyword lists include the
-misspellings the STT actually produces ("thermo mat" for "thermal map").
+The commands live in jetson/commands.json so they can be added or changed without touching
+code; the file is reloaded whenever it changes. See the "_help" lines in that file.
+
+Matching is built for a speech recognizer that makes small mistakes:
+  1. a phrase whose words appear in the transcript scores 1.0;
+  2. the same with the spaces removed ("takeme to the site") scores 0.97;
+  3. otherwise the phrase is compared with every stretch of the transcript of about the same
+     length; a similarity of at least min_score counts ("thermo mat" for "thermal map").
+Very short phrases (under 5 letters) must match exactly: "stop" must not match "shop".
+The best score wins; on a tie the longest phrase wins, so specific commands beat general ones.
 """
+import json
+import logging
 import re
+from difflib import SequenceMatcher
+from itertools import product
+from pathlib import Path
 
-LAYERS = {
-    "thermal": ["thermal", "thermo", "heat", "infrared"],
-    "optical": ["optical", "optic", "satellite", "photo", "visible"],
-    "slope": ["slope", "steep"],
-    "topo": ["topo", "terrain", "train map", "elevation", "height", "contour"],
-}
+log = logging.getLogger("intents")
 
-_HIDE = ["hide", "turn off", "switch off", "remove", "close", "disable"]
-
-
-def _norm(text: str) -> str:
-    return re.sub(r"[\W_]+", "", text.lower())
+DEFAULT_FILE = Path(__file__).resolve().parent.parent / "commands.json"
+FUZZY_MIN_LETTERS = 5
+_VAR = re.compile(r"\{(\w+)\}")
 
 
-def _has(t: str, words) -> bool:
-    return any(_norm(w) in t for w in words)
+# Filler words are dropped from both the phrases and the transcript, so "hide the thermal map"
+# still contains the phrase "hide thermal".
+FILLER = {"the", "a", "an", "please", "uh", "um", "now"}
 
 
-# How the STT spells each wake word. "helmet" was recognized 6 of 6 times in the self-test;
-# "visor" was not (it came out as "Psor", "Pfsor", "Psizer").
-WAKE_VARIANTS = {"helmet": ["helmet", "hell met", "helmut", "helmit"]}
+def _words(text: str) -> list[str]:
+    words = re.sub(r"[^\w\s']+", " ", text.lower()).replace("_", " ").split()
+    return [w for w in words if w not in FILLER]
+
+
+class CommandSet:
+    def __init__(self, path: Path | str = DEFAULT_FILE):
+        self.path = Path(path)
+        self._mtime = None
+        self.wake_word: str | None = None
+        self.min_score = 0.8
+        self.entries: list[tuple[list[str], dict]] = []  # (phrase words, command)
+        self.reload_if_changed()
+
+    def reload_if_changed(self):
+        try:
+            mtime = self.path.stat().st_mtime
+        except OSError:
+            if self._mtime is None:
+                log.error("command file missing: %s", self.path)
+                self._mtime = -1
+            return
+        if mtime == self._mtime:
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            entries = self._expand(data)
+        except (ValueError, KeyError, TypeError) as e:
+            # Keep the commands that were working; a typo must not silence the assistant.
+            log.error("could not load %s (%s); keeping the previous commands", self.path, e)
+            self._mtime = mtime
+            return
+        self._mtime = mtime
+        self.entries = entries
+        self.wake_word = data.get("wake_word") or None
+        self.min_score = float(data.get("min_score", 0.8))
+        log.info("loaded %d phrases for %d commands from %s",
+                 len(entries), len(data["commands"]), self.path.name)
+
+    @staticmethod
+    def _expand(data: dict) -> list[tuple[list[str], dict]]:
+        vars_ = data.get("vars", {})
+        out = []
+        for cmd in data["commands"]:
+            slots = cmd.get("slots", {})
+            for phrase in cmd["phrases"]:
+                names = list(dict.fromkeys(_VAR.findall(phrase)))
+                # every combination of (slot value, spoken form) for the variables used
+                choices = [[(n, value, said) for value, forms in vars_[n].items() for said in forms]
+                           for n in names]
+                for combo in product(*choices):
+                    said = {n: s for n, _, s in combo}
+                    value = {n: v for n, v, _ in combo}
+                    words = _words(_VAR.sub(lambda m: said[m.group(1)], phrase))
+                    if not words:
+                        continue
+                    filled = {k: (_VAR.sub(lambda m: value.get(m.group(1), m.group(0)), v)
+                                  if isinstance(v, str) else v) for k, v in slots.items()}
+                    out.append((words, {"intent": cmd["intent"], "slots": filled,
+                                        "reply": cmd.get("reply")}))
+        return out
+
+    def _score(self, phrase: list[str], heard: list[str], heard_joined: str) -> float:
+        n = len(phrase)
+        for i in range(len(heard) - n + 1):
+            if heard[i:i + n] == phrase:
+                return 1.0
+        target = " ".join(phrase)
+        letters = len(target.replace(" ", ""))
+        if letters < FUZZY_MIN_LETTERS:
+            return 0.0
+        if target.replace(" ", "") in heard_joined:
+            return 0.97
+        best = 0.0
+        for size in {max(1, n - 1), n, n + 1}:
+            for i in range(max(1, len(heard) - size + 1)):
+                r = SequenceMatcher(None, target, " ".join(heard[i:i + size])).ratio()
+                best = max(best, r)
+        return best * 0.95 if best >= self.min_score else 0.0
+
+    def parse(self, text: str, wake: str | None = None) -> dict | None:
+        self.reload_if_changed()
+        heard = _words(text)
+        if not heard:
+            return None
+        joined = "".join(heard)
+        wake = wake or self.wake_word
+        if wake:
+            w = _words(wake)
+            if self._score(w, heard, joined) == 0.0:
+                return None
+        best, best_key = None, (0.0, 0)
+        for phrase, cmd in self.entries:
+            s = self._score(phrase, heard, joined)
+            key = (s, sum(map(len, phrase)))
+            if s > 0 and key > best_key:
+                best, best_key = cmd, key
+        if best is None:
+            return None
+        out = {"intent": best["intent"], "slots": dict(best["slots"]), "text": text}
+        if best.get("reply"):
+            out["reply"] = best["reply"]
+        return out
+
+
+_default: CommandSet | None = None
 
 
 def parse(text: str, wake: str | None = None) -> dict | None:
-    """With `wake`, only speech that contains the wake word is a command
-    ("Helmet, take me to the survey site"). Use it where other people are talking."""
-    t = _norm(text)
-    if not t:
-        return None
-    if wake and not _has(t, WAKE_VARIANTS.get(wake, [wake])):
-        return None
-
-    def out(intent, slots=None):
-        return {"intent": intent, "slots": slots or {}, "text": text}
-
-    # Order matters: more specific commands first.
-    if _has(t, ["acknowledge", "alert ok", "alert confirmed", "confirm alert", "copy that", "roger"]):
-        return out("alert.ack")
-    if _has(t, ["stop navigation", "stop guiding", "stop guidance", "stop the route",
-                "cancel", "end navigation", "stop"]):
-        return out("nav.stop")
-    if _has(t, ["base", "home", "go back", "return", "habitat"]):
-        return out("nav.home")
-    if _has(t, ["survey", "site", "destination", "take me", "guide me", "navigate", "sulfur"]):
-        return out("nav.start", {"targetId": "site1"})
-    if _has(t, ["status", "report", "how am i", "situation"]):
-        return out("status.report")
-    if _has(t, ["night"]):
-        return out("mode.set", {"mode": "night"})
-
-    for layer_id, words in LAYERS.items():
-        if _has(t, words):   # naming a layer without a "hide" word means "show it"
-            return out("layer.hide" if _has(t, _HIDE) else "layer.show", {"id": layer_id})
-    return None
+    """Match `text` against jetson/commands.json. Returns
+    {"intent", "slots", "text"[, "reply"]} or None when nothing matches."""
+    global _default
+    if _default is None:
+        _default = CommandSet()
+    return _default.parse(text, wake)

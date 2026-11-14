@@ -351,9 +351,10 @@ The `intent` list is in [section 6](#6-voice-commands).
 | type | payload | When |
 |---|---|---|
 | `hello` | `{ "client": "quest", "mock": false }` | Right after connecting |
-| `mic.begin` | `{ "sampleRate": 16000 }` | Microphone stream starts |
-| (binary) | 16-bit PCM, mono, 16 kHz | While speaking |
-| `mic.end` | `{}` | Microphone stream ends |
+| `mic.begin` | `{ "sampleRate": 16000, "stream": true }` | When the microphone starts, and again after every reconnect |
+| (binary) | 16-bit PCM, mono, 16 kHz | Continuously. The hub finds the utterances itself (voice activity detection) and ignores the microphone while it is speaking |
+| `mic.end` | `{}` | Microphone stream ends. Without `"stream": true` in `mic.begin`, everything between `mic.begin` and `mic.end` is one utterance |
+| `voice.status` | `{ "mic": "on", "audio": "running", "inputRate": 48000, "level": 0.02 }` | When the microphone or audio state changes, and every 10 s. Shows in the hub log why a headset is silent |
 | `voice.say` | `{ "text": "...", "priority": "normal" }` | Forwards the browser's `voice:say` as is |
 | `state` | `{ "mode": "normal", "navStatus": "ok", "targetId": "site1" }` | When state changes. The voice assistant uses it to answer "status report" |
 
@@ -386,17 +387,19 @@ Chosen so that holding the sensor in a hand reaches them in the demo. E tunes th
 
 ## 6. Voice commands
 
-E's intent parser turns speech into one of the `intent` values below. Speech is English. Anything not in the list is dropped.
+E's hub turns speech into one of the `intent` values below. Speech is English. Anything that matches no command is dropped.
 
-| intent | slots | Example sentence | Handled by |
-|---|---|---|---|
-| `nav.start` | `{ "targetId": "site1" }` | "Take me to the survey site" | D |
-| `nav.home` | `{}` | "Go back to base" | D |
-| `nav.stop` | `{}` | "Stop navigation" | D |
-| `layer.show` | `{ "id": "thermal" }` | "Show the thermal map" | B → `layer:toggle` |
-| `layer.hide` | `{ "id": "thermal" }` | "Hide the thermal map" | B → `layer:toggle` |
-| `status.report` | `{}` | "Status report" | E answers by voice itself |
-| `alert.ack` | `{}` | "Acknowledge alert" | F |
-| `mode.set` | `{ "mode": "night" }` | "Night mode" (P2) | F |
+**The commands are data, not code: `jetson/commands.json`.** Add or change a phrase there and save; the hub reloads the file by itself. A phrase matches when its words appear in what was heard, and close misspellings by the speech recognizer match too. When several phrases match, the longest wins ("thermal off" beats "thermal"). A command may carry a `reply` the hub says back, and any new `intent` is sent to the headset as `voice:command` like the rest.
+
+| intent | slots | Short form | Also | Handled by |
+|---|---|---|---|---|
+| `status.report` | `{}` | "Status" | "Status report" | E answers by voice itself |
+| `nav.start` | `{ "targetId": "site1" }` | "Navigate" | "Take me to the survey site" | D |
+| `nav.home` | `{}` | "Base" | "Go back to base" | D |
+| `nav.stop` | `{}` | "Stop" | "Stop navigation" | D |
+| `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle` |
+| `layer.hide` | `{ "id": "thermal" }` | "Thermal off" | "Hide the thermal map" | B → `layer:toggle` |
+| `alert.ack` | `{}` | "Confirm" | "Acknowledge alert" | F |
+| `mode.set` | `{ "mode": "night" }` | "Night mode" (P2) | | F |
 
 B re-emits `nav.start` and `nav.home` as `nav:request`, and `layer.show` / `layer.hide` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.

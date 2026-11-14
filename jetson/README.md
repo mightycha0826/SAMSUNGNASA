@@ -38,31 +38,47 @@ Open `https://<Jetson IP>:8443/` in a browser for the connection test page: secu
 
 ## Voice
 
-Speech is **English**. Both models run on the CPU through the `sherpa-onnx` wheel (no torch, no GPU).
+Speech is **English**. Everything runs on the Jetson CPU through the `sherpa-onnx` wheel (no torch, no GPU).
+
+```
+headset mic --16 kHz PCM, continuous--> Silero VAD --utterance--> SenseVoice STT --text--> commands.json --> voice.command
+                                         (muted while the hub speaks)                                    \-> Supertonic TTS --> headset
+```
 
 | Part | Model | Measured on this Jetson (4 threads) |
 |---|---|---|
-| STT | SenseVoice (int8) | ~0.15 s for a 2 s command |
+| Voice activity | Silero VAD | 0.09 s for 8 s of audio |
+| STT | SenseVoice (int8) | ~0.15 s per command |
+| Commands | `commands.json`, fuzzy phrase match | instant |
 | TTS | Supertonic 3 (int8), 22.05 kHz output | ~1.0–1.3 s for a short sentence, ~2 s for the status report |
-| Intent | keyword rules in `marswalk/intents.py` | instant |
 
-- From the end of speech to `voice.command`: about 0.2 s plus network.
+What makes it robust:
+
+- **The headset only streams audio; the hub decides what is speech.** A neural detector copes with noise and the headset's automatic gain, where a loudness threshold in the browser did not.
+- **The microphone is ignored while the hub is speaking**, so it never hears its own voice as a command.
+- **Short commands** ("Status", "Base", "Thermal") and **fuzzy matching**: "thermo mat" still means "thermal map"; phrases under 5 letters must match exactly, so "shop" is not "stop".
+- **The microphone permission is asked on the 2D page**, before the AR session starts, and the page shows `Voice: mic on · audio running` above the Start AR button when it is ready.
+- **The headset reports its microphone state** (`voice.status`) and the hub logs it, with the input level every 10 s. Everything the recognizer hears, matched or not, goes to `logs/heard.log`.
+
+### Adding or changing a command
+
+Edit [`commands.json`](commands.json) and save. The hub reloads it by itself; a typo in the file keeps the previous commands working and logs an error.
+
+```json
+{ "intent": "camera.shot", "phrases": ["photo", "take a picture"], "reply": "Picture taken" }
+```
+
+- `intent` and `slots` are sent to the headset as `voice.command`; any module can listen for a new intent on the bus (`voice:command`).
+- `reply` (optional) is spoken by the hub.
+- `{layer}` in a phrase or slot stands for every entry of `vars.layer`, so one line covers all layers.
+- `wake_word` (or `--wake-word helmet`) makes the hub obey only speech that contains the word.
+- Try a sentence without a headset: `.venv/bin/python tools/voice_selftest.py --text "show me the thermal map"`.
+
+Current commands: "Status", "Navigate", "Base", "Stop", "Thermal" / "Optical" / "Slope" / "Elevation", "Thermal off", "Confirm", "Night mode", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
+
 - The critical alert sentence is synthesized at startup, so it plays without the 1 s delay.
 - `status.report` is answered by the hub itself: suit temperature, alerts, route state.
-- An `urgent` utterance drops normal ones still waiting. Cutting audio that is already playing is the browser's job (it sees `priority: "urgent"` in `tts.begin`).
-
-Commands (anything else is dropped):
-
-| Say | intent |
-|---|---|
-| "Take me to the survey site" / "Guide me to the sulfur rocks" | `nav.start` |
-| "Go back to base" / "Return to base" | `nav.home` |
-| "Stop navigation" | `nav.stop` |
-| "Show the thermal map" (also optical, slope, terrain) | `layer.show` |
-| "Hide the thermal map" | `layer.hide` |
-| "Status report" | `status.report` |
-| "Acknowledge alert" | `alert.ack` |
-| "Night mode" | `mode.set` |
+- An `urgent` utterance drops normal ones still waiting; the browser cuts audio already playing.
 
 ## Testing without the headset
 
@@ -74,7 +90,7 @@ Commands (anything else is dropped):
   --temp 31 --temp 36 --temp 25 \
   --text "take me to the survey site" \
   --say "Route recalculated" \
-  --wav samples/00_nav_start.wav --wav samples/09_status_report.wav --for 5
+  --stream samples/00_status_report.wav --stream samples/02_nav_home.wav --for 8
 ```
 
 Received TTS is saved as `tts_out_<n>.wav`. Use `--url wss://10.42.0.1:8443/ws` to reach the Jetson from another machine.
@@ -94,7 +110,8 @@ journalctl -u marswalk-hub -f
 | `marswalk/hub.py` | HTTPS + WSS server, 1 Hz telemetry, message handling, voice flow |
 | `marswalk/sensors.py` | Serial reader; falls back to `mock` after 5 s of silence |
 | `marswalk/alerts.py` | Temperature alert state machine (warn → critical, clears below 28 °C) |
-| `marswalk/intents.py` | Keyword rule intent parser |
+| `commands.json` | The voice commands (edit this to add or change one) |
+| `marswalk/intents.py` | Matches what was heard against `commands.json` |
 | `marswalk/speech.py` | Sentences the hub speaks (numbers spelled out) |
 | `marswalk/voice.py` | STT / TTS backends |
 | `marswalk/static/index.html` | Connection test page |
@@ -107,10 +124,10 @@ journalctl -u marswalk-hub -f
 
 With `web/dist` built, the hub serves B's app and `link.js` connects to it (`http://localhost:8080/?jetson=ws://localhost:8080/ws&mock=data,hazard` on the Jetson itself): telemetry reaches the status panel, a critical temperature puts the HUD in emergency mode, and spoken "Take me to the survey site" / "Show the thermal map" arrive as `nav:request` / `layer:toggle`.
 
-The web app's voice link is `web/src/core/voice.js`: a hands-free microphone (an energy detector sends each stretch of speech as `mic.begin` → PCM → `mic.end`, and ignores the microphone while the hub is speaking) and TTS playback (`urgent` cuts what is playing). Audio starts on the first tap or key press. `?voice=0` turns it off; `?voice=ptt` is hold-`V`-to-talk for PC testing. Checked in a PC browser with recorded speech fed in as the microphone; not yet with a real microphone or the headset.
+The web app's voice link is `web/src/core/voice.js`: it streams the microphone continuously and plays the hub's speech (`urgent` cuts what is playing). `?voice=0` turns it off; `?mockMic=a.wav,b.wav` uses audio files as the microphone. Checked in a PC browser with `mockMic`: "Thermal" switched the map layer and "Navigate" made D's planner compute the route. Not yet confirmed with the headset's own microphone.
 
 ## Not verified yet
 
-- **Real voices and a real microphone.** STT accuracy was measured only with synthetic speech (11–12 of 12 commands). Record the team's voices through the headset or the test page and add the misrecognitions to `intents.py`.
+- **Real voices and a real microphone.** Accuracy was measured only with synthetic speech (18 of 18 commands through the streaming path). After a session with the headset, read `logs/heard.log` and add what was misheard to `commands.json`.
 - **Real sensor.** The firmware runs on the Mega 2560, but no sensor has been wired yet. Alert thresholds are still the starting values.
 - `dev.*` messages are development-only and not in INTERFACES.md. The browser never sends them; the hub accepts them only with `--dev`.

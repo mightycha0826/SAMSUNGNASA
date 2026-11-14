@@ -1,41 +1,37 @@
 // Voice link to the Jetson hub (docs/INTERFACES.md section 4). Used only by link.js.
 //
-//   Headset -> Jetson   mic.begin { sampleRate: 16000 } -> binary 16-bit mono PCM -> mic.end
+//   Headset -> Jetson   mic.begin { sampleRate: 16000, stream: true } -> binary 16-bit mono PCM,
+//                       without end; the hub finds the utterances itself (neural voice activity
+//                       detection) and ignores the microphone while it is speaking.
+//                       voice.status { mic, audio, ... } whenever the state changes, so the hub
+//                       log shows why a headset is silent.
 //   Jetson -> headset   tts.begin { sampleRate, priority } -> binary 16-bit mono PCM -> tts.end
 //
-// The microphone is hands-free: a simple energy detector decides when someone is speaking,
-// sends that stretch of audio, and the hub drops anything that is not a known command.
-// The microphone is ignored while the hub's speech is playing, so the visor does not hear itself.
-//
-// Browsers only start audio after a user gesture, so everything here starts on the first
-// tap, click or key press (the "Start AR" button counts).
+// Order matters on the headset:
+//   - The microphone permission is asked as soon as the page loads, on the 2D page. Asking for it
+//     in the same tap that starts the AR session loses the prompt behind the session.
+//   - Audio itself only runs after a user gesture, so the AudioContext is resumed on the first
+//     tap, click or key press (the "Start AR" button counts).
 //
 //   ?voice=0     turn the voice link off
-//   ?voice=ptt   no detector: hold the V key to talk (PC testing)
+//   ?mockMic=a.wav,b.wav   use these audio files as the microphone (testing without a mic)
 
 const MIC_RATE = 16000;
-const FRAME_MS = 30;
-const START_FRAMES = 3; // loud frames in a row before an utterance starts (~90 ms)
-const PREROLL_FRAMES = 10; // audio kept from before the start (~300 ms)
-const END_SILENCE_MS = 700;
-const MIN_MS = 350;
-const MAX_MS = 8000;
-const MIN_RMS = 0.012; // floor for the speech threshold, full scale = 1
-const NOISE_FACTOR = 3.5; // speech must be this many times louder than the background
-const AFTER_TTS_MS = 350;
+const CHUNK_MS = 100;
 
 const q = new URLSearchParams(location.search);
-const MODE = q.get('voice') === '0' ? 'off' : q.get('voice') === 'ptt' ? 'ptt' : 'vad';
+const ENABLED = q.get('voice') !== '0';
+const MOCK_MIC = q.get('mockMic'); // comma-separated audio file URLs to use as the microphone
 
 let io = null; // { sendJson, sendBinary }
 let ctx = null;
-let started = false;
+let streamOpen = false; // mic.begin sent on the current socket
+const status = { mic: 'starting', audio: 'suspended', inputRate: null, level: 0 };
 
 // ---------- speech output ----------
 let ttsRate = 22050;
 let ttsPlayAt = 0; // AudioContext time where the next chunk goes
 let ttsSources = [];
-let ttsBusyUntil = 0; // performance.now() until which the microphone is ignored
 
 function stopSpeech() {
   for (const s of ttsSources) {
@@ -71,7 +67,6 @@ function onTtsChunk(buffer) {
   src.onended = () => {
     ttsSources = ttsSources.filter((s) => s !== src);
   };
-  ttsBusyUntil = performance.now() + (ttsPlayAt - ctx.currentTime) * 1000 + AFTER_TTS_MS;
 }
 
 /** Text and binary messages from the hub that belong to speech. Returns true if handled. */
@@ -98,24 +93,13 @@ class Capture extends AudioWorkletProcessor {
 }
 registerProcessor('marswalk-capture', Capture);`;
 
-const state = {
-  talking: false,
-  loud: 0,
-  quietMs: 0,
-  lengthMs: 0,
-  noise: 0.004,
-  preroll: [],
-  pttHeld: false,
-};
-
 /** Averages blocks of input samples down to 16 kHz, carrying the remainder between calls. */
 function makeResampler(inRate) {
   const ratio = inRate / MIC_RATE;
   let acc = 0;
   let n = 0;
   let pos = 0;
-  return (input) => {
-    const out = [];
+  return (input, out) => {
     for (let i = 0; i < input.length; i++) {
       acc += input[i];
       n++;
@@ -127,107 +111,108 @@ function makeResampler(inRate) {
         pos -= ratio;
       }
     }
-    return out;
   };
 }
 
-function toPcm(frame) {
-  const pcm = new Int16Array(frame.length);
-  for (let i = 0; i < frame.length; i++) pcm[i] = Math.max(-1, Math.min(1, frame[i])) * 32767;
-  return pcm.buffer;
-}
-
-function beginUtterance() {
-  state.talking = true;
-  state.quietMs = 0;
-  state.lengthMs = 0;
-  io.sendJson('mic.begin', { sampleRate: MIC_RATE });
-  for (const f of state.preroll) io.sendBinary(toPcm(f));
-  state.lengthMs = state.preroll.length * FRAME_MS;
-  state.preroll = [];
-}
-
-function endUtterance() {
-  state.talking = false;
-  state.loud = 0;
-  // Too short to be a command: the hub drops anything under 0.3 s, so just close it.
-  io.sendJson('mic.end', {});
-  if (state.lengthMs < MIN_MS) console.debug('[voice] short sound ignored');
-}
-
-function onFrame(frame) {
-  if (performance.now() < ttsBusyUntil) {
-    if (state.talking) endUtterance();
-    state.preroll = [];
-    state.loud = 0;
-    return;
+function report(patch) {
+  Object.assign(status, patch);
+  const line = `mic ${status.mic} · audio ${status.audio}`;
+  const el = document.getElementById('voice-status');
+  if (el) {
+    el.textContent = `Voice: ${line}`;
+    el.dataset.ok = String(status.mic === 'on' && status.audio === 'running');
   }
-  let sum = 0;
-  for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
-  const rms = Math.sqrt(sum / frame.length);
-  const threshold = Math.max(MIN_RMS, state.noise * NOISE_FACTOR);
-  const loud = MODE === 'ptt' ? state.pttHeld : rms > threshold;
+  console.info('[voice]', line);
+  io?.sendJson('voice.status', { ...status });
+}
 
-  if (!state.talking) {
-    if (MODE !== 'ptt' && !loud) state.noise += (rms - state.noise) * 0.05; // track the background
-    state.preroll.push(frame);
-    if (state.preroll.length > PREROLL_FRAMES) state.preroll.shift();
-    state.loud = loud ? state.loud + 1 : 0;
-    if (state.loud >= (MODE === 'ptt' ? 1 : START_FRAMES)) beginUtterance();
-    return;
+function sendChunk(samples) {
+  let peak = 0;
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const v = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = v * 32767;
+    if (Math.abs(v) > peak) peak = Math.abs(v);
   }
-  io.sendBinary(toPcm(frame));
-  state.lengthMs += FRAME_MS;
-  state.quietMs = loud ? 0 : state.quietMs + FRAME_MS;
-  const endAfter = MODE === 'ptt' ? FRAME_MS : END_SILENCE_MS;
-  if (state.quietMs >= endAfter || state.lengthMs >= MAX_MS) endUtterance();
+  status.level = Math.max(status.level * 0.9, peak);
+  if (!streamOpen) streamOpen = io.sendJson('mic.begin', { sampleRate: MIC_RATE, stream: true });
+  if (streamOpen) io.sendBinary(pcm.buffer);
+}
+
+/** Mock microphone: plays audio files into the stream, 3 s apart, over faint noise. */
+async function mockMicStream(urls) {
+  const dest = ctx.createMediaStreamDestination();
+  const noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const d = noise.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.002;
+  const bed = ctx.createBufferSource();
+  bed.buffer = noise;
+  bed.loop = true;
+  bed.connect(dest);
+  bed.start();
+  const buffers = [];
+  for (const url of urls) buffers.push(await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer()));
+  let at = null;
+  const schedule = () => {
+    at = Math.max(at ?? 0, ctx.currentTime) + 2;
+    for (const b of buffers) {
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(dest);
+      s.start(at);
+      at += b.duration + 3;
+    }
+  };
+  if (ctx.state === 'running') schedule();
+  else ctx.addEventListener('statechange', () => ctx.state === 'running' && at === null && schedule());
+  return dest.stream;
 }
 
 async function startMic() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    console.warn('[voice] no microphone API (the page must be HTTPS or localhost)');
+  if (!MOCK_MIC && !navigator.mediaDevices?.getUserMedia) {
+    report({ mic: 'unavailable (page must be HTTPS or localhost)' });
     return;
   }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    stream = MOCK_MIC
+      ? await mockMicStream(MOCK_MIC.split(','))
+      : await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
   } catch (err) {
-    console.warn('[voice] microphone not available:', err.name);
+    report({ mic: `blocked (${err.name})` });
     return;
   }
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
-  const node = new AudioWorkletNode(ctx, 'marswalk-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
-  const resample = makeResampler(ctx.sampleRate);
-  const frameLen = (MIC_RATE * FRAME_MS) / 1000;
-  let pending = [];
-  node.port.onmessage = (ev) => {
-    pending.push(...resample(ev.data));
-    while (pending.length >= frameLen) {
-      onFrame(Float32Array.from(pending.slice(0, frameLen)));
-      pending = pending.slice(frameLen);
-    }
-  };
-  ctx.createMediaStreamSource(stream).connect(node);
-  console.info(`[voice] microphone on (${ctx.sampleRate} Hz -> ${MIC_RATE} Hz, mode ${MODE})`);
+  try {
+    const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+    await ctx.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+    const node = new AudioWorkletNode(ctx, 'marswalk-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
+    const resample = makeResampler(ctx.sampleRate);
+    const chunkLen = (MIC_RATE * CHUNK_MS) / 1000;
+    const pending = [];
+    node.port.onmessage = (ev) => {
+      resample(ev.data, pending);
+      while (pending.length >= chunkLen) sendChunk(pending.splice(0, chunkLen));
+    };
+    ctx.createMediaStreamSource(stream).connect(node);
+    stream.getAudioTracks()[0]?.addEventListener('ended', () => report({ mic: 'ended' }));
+    report({ mic: 'on', inputRate: ctx.sampleRate });
+  } catch (err) {
+    report({ mic: `failed (${err.name}: ${err.message})` });
+  }
 }
 
-async function start() {
-  if (started) return;
-  started = true;
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.resume();
-  await startMic();
+/** Called when the socket opens: the hub needs a fresh mic.begin and the current state. */
+export function voiceLinkOpened() {
+  streamOpen = false;
+  if (io) io.sendJson('voice.status', { ...status });
 }
 
-/** Called when the socket closes, so a half-sent utterance is not continued on the next one. */
+/** Called when the socket closes. */
 export function resetVoice() {
-  state.talking = false;
-  state.loud = 0;
-  state.preroll = [];
+  streamOpen = false;
 }
 
 /**
@@ -235,18 +220,19 @@ export function resetVoice() {
  *           sendBinary: (data: ArrayBuffer) => boolean }} link
  */
 export function initVoice(link) {
-  if (MODE === 'off') return;
+  if (!ENABLED) return;
   io = link;
-  const kick = () => start().catch((err) => console.error('[voice] could not start audio', err));
-  for (const ev of ['pointerdown', 'keydown', 'touchend']) {
-    window.addEventListener(ev, kick, { once: true, capture: true });
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx.addEventListener('statechange', () => report({ audio: ctx.state }));
+  report({ audio: ctx.state });
+  startMic(); // asks for the permission now, on the 2D page
+
+  const resume = () => {
+    if (ctx.state !== 'running') ctx.resume().catch((err) => console.warn('[voice] resume failed', err));
+  };
+  for (const ev of ['pointerdown', 'keydown', 'touchend', 'click']) {
+    window.addEventListener(ev, resume, { capture: true });
   }
-  if (MODE === 'ptt') {
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyV') state.pttHeld = true;
-    });
-    window.addEventListener('keyup', (e) => {
-      if (e.code === 'KeyV') state.pttHeld = false;
-    });
-  }
+  // Every 10 s tell the hub the microphone level, so a silent microphone shows up in its log.
+  setInterval(() => io?.sendJson('voice.status', { ...status, level: Number(status.level.toFixed(3)) }), 10000);
 }

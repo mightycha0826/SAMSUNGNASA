@@ -19,11 +19,16 @@
       #debug .p { color: #9aa0a6; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #debug .tag { color: #f6b26b; }
       a { color: #8ab4f8; }
+      #voice-status { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 10; padding: 6px 14px;
+        border-radius: 999px; background: rgba(11, 13, 16, 0.82); border: 1px solid #5a3a2a; color: #f6b26b; font: 13px/1.4 system-ui, sans-serif; }
+      #voice-status[data-ok="true"] { border-color: #2f5d3a; color: #81c995; }
+      #voice-status:empty { display: none; }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <div id="debug"></div>
+    <div id="voice-status"></div>
     <button id="xr-button" disabled>확인 중…</button>
     <script type="module" src="/src/main.js"></script>
   </body>
