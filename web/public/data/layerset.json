@@ -33,7 +33,8 @@
       "unit": "m",
       "min": -3846.56,
       "max": -3412.1,
-      "label": "Terrain elevation",
+      "label": "지형 높이",
+      "labelEn": "Terrain elevation",
       "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"
     },
     {
@@ -47,7 +48,8 @@
       "unit": "deg",
       "min": 0.03,
       "max": 71.07,
-      "label": "Slope",
+      "label": "경사도",
+      "labelEn": "Slope",
       "credit": "Computed from the USGS Gale merged DEM"
     },
     {
@@ -57,7 +59,8 @@
       "instrument": "HiRISE",
       "file": "optical.png",
       "format": "image",
-      "label": "Optical image",
+      "label": "광학 영상",
+      "labelEn": "Optical image",
       "credit": "NASA/JPL-Caltech/University of Arizona",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/WMTSCapabilities.xml"
     },
@@ -68,7 +71,8 @@
       "instrument": "THEMIS",
       "file": "thermal.png",
       "format": "image",
-      "label": "Thermal image (night)",
+      "label": "열 영상 (야간)",
+      "labelEn": "Thermal image (night)",
       "credit": "NASA/JPL-Caltech/Arizona State University",
       "sourceUrl": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml"
     }
@@ -76,7 +80,8 @@
   "waypoints": [
     {
       "id": "base",
-      "label": "Base",
+      "label": "기지",
+      "labelEn": "Base",
       "cell": [
         247,
         357
@@ -86,7 +91,8 @@
     },
     {
       "id": "site1",
-      "label": "Sulfur stone field",
+      "label": "황 암석 지대",
+      "labelEn": "Sulfur stone field",
       "cell": [
         275,
         272

@@ -18,6 +18,7 @@ import math
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -204,10 +205,9 @@ def read_rad_dose(path):
 
     RAD_RDR_SIS: the number under [DOSIMETRY_TOTAL_DOSE_E: NN] is the dose rate of the E detector (uGy/h).
     E is a plastic scintillator, the detector closer to human tissue. The value is used as reported, uncorrected.
-    Time comes from START_OBS_MARS. The SIS calls it LMST, but checked against the sol 4312 file it is
-    closer to local true solar time (LTST), so REMS is binned by its LTST column too. The two differ by
-    about 50 minutes, so either way radiation may be off by up to one hourly bin relative to pressure
-    and temperature (docs/DATA.md).
+    Time comes from START_OBS_MARS. The SIS calls it LMST, but it is local true solar time (LTST):
+    build_env() checks it against the REMS LTST column through the UTC time and spacecraft clock in the
+    REMS label, and the two agree to within seconds. So REMS is binned by its LTST column too.
     Observations whose QC is not 00000000 ("quality control issues may exist") are dropped.
     """
     obs, cur, want = {}, None, False
@@ -223,6 +223,8 @@ def read_rad_dose(path):
                 cur["dose"], want = float(line), False
             elif line.startswith("START_OBS_MARS"):
                 cur["ltst"] = clock_hours(line.split('"')[1])
+            elif line.startswith("START_OBS_UTC"):
+                cur["utc"] = datetime.strptime(line.split('"')[1], "%Y-%j %H:%M:%S")
             elif line.startswith("OBS_DURATION"):
                 cur["dur"] = int(line.split("=")[1])
             elif line.startswith("QC="):
@@ -240,15 +242,33 @@ def build_env():
         mid = (o["ltst"] + o["dur"] / 2 / 3699.0) % 24      # a Mars hour is about 3699 s
         hours[int(mid)]["rad"].append((o["dose"], o["dur"]))
 
+    rems_ltst = {}                                             # spacecraft clock (s) -> LTST (hours)
     with open(fetch(REMS_FILE, CACHE / f"rems_{ENV_SOL}.tab"), encoding="latin-1") as f:
         for line in f:
             c = line.split(",")
-            h = hours[int(clock_hours(c[2].strip('" ')))]     # column 3: LTST
+            ltst = clock_hours(c[2].strip('" '))               # column 3: LTST
+            rems_ltst[int(c[0])] = ltst
+            h = hours[int(ltst)]
             temp, pres = float(c[15]), float(c[37])            # column 16 AMBIENT_TEMP (K), column 38 PRESSURE (Pa)
             if temp > -900:
                 h["t"].append(temp)
             if pres > -900:
                 h["p"].append(pres)
+
+    # Do the two files use the same clock? The REMS label ties its spacecraft clock to UTC, and RAD gives
+    # UTC per observation, so each RAD observation can be looked up in the REMS LTST column.
+    label = fetch(REMS_FILE[:-4] + ".LBL", CACHE / f"rems_{ENV_SOL}.lbl").read_text(encoding="latin-1")
+    field = lambda name: next(l.split("=")[1].strip().strip('"') for l in label.splitlines() if l.strip().startswith(name))
+    sclk0, utc0 = int(field("SPACECRAFT_CLOCK_START_COUNT")), datetime.fromisoformat(field("START_TIME"))
+    gaps = []
+    for o in rad:
+        sclk = sclk0 + round((o["utc"] - utc0).total_seconds())
+        if sclk in rems_ltst:
+            d = (o["ltst"] - rems_ltst[sclk] + 12) % 24 - 12   # hours, wrapped to [-12, 12)
+            gaps.append(abs(d) * 3600)
+    if not gaps or max(gaps) > 120:
+        raise SystemExit(f"RAD and REMS local times disagree (max {max(gaps, default=float('nan')):.0f} s). Do not bin them together.")
+    print(f"  RAD observation times match the REMS LTST column: max difference {max(gaps):.0f} s over {len(gaps)} observations")
 
     all_rad = [x for h in hours for x in h["rad"]]
     wmean = lambda xs: sum(v * w for v, w in xs) / sum(w for _, w in xs)
@@ -315,6 +335,9 @@ def build_layerset():
     s_min, s_max = grid_range("slope.bin")
     dem_src = {"mission": "MRO, Mars Express, MGS", "instrument": "HiRISE, CTX, HRSC, MOLA", "sourceUrl": DEM_PAGE}
     wmts = "https://trek.nasa.gov/tiles/Mars/EQ/{}/1.0.0/WMTSCapabilities.xml"
+    # `label` stays Korean: the HUD's Korean mode (?lang=ko) shows it as is and its tabs are sized for
+    # the short Korean names. The English HUD (the default) uses its own strings; `labelEn` is the
+    # English name for anything else that needs one.
     layerset = {
         "site": {
             "name": "Gediz Vallis channel, Mount Sharp, Gale Crater",
@@ -326,22 +349,22 @@ def build_layerset():
         "grid": {"cols": COLS, "rows": ROWS, "cellSizeM": CELL_M},
         "layers": [
             {"id": "topo", "kind": "topographic", **dem_src, "file": "topo.bin", "format": "float32",
-             "unit": "m", "min": t_min, "max": t_max, "label": "Terrain elevation",
+             "unit": "m", "min": t_min, "max": t_max, "label": "지형 높이", "labelEn": "Terrain elevation",
              "credit": "USGS Astrogeology Science Center; NASA/JPL-Caltech/University of Arizona/MSSS; ESA/DLR/FU Berlin"},
             {"id": "slope", "kind": "derived", **dem_src, "file": "slope.bin", "format": "float32",
-             "unit": "deg", "min": s_min, "max": s_max, "label": "Slope",
+             "unit": "deg", "min": s_min, "max": s_max, "label": "경사도", "labelEn": "Slope",
              "credit": "Computed from the USGS Gale merged DEM"},
             {"id": "optical", "kind": "optical", "mission": "MRO", "instrument": "HiRISE",
-             "file": "optical.png", "format": "image", "label": "Optical image",
+             "file": "optical.png", "format": "image", "label": "광학 영상", "labelEn": "Optical image",
              "credit": "NASA/JPL-Caltech/University of Arizona", "sourceUrl": wmts.format(HIRISE)},
             {"id": "thermal", "kind": "thermal", "mission": "Mars Odyssey", "instrument": "THEMIS",
-             "file": "thermal.png", "format": "image", "label": "Thermal image (night)",
+             "file": "thermal.png", "format": "image", "label": "열 영상 (야간)", "labelEn": "Thermal image (night)",
              "credit": "NASA/JPL-Caltech/Arizona State University", "sourceUrl": wmts.format(THEMIS)},
         ],
         "waypoints": [
-            {"id": "base", "label": "Base", "cell": cell_of(base["lon"], base["lat"]),
+            {"id": "base", "label": "기지", "labelEn": "Base", "cell": cell_of(base["lon"], base["lat"]),
              "rmc": base["RMC"], "sol": base["sol"]},
-            {"id": "site1", "label": "Sulfur stone field", "cell": [sc, sr],
+            {"id": "site1", "label": "황 암석 지대", "labelEn": "Sulfur stone field", "cell": [sc, sr],
              "rmc": survey["RMC"], "sol": survey["sol"]},
         ],
         # demo: an 80 m region centered on the survey site mapped onto a 4 m room (1:20). To be fixed with D.

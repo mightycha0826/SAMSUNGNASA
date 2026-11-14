@@ -117,7 +117,7 @@ The values below come from the analysis in [RESOURCES.md](RESOURCES.md). C fills
 - `grid` divides 2,048 m × 2,048 m into 512×512 cells of 4 m. The source terrain is 1 m resolution, so a finer grid is possible. B, C and D decide after seeing headset performance.
 - The `base` coordinates in `waypoints` and `demo` are placeholders. C and D fix them.
 - In the example above `site1` is the center of the grid, but **in the real file `site1` is `[275, 272]`**, the place where the sulfur was actually found ([DATA.md](DATA.md) section 2). Read `base`, `site1` and `demo` from `layerset.json`; do not hard-code them.
-- The real file has a few extra fields (`credit`, `rmc`, `sol`). Code works without reading them.
+- In the real file `label` is the short Korean name the HUD's Korean mode (`?lang=ko`) displays, and `labelEn` is the English name shown in the example above. The real file also has a few extra fields (`credit`, `rmc`, `sol`). Code works without reading them.
 
 Fields:
 

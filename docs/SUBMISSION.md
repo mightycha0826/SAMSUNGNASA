@@ -131,6 +131,7 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
   - At the 178 stops, the terrain elevation differs from the rover's recorded elevation by −0.17 m on average (standard deviation 0.24 m). Shifting the terrain sideways by up to 20 m in any direction only makes the match worse.
   - Shading computed from the terrain lines up with the optical image to within one 4 m grid cell.
   - On the ground Curiosity stood on, our slope layer has a median of 8.8°, close to the rover's own recorded median tilt of 9.1°.
+  - The radiation and weather files come from two instruments with separate archives, so we checked that they share a clock: looked up through spacecraft time, their local solar times agree to within 10 seconds.
   - The weather record behaves as expected: temperature peaks in the early afternoon, and radiation rises when air pressure falls (correlation −0.74), as it should when there is less atmosphere overhead.
 - **Checking the route against a real one:** a route computed from our slope layer with the limits above runs 390 m from base to the survey site and never crosses ground steeper than 14.9°. It stays on average 16 m (at most 43 m) from the path Curiosity actually drove between the same two points. An astronaut's planned route and a rover's real route pick the same corridor. (Figure: `docs/figures/route.png`.) `[TODO: recompute with D's actual route, or keep the wording that this is a reference computation]`
 - **Reproducibility:** one script rebuilds every data file from the NASA sources, and a second script runs 54 checks on the result. Rebuilding from an empty cache gives byte-identical files.
@@ -140,7 +141,7 @@ This gives five kinds of data from the challenge's list (topographic, optical, t
 - The optical and thermal sources are grayscale. Any color on the map is our display choice, not measured color.
 - The thermal image is about 81 m per pixel, so it is only 25 pixels across our map, and its brightness is relative, not a temperature. We show it as it is: it demonstrates how coarse orbital data becomes at walking scale.
 - The global geologic map shows our whole site as a single unit, so it informs the legend, not the route.
-- The radiation and weather values are a recording of one Martian day (sol 4200, May 30, 2024) replayed during the demo, not a live feed or a forecast. The radiation values are the instrument's reported dose rates; we excluded two observations flagged for possible quality issues and applied no further correction. The time stamps of the radiation and weather files may differ by up to about 50 minutes.
+- The radiation and weather values are a recording of one Martian day (sol 4200, May 30, 2024) replayed during the demo, not a live feed or a forecast. The radiation values are the instrument's reported dose rates; we excluded two observations flagged for possible quality issues and applied no further correction.
 - We do not know the exact position of the rock Curiosity cracked open. Our survey site is where the rover ended its 9 m drive that day, so the rock lies within about 9 m of it.
 - The terrain and slope layers describe the ground at a scale of several meters. Rocks and ledges smaller than that do not appear in them.
 - The rover's tilt record describes what a rover handled. It is not a standard for what a suited person can walk.

@@ -96,7 +96,7 @@ This covers five of the data kinds named in the challenge text (topographic, opt
 - **Radiation is the instrument's value as reported.** It is the `[DOSIMETRY_TOTAL_DOSE_E]` value in the RAD file, without the corrections applied in papers. Of 88 observations, 2 carrying a quality (QC) flag were dropped and 86 used. The E detector is a plastic scintillator, the one closer to human tissue.
 - **It changes little within the day.** Radiation stays between 152 and 157. Ordinary values will not trigger a radiation alert, so to show one in the demo the threshold or the method has to be agreed with B.
 - **Sanity checks:** temperature peaks at 14:00; pressure is highest before dawn and lowest at 16:00; radiation is higher when pressure is lower (correlation −0.74), the direction expected when there is less atmosphere overhead.
-- **Time:** `localTime` is local true solar time (LTST). Whether the observation time in the RAD file is LMST or LTST differed between its documentation and what we saw, and the two differ by about 50 minutes. So **radiation may be shifted by up to one hourly bin relative to pressure and temperature.**
+- **Time:** `localTime` is local true solar time (LTST), and both instruments are binned on the same clock. The RAD documentation calls its observation time LMST, but it is LTST: the REMS label ties the spacecraft clock to UTC, RAD gives UTC per observation, and looked up that way the RAD times match the REMS LTST column to within 10 seconds. `build_data.py` runs this check on every build and stops if the two disagree by more than 2 minutes.
 - `sourceUrls` holds the addresses of the two source files. The `note` field is explanatory and the loader does not read it.
 
 ### Rover photos `pov.json`
@@ -116,16 +116,16 @@ This covers five of the data kinds named in the challenge text (topographic, opt
 
 ## 5. Legend (for F)
 
-`label` values in `layerset.json` are in English, as the submission rules require. `credit`, `rmc` and `sol` are **extra fields** not in INTERFACES; existing fields are unchanged and code works without reading the extras.
+The HUD is English by default and takes its layer names from its own strings. Its Korean mode (`?lang=ko`, for development) shows `label` from `layerset.json` as is, and its tabs are sized for short Korean names, so **`label` is Korean and `labelEn` holds the English name**. With English text in `label`, the Korean-mode tabs overflow (checked in the browser). `labelEn`, `credit`, `rmc` and `sol` are **extra fields** not in INTERFACES; existing fields are unchanged and code works without reading the extras.
 
-| `id` | `label` | Legend text |
-|---|---|---|
-| `topo` | Terrain elevation | −3,847 m to −3,412 m |
-| `slope` | Slope | 0° to 71°; steeper is harder to walk |
-| `optical` | Optical image | Grayscale. 0.64 m per pixel |
-| `thermal` | Thermal image (night) | Relative brightness, not temperature. 81 m per pixel |
-| `base` | Base | — |
-| `site1` | Sulfur stone field | — |
+| `id` | `label` | `labelEn` | Legend text |
+|---|---|---|---|
+| `topo` | 지형 높이 | Terrain elevation | −3,847 m to −3,412 m |
+| `slope` | 경사도 | Slope | 0° to 71°; steeper is harder to walk |
+| `optical` | 광학 영상 | Optical image | Grayscale. 0.64 m per pixel |
+| `thermal` | 열 영상 (야간) | Thermal image (night) | Relative brightness, not temperature. 81 m per pixel |
+| `base` | 기지 | Base | — |
+| `site1` | 황 암석 지대 | Sulfur stone field | — |
 
 One-line credit: `Data: NASA/JPL-Caltech/University of Arizona, NASA/JPL-Caltech/Arizona State University, USGS Astrogeology Science Center`
 

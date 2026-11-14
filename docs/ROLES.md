@@ -136,6 +136,23 @@ WebXR only works on HTTPS or localhost ([MDN: Navigator.xr](https://developer.mo
 - Folders: `data-pipeline/`, `web/public/data/`, `docs/`
 - Basis: challenge text Q1, Q2, Q3, Q4
 
+### Status (2026-11-14)
+
+Every task below is done and the files are in `web/public/data/`. What each file is and how it was checked is in [DATA.md](DATA.md).
+
+| Task | Result |
+|---|---|
+| Submission requirements | Read from the official guide; summary at the top of [SUBMISSION.md](SUBMISSION.md) |
+| Optical, terrain, slope, thermal layers | Built. `validate.py` passes 54 checks |
+| Elevation reference and overlap | Terrain and rover record agree (−0.17 m on average); terrain and optical overlap within 4 m |
+| Traverse | 178 stops inside the map extent |
+| Radiation and atmosphere (`env.json`) | Real RAD and REMS values for sol 4200, 24 hourly samples. No published fixed value is used |
+| Base and survey site (`waypoints`) | Base `[247, 357]`, survey site `[275, 272]` (the sol 4200 sulfur discovery position, not the map center) |
+| Rover photos (`pov.json`) | One photo each at base and at the survey site |
+| Submission text | Draft in [SUBMISSION.md](SUBMISSION.md), split by the form's fields. `[TODO]` marks wait on the other slots |
+
+Still open, and not C's alone: fix the `demo` region and the slope limits with D; agree a radiation alert threshold with B; check on the headset; clear the `[TODO]` marks in the submission text once the features are final.
+
 ### Tasks
 
 | Grade | Task |
