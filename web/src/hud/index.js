@@ -69,13 +69,15 @@ function clickSound() {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(1250, t);
-    osc.frequency.exponentialRampToValueAtTime(700, t + 0.06);
-    gain.gain.setValueAtTime(0.18, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    // A soft, low "tock": a calm tone that drops a little and fades quickly.
+    osc.frequency.setValueAtTime(330, t);
+    osc.frequency.exponentialRampToValueAtTime(220, t + 0.09);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.22, t + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
     osc.connect(gain).connect(audio.destination);
     osc.start(t);
-    osc.stop(t + 0.1);
+    osc.stop(t + 0.18);
   } catch {
     /* no audio: the visual feedback is enough */
   }

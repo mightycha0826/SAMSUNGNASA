@@ -29,6 +29,12 @@ Check the pin order on the part's datasheet or the module's silkscreen before po
 
 With nothing on A0 the board prints `{"temp_c": null, "error": "no_sensor"}` and the hub stays on mock values. To skip detection set `FORCE_SENSOR` in the sketch. On a 3.3 V or 12-bit board also change `VREF` and `ADC_MAX`.
 
+### Demo dial (potentiometer)
+
+A potentiometer can stand in for the sensor so the alerts can be shown on demand. Wire the **outer pins to 5V and GND** and the **middle pin to A0**, and flash with `SENSOR=pot tools/arduino.sh flash`: detection is skipped (a dial cannot be told apart from an analog sensor) and 0–5 V maps to 15–45 °C, so 30 °C is at half turn and 35 °C at two thirds. Say in the demo that the temperature comes from a dial.
+
+Never wire the middle pin to 5V or GND: at the end of the knob's travel that shorts the supply, and the board drops off USB (the kernel log then shows `device not accepting address` / `unable to enumerate USB device`).
+
 ## 2. Build and flash from the Jetson
 
 ```bash

@@ -18,16 +18,25 @@
 //                  if the value falls when warmed, set NTC_TO_GND to 1.
 // To skip detection, set FORCE_SENSOR to one of the S_* values.
 //
+// Demo dial (not a sensor): a potentiometer with its outer pins on 5V and GND and its middle
+// pin on A0. It cannot be told apart from the analog sensors, so it must be forced:
+//   SENSOR=pot jetson/tools/arduino.sh flash      (or #define FORCE_SENSOR S_POT)
+// The dial maps 0..5 V to POT_MIN_C..POT_MAX_C, so the alerts can be shown on demand.
+// WARNING: never wire the middle pin to 5V or GND. Turning the knob to the end would then short
+// the supply and the board drops off USB.
+//
 // Libraries: OneWire, DallasTemperature, DHT sensor library (jetson/tools/arduino.sh setup).
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <DHT.h>
 
-enum Sensor : uint8_t { S_NONE, S_DS18B20, S_DHT11, S_DHT22, S_LM35, S_TMP36, S_NTC };
-const char *const NAMES[] = {"none", "ds18b20", "dht11", "dht22", "lm35", "tmp36", "ntc"};
+enum Sensor : uint8_t { S_NONE, S_DS18B20, S_DHT11, S_DHT22, S_LM35, S_TMP36, S_NTC, S_POT };
+const char *const NAMES[] = {"none", "ds18b20", "dht11", "dht22", "lm35", "tmp36", "ntc", "pot (dial)"};
 
+#ifndef FORCE_SENSOR
 #define FORCE_SENSOR S_NONE         // S_NONE = detect automatically
+#endif
 #define NTC_TO_GND   0
 
 const uint8_t  PIN        = A0;
@@ -35,6 +44,7 @@ const float    VREF       = 5.0;    // 3.3 on 3.3 V boards
 const float    ADC_MAX    = 1023.0; // 4095 on 12-bit boards
 const uint32_t PERIOD_MS  = 1000;
 const float    NTC_R0 = 10000.0, NTC_B = 3950.0, NTC_SERIES = 10000.0;
+const float    POT_MIN_C = 15.0, POT_MAX_C = 45.0;   // dial range; 30 and 35 degC sit at 1/2 and 2/3 turn
 
 OneWire oneWire(PIN);
 DallasTemperature probe(&oneWire);
@@ -108,6 +118,14 @@ bool readTempC(float &t) {
       if (v <= 0.01 || v >= VREF - 0.01) return false;  // open or shorted
       float r = NTC_TO_GND ? NTC_SERIES * v / (VREF - v) : NTC_SERIES * (VREF - v) / v;
       t = 1.0 / (log(r / NTC_R0) / NTC_B + 1.0 / 298.15) - 273.15;
+      return true;
+    }
+    case S_POT: {
+      // The wiper always drives the pin, so there is no "floating" check here.
+      static float smooth = -1000.0;
+      float v = POT_MIN_C + (POT_MAX_C - POT_MIN_C) * readVolts() / VREF;
+      smooth = (smooth < -999.0) ? v : smooth + 0.5 * (v - smooth);   // steady the last digit
+      t = smooth;
       return true;
     }
     default: return false;
