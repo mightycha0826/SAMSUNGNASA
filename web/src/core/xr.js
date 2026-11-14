@@ -13,9 +13,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // objects behind real surfaces, and nothing reads the depth data yet (the room scan uses
 // mesh-detection and plane-detection).
 const WANT_DEPTH = new URLSearchParams(location.search).get('depth') === '1';
+// ?space=unbounded asks for the WebXR "unbounded" reference space, which the Quest Browser lists
+// as experimental since 34.2: the session is then not limited to the Guardian boundary. That
+// space has no floor level of its own, so it is shifted to the floor of 'local-floor' and the
+// rest of the app keeps working in room coordinates. Untested on the headset: without the
+// parameter, or if the headset refuses it, the session stays on 'local-floor'.
+const WANT_UNBOUNDED = new URLSearchParams(location.search).get('space') === 'unbounded';
 export const OPTIONAL_FEATURES = [
   'hand-tracking',
   ...(WANT_DEPTH ? ['depth-sensing'] : []),
+  ...(WANT_UNBOUNDED ? ['unbounded'] : []),
   'mesh-detection',
   'plane-detection',
   'anchors',
@@ -129,11 +136,35 @@ export function createXR({ container, button }) {
     }
   }
 
+  // Swap the reference space for an unbounded one whose origin is the local-floor origin.
+  async function useUnboundedSpace(session) {
+    try {
+      const [unbounded, floor] = await Promise.all([
+        session.requestReferenceSpace('unbounded'),
+        session.requestReferenceSpace('local-floor'),
+      ]);
+      session.requestAnimationFrame((_time, frame) => {
+        const pose = frame.getPose(floor, unbounded); // where the floor origin is, in unbounded coordinates
+        if (!pose || xr.session !== session) {
+          console.warn('[xr] unbounded space: no pose for the floor origin, staying on local-floor');
+          return;
+        }
+        renderer.xr.setReferenceSpace(unbounded.getOffsetReferenceSpace(pose.transform));
+        xr.space = 'unbounded';
+        console.info('[xr] reference space: unbounded, origin on the local floor');
+      });
+    } catch (err) {
+      console.warn('[xr] unbounded reference space refused, staying on local-floor:', err.name);
+    }
+  }
+
   async function startSession() {
     if (xr.session) return xr.session;
     const session = await navigator.xr.requestSession('immersive-ar', sessionInit());
     await renderer.xr.setSession(session);
     xr.session = session;
+    xr.space = 'local-floor';
+    if (WANT_UNBOUNDED) useUnboundedSpace(session);
     xr.enabledFeatures = readEnabledFeatures(session);
     console.info('[xr] 세션 시작. 허용된 기능:', xr.enabledFeatures ?? '(브라우저가 알려 주지 않음)');
     scene.background = null; // 패스스루가 보이게

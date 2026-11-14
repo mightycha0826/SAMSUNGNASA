@@ -492,17 +492,18 @@ export function drawCommands(g, d, vm) {
   const headH = 3.4 * d;
   const cellH = 3.3 * d;
   const gap = 0.35 * d;
-  const rows = Math.ceil(vm.items.length / 2);
+  const cols = vm.cols ?? 2;
+  const rows = Math.ceil(vm.items.length / cols);
   const total = pad + headH + rows * cellH + Math.max(0, rows - 1) * gap + pad;
   box(g, 0, 0, W, total, 1.4 * d, T.surface);
   ring(g, 0, 0, W, total, 1.4 * d);
   icon(g, 'navigation', pad + 1.2 * d, pad + headH / 2 - 0.2 * d, 1.5 * d, T.primaryIcon, T.row);
   text(g, vm.title, pad + 2.5 * d, pad + headH / 2 - 0.55 * d, { weight: 700, size: 1.25 * d });
   text(g, vm.hint, pad + 2.5 * d, pad + headH / 2 + 0.75 * d, { size: 0.9 * d, color: T.muted });
-  const cellW = (W - pad * 2 - gap) / 2;
+  const cellW = (W - pad * 2 - gap * (cols - 1)) / cols;
   vm.items.forEach((item, i) => {
-    const x = pad + (i % 2) * (cellW + gap);
-    const y = pad + headH + Math.floor(i / 2) * (cellH + gap);
+    const x = pad + (i % cols) * (cellW + gap);
+    const y = pad + headH + Math.floor(i / cols) * (cellH + gap);
     hits.push({ id: item.id, x, y, w: cellW, h: cellH });
     box(g, x, y, cellW, cellH, 0.8 * d, item.pressed ? T.primary : item.hover ? T.badge : T.row);
     if (item.hover || item.pressed) {

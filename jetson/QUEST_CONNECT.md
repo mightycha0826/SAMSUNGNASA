@@ -151,6 +151,13 @@ For A, B and D when chasing "errors that only happen on the device" ([ROLES.md](
 
 `adb tcpip 5555`, unplug the cable, then `adb connect <headset IP>:5555`. The console stays visible while the headset is on the hotspot.
 
+## Walking beyond the Guardian boundary
+
+When the wearer walks out of the Quest's boundary, the headset pauses the app and the HUD disappears. Two ways around it:
+
+1. **Turn the boundary off on the headset (the reliable way).** With developer mode on: Settings → Advanced (or System) → Developer → turn off **Physical Space Features**. Menu names move between Horizon OS versions; the Meta Quest Developer Hub on a PC has the same switch. With the boundary off nothing warns about walls and furniture, so clear the floor and have someone watch the wearer.
+2. **Ask the browser for an unbounded space (experimental).** Add `?space=unbounded` to the address. The Quest Browser lists the WebXR `unbounded` reference space as experimental since 34.2; the app shifts it to floor level and keeps working in room coordinates. If the headset refuses it, the session stays on `local-floor`. Which one is in use is written to `logs/headset.log` (`"event": "space"`). Not yet tried on the headset.
+
 ## 6. Demo day checklist
 
 - [ ] Powering on the Jetson brings up the `MARSWALK` hotspot by itself

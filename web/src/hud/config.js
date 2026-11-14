@@ -83,15 +83,21 @@ export const HUD = {
     /** The frozen cursor is the one from this long before the fingers started closing (ms) */
     settleMs: 140,
   },
-  /** Voice command menu: floats over the back of the left hand when it faces up. */
+  /** Voice command menu: worn on the back of the left hand like a wrist computer. It lies flat
+   *  on the hand, and reads upright when the left forearm is held level across the body:
+   *  the text runs from the wrist toward the fingers, its top edge away from the wearer. */
   commands: {
-    wDeg: 22,
-    hDeg: 30,
+    wDeg: 30,
+    hDeg: 23, // room for 15 commands in 3 columns; 12 use about 19 deg
+    cols: 3,
     /** Back of the hand counts as up when its direction (wrist +Y) points this far up */
     backUpDot: 0.5,
-    /** Above the wrist and toward the fingers (m), size factor */
-    liftM: 0.13,
-    scale: 0.6,
+    /** Size factor: at 0.3 the panel is about 16 cm wide, and 10 cm tall with 12 commands */
+    scale: 0.3,
+    /** Height above the skin (m), and how far the centre sits from the wrist toward the
+     *  knuckles (0 = wrist, 1 = base of the middle finger) */
+    liftM: 0.018,
+    along: 0.35,
   },
   toastMs: 4000,
 };
