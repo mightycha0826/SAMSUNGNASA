@@ -171,6 +171,8 @@ startBtn.addEventListener('click', async () => {
       if (info) {
         m.depthFrames++;
         m.depthSize = `${info.width ?? info.texture?.width ?? '?'}×${info.height ?? info.texture?.height ?? '?'}`;
+        // 스캔(scan/depth.js)이 깊이 값을 미터로 바꿀 때 쓰는 값들. 표의 설명 칸에 적는다.
+        m.depthInfo = `near ${info.depthNear}, far ${info.depthFar}, rawValueToMeters ${info.rawValueToMeters}, 자체 시점 ${info.projectionMatrix ? '있음' : '없음'}`;
       }
     } catch (err) {
       m.depthErr = `${err.name}: ${err.message}`;
@@ -209,9 +211,15 @@ startBtn.addEventListener('click', async () => {
     else if (m.hands) set('hands', 'unk', `${m.hands}개, 관절 위치 없음`, '손은 잡혔지만 관절 자세를 받지 못함');
     else set('hands', 'no', '감지 안 됨', '손을 들었는데도 0이면 손 추적이 꺼져 있거나 컨트롤러를 쥐고 있음');
 
-    const usage = `usage ${session.depthUsage ?? '?'}, format ${session.depthDataFormat ?? '?'}`;
+    // depth-sensing이 없는 세션에서는 depthUsage를 읽기만 해도 오류가 난다 (주소에 ?depth=1 이 없을 때).
+    let usage = 'depth-sensing 없음. 주소에 ?depth=1 을 붙이면 요청한다';
+    try {
+      usage = `usage ${session.depthUsage}, format ${session.depthDataFormat}, ${m.depthInfo ?? ''}`;
+    } catch {
+      /* 위의 안내 문구를 그대로 쓴다 */
+    }
     if (m.depthFrames) set('depth', 'ok', `${m.depthFrames}프레임, ${m.depthSize}`, usage);
-    else set('depth', 'no', '수신 안 됨', m.depthErr || usage);
+    else set('depth', 'no', '수신 안 됨', usage.startsWith('usage') ? m.depthErr || usage : usage);
 
     set('meshes', m.meshes ? 'ok' : 'no', m.meshApi ? `${m.meshes}개` : 'API 없음', m.meshApi && !m.meshes ? '방 설정(공간 스캔)이 안 돼 있으면 0' : '');
     set('planes', m.planes ? 'ok' : 'no', m.planeApi ? `${m.planes}개` : 'API 없음', m.planeApi && !m.planes ? '방 설정(공간 스캔)이 안 돼 있으면 0' : '');

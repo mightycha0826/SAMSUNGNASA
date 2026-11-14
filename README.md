@@ -321,17 +321,18 @@ npm run dev        # https://localhost:5173/ (self-signed certificate)
 - The top-left panel shows the events on the bus and their counts. Keyboard: `N` guide, `H` base, `S` stop, `L` thermal map, `T` temperature spike.
 - HUD text is English by default (as in the mockup); add `?lang=ko` for Korean. HUD size, position and flash period are tuned with the numbers in `web/src/hud/config.js`.
 - Parts can be mocked separately: `?mock=link,hazard` (parts: `data`, `link`, `hazard`). `?mockSpeed=10` runs the timeline ten times faster.
+- `?mock=1&mode=field` opens the PC view in field mode, where the fake obstacle is outlined in red on the floor.
 
 **From the headset** — put the PC and the headset on the same Wi-Fi.
 
 1. Enter the `Network: https://<PC address>:5173/` address printed by `npm run dev` in the headset browser.
-2. Get past the certificate warning and press **Start AR** (the button labelled `AR 시작`). Without a Jetson, append `?mock=1` to the address.
+2. Get past the certificate warning and press **Start AR** (the button labelled `AR 시작`). Without a Jetson, append `?mock=link` to the address (`?mock=1` also swaps the room scan for a fake chair).
 3. Give the Jetson address with `?jetson=<address>:8443`. The default is port 8443 on the same host as the page. If the Jetson also uses a self-signed certificate, open `https://<Jetson address>:8443/` once in the headset browser and accept the warning, or the WebSocket will not connect.
 
 **Two ways in** — the start page has two buttons.
 
 - **Mars map**: the NASA terrain on the left palm, layers, the route between base and survey site. Walking moves your marker on the map (one real metre counts as 100 m by default, `?walkScale=`).
-- **Field map**: the premise is that you stand at the base on Mars. The palm map is the Mars map zoomed to 20 m around you, 1 : 1 with the room; wherever the headset has scanned the room, the map is rewritten with the structure that is really there, and everywhere else it is still the Mars data. Say **"Mark target"** where you stand, walk away, and the way back is drawn as arrows on the floor and as a line on the map. The scan is the room geometry the Quest 3 keeps (run Space Setup once); it is not live depth.
+- **Field map**: the premise is that you stand at the base on Mars. The palm map is the Mars map zoomed to 20 m around you, 1 : 1 with the room; wherever the headset has scanned the room, the map is rewritten with the structure that is really there, and everywhere else it is still the Mars data. Say **"Mark target"** where you stand, walk away, and the way back is drawn as arrows on the floor and as a line on the map. The scanned structure is also outlined in red on the real floor. The scan is the room geometry the Quest 3 keeps (run Space Setup once); it is not live depth. Adding `?depth=1` to the address lays the headset's live depth on top: a chair put down after the room scan shows up within a few seconds when it stands about 1 to 2.5 m from you, and goes away again when it is removed; whatever was in the room scan stays (not yet checked on the headset). `?mock=1` and `?mock=hazard` put a fake chair in place of the scan, so the real room is not outlined and `?depth=1` does nothing: on the headset without a Jetson use `?mock=link`.
 
 In both, turning the back of the left hand up shows the voice commands as a menu. Point with the right index finger and pinch to pick one.
 
