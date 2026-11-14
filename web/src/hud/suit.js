@@ -8,8 +8,9 @@
 // The readings use the map's "cylinder" in their own way. The map has one caption card on the
 // side of its cylinder; here an imaginary cylinder stands around the figure, wide enough to
 // clear its arms, and every reading is a chip of its own: three to the wearer's left of the
-// cylinder and three to the right, each standing out from the cylinder's side like a wing,
-// square to the wearer, with a thin line to the part of the figure it belongs to. As the
+// cylinder and two to the right, each standing out from the cylinder's side like a wing,
+// square to the wearer, with a thin line toward the part of the figure it belongs to (the line
+// fades out on its way, so it points at the part without lying across the figure). As the
 // wearer moves around the hand the chips go around the cylinder, so they are always seen
 // straight on and never in front of the figure.
 //
@@ -22,7 +23,9 @@
 //     arms      arm temperature                 simulated
 //     legs      leg temperature                 simulated
 //     arms+legs suit pressure (kPa)             simulated: there is no pressure sensor
-//     backpack  battery (%)                     the headset's own battery (navigator.getBattery)
+//   The battery is not here: it is the headset's, not the body's, and it has its tile among
+//   the readings beside the line of sight (index.js). It is still read here for that tile and
+//   for the rescue signal.
 //   There is no sensor on the body: every body temperature is simulated (HUD.suit.body). The
 //   one real temperature, the sensor on the Jetson, is the air around the wearer: it is shown
 //   on its own chip as "Ambient", with no line to the figure, and the simulated body warms a
@@ -54,6 +57,8 @@ const Y = new THREE.Vector3(0, 1, 0);
 
 // A hologram skin: bright where the surface turns away from the eye, faint where it faces it,
 // with fine lines drifting upward. Drawn additively, so the body looks lit from within.
+// DENSITY is how strong the skin is where it faces the eye (it was 0.14: too thin against a
+// bright room).
 const SKIN_VERTEX = `
 varying vec3 vNormal;
 varying vec3 vToEye;
@@ -66,6 +71,7 @@ void main() {
   gl_Position = projectionMatrix * view;
 }`;
 const SKIN_FRAGMENT = `
+#define DENSITY 0.27
 uniform vec3 colour;
 uniform float level;
 uniform float time;
@@ -75,8 +81,8 @@ varying float vHeight;
 void main() {
   float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vToEye))), 2.0);
   float lines = 0.86 + 0.14 * sin(vHeight * 1100.0 - time * 5.0);
-  float alpha = (0.14 + 0.86 * rim) * level * lines;
-  gl_FragColor = vec4(colour * (0.6 + 0.8 * rim), alpha);
+  float alpha = (DENSITY + 0.86 * rim) * level * lines;
+  gl_FragColor = vec4(colour * (0.72 + 0.8 * rim), alpha);
   #include <colorspace_fragment>
 }`;
 
@@ -109,6 +115,7 @@ void main() {
   gl_Position = projectionMatrix * view;
 }`;
 const BODY_FRAGMENT = `
+#define DENSITY 0.27
 uniform vec3 colours[4];
 uniform vec4 levels;
 uniform float time;
@@ -121,14 +128,14 @@ void main() {
   float level = dot(levels, vPart);
   float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vToEye))), 2.0);
   float lines = 0.86 + 0.14 * sin(vHeight * 1100.0 - time * 5.0);
-  float alpha = (0.14 + 0.86 * rim) * level * lines;
-  gl_FragColor = vec4(colour * (0.6 + 0.8 * rim), alpha);
+  float alpha = (DENSITY + 0.86 * rim) * level * lines;
+  gl_FragColor = vec4(colour * (0.72 + 0.8 * rim), alpha);
   #include <colorspace_fragment>
 }`;
 
 /**
  * The figure: a standing person, feet at 0 and the top of the head at 1, facing +z.
- * One material per part that can change colour: head, torso, arms, legs, pack.
+ * One material per part that can change colour: head, torso, arms, legs.
  */
 function makeFigure() {
   const root = new THREE.Group();
@@ -202,9 +209,6 @@ function makeFigure() {
   );
   torso.limb([0, 0.835, 0], [0, 0.872, 0.002], 0.028, 0.026); // neck
 
-  const pack = part('pack');
-  pack.blob(0.082, 0.115, 0.036, 0, 0.665, -0.088); // life support on the back
-
   const arms = part('arms');
   const legs = part('legs');
   for (const side of [-1, 1]) {
@@ -223,8 +227,7 @@ function makeFigure() {
     legs.blob(0.03, 0.022, 0.062, side * 0.064, 0.022, 0.032); // foot
   }
   /**
-   * Put the scanned body in place of the stand-in's head, torso, arms and legs (the pack on
-   * the back stays as it is). `meshes`: the body's meshes as loaded, in metres.
+   * Put the scanned body in place of the stand-in. `meshes`: the body's meshes as loaded, in metres.
    */
   function useModel(meshes) {
     const colours = ['head', 'torso', 'arms', 'legs'].map((name) => parts[name].material.uniforms.colour.value.clone());
@@ -271,8 +274,6 @@ function makeFigure() {
       };
       parts[name].meshes = [];
     });
-    // The pack sits on the stand-in's back; the scanned back is a little further out.
-    for (const mesh of parts.pack.meshes) mesh.position.z = -0.115;
   }
 
   return { root, spinner, parts, useModel };
@@ -378,6 +379,8 @@ export function createSuit(ctx) {
   // figure (0 feet, 1 top of the head) its line goes to, or null for a reading that belongs to
   // no part. rows: a table of that many rows instead of one number.
   const UNITS_W = 9.8; // a chip is this many drawing units wide (draw.js: drawVitalChip)
+  // [how far along the line from the chip to the figure, how strong there]: it falls off fast.
+  const LINE_FADE = [[0, 0.85], [0.3, 0.4], [0.6, 0.1], [0.85, 0]];
   function makeChip(id, side, partY, rows = 0) {
     const units = rows ? 2.5 + rows * 1.75 + 0.5 : 5.2;
     const canvas = document.createElement('canvas');
@@ -389,7 +392,11 @@ export function createSuit(ctx) {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(K.chipWM, hM), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
     mesh.renderOrder = 10;
     mesh.frustumCulled = false;
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: HOLO, transparent: true, opacity: 0.75, depthTest: false }));
+    // The line toward the figure: strong at the chip, gone before it reaches the body.
+    const lineGeometry = new THREE.BufferGeometry();
+    lineGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_FADE.length * 3), 3));
+    lineGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(LINE_FADE.flatMap(([, alpha]) => [1, 1, 1, alpha])), 4));
+    const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color: HOLO, transparent: true, vertexColors: true, depthTest: false }));
     line.renderOrder = 9;
     line.frustumCulled = false;
     line.visible = partY != null;
@@ -400,7 +407,6 @@ export function createSuit(ctx) {
     makeChip('o2', -1, 0.9),
     makeChip('heart', -1, 0.68),
     makeChip('pressure', -1, 0.3),
-    makeChip('battery', 1, 0.72),
     makeChip('body', 1, 0.56, 4),
     makeChip('ambient', 1, null),
   ];
@@ -431,8 +437,11 @@ export function createSuit(ctx) {
         c.mesh.position.y = y;
         if (c.partY != null) {
           const at = c.line.geometry.attributes.position;
-          at.setXYZ(0, across.x * side * inner, y, across.z * side * inner);
-          at.setXYZ(1, across.x * side * 0.02, c.partY * K.figureM, across.z * side * 0.02);
+          const toY = c.partY * K.figureM;
+          LINE_FADE.forEach(([t], k) => {
+            const r = side * (inner + (0.02 - inner) * t);
+            at.setXYZ(k, across.x * r, y + (toY - y) * t, across.z * r);
+          });
           at.needsUpdate = true;
         }
         top -= c.hM + K.gapM;
@@ -447,7 +456,6 @@ export function createSuit(ctx) {
       o2: { label: 'Oxygen', value: show_(reading.o2, 0), unit: '%', tag: 'sim', state: z.o2 },
       heart: { label: 'Heart rate', value: show_(reading.heart, 0), unit: 'bpm', tag: 'sim', state: z.heart },
       pressure: { label: 'Pressure', value: show_(reading.pressureKpa, 1), unit: 'kPa', tag: 'sim', state: z.pressure },
-      battery: { label: 'Battery', value: show_(reading.battery, 0), unit: '%', tag: reading.battery == null ? 'n/a' : reading.charging ? 'charging' : 'headset', state: z.battery },
       body: {
         label: 'Body temp',
         unit: '°C',
@@ -485,8 +493,7 @@ export function createSuit(ctx) {
     note(z.temp, `torso ${show(reading.torsoC, 1)} °C`);
     note(z.armsTemp, `arms ${show(reading.armsC, 1)} °C`);
     note(z.legsTemp, `legs ${show(reading.legsC, 1)} °C`);
-    note(z.battery, `battery ${show(reading.battery, 0)} %`);
-    const level = worst(...Object.values(z));
+    const level = worst(...Object.entries(z).map(([key, state]) => (key === 'battery' ? '' : state))); // the battery has its own tile, not a place here
     const ambient = reading.ambientC == null ? 'no reading' : `${show(reading.ambientC, 1)} °C (${reading.tempSource === 'mock' ? 'mock' : 'sensor'})`;
     return {
       states: z,
@@ -495,7 +502,7 @@ export function createSuit(ctx) {
         `VITALS · ${wrong.length ? `${wrong.length} out of range` : 'all in range'}`,
         `Oxygen ${show(reading.o2, 0)} % · Heart ${show(reading.heart, 0)} bpm · Pressure ${show(reading.pressureKpa, 1)} kPa   (sim)`,
         `Body °C · head ${show(reading.headC, 1)} · torso ${show(reading.torsoC, 1)} · arms ${show(reading.armsC, 1)} · legs ${show(reading.legsC, 1)}   (sim)`,
-        wrong.length ? `Check: ${wrong.join(' · ')}` : 'Helmet, torso, arms, legs, pack: nothing to report',
+        wrong.length ? `Check: ${wrong.join(' · ')}` : 'Helmet, torso, arms, legs: nothing to report',
         `Ambient ${ambient} · Battery ${show(reading.battery, 0)} % (${batteryNote})`,
         'sim = simulated, no sensor on the body. Ambient: the temperature sensor on the suit.',
       ],
@@ -520,7 +527,6 @@ export function createSuit(ctx) {
       torso: worst(z.temp, z.heart),
       arms: worst(z.pressure, z.armsTemp),
       legs: worst(z.pressure, z.legsTemp),
-      pack: z.battery,
     };
     for (const [name, p] of Object.entries(figure.parts)) {
       p.state = of[name];

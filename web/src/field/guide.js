@@ -24,6 +24,9 @@ export const GUIDE = {
   fadeOutM: [5.5, 8.5], // and fade out over this one
   path: 0x8e9dff, // the route colour, as on the maps
   target: 0xf27a0a, // the destination colour, as on the maps
+  waypoint: 0x4da3ff, // a marked place, as on the maps
+  waypointShowM: [0.6, 12], // a waypoint's marker in the room is shown between these distances from the wearer
+  maxWaypoints: 12,
 };
 
 /**
@@ -185,6 +188,8 @@ function makeBand() {
 }
 
 // ---- the destination ----
+const GEM_Y = 1.38; // the target's diamond: above a waypoint's ball (0.95 m)
+
 function makeBeacon() {
   const g = new THREE.Group();
   g.name = 'guide-target';
@@ -242,12 +247,12 @@ function makeBeacon() {
 
   // A diamond at chest height, turning: seen over furniture and from across the room.
   const gem = new THREE.Group();
-  const shape = new THREE.OctahedronGeometry(0.075).scale(0.7, 1.15, 0.7);
+  const shape = new THREE.OctahedronGeometry(0.1).scale(0.7, 1.15, 0.7); // larger than a waypoint's ball, and higher: the two are told apart from across the room
   gem.add(
     new THREE.Mesh(shape, new THREE.MeshBasicMaterial({ color: GUIDE.target, transparent: true, opacity: 0.85, depthTest: false })),
     new THREE.LineSegments(new THREE.EdgesGeometry(shape), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false })),
   );
-  gem.position.y = 1.22;
+  gem.position.y = GEM_Y;
 
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -256,7 +261,7 @@ function makeBeacon() {
   texture.colorSpace = THREE.SRGBColorSpace;
   const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
   label.scale.set(0.46, 0.158, 1);
-  label.position.y = 1.52;
+  label.position.y = GEM_Y + 0.36;
   label.userData = { canvas, texture, text: '' };
 
   for (const [object, order] of [[floor, 21], [column, 21], [label, 23]]) {
@@ -271,7 +276,7 @@ function makeBeacon() {
 }
 
 /** The label over the destination: a small name over a large distance. */
-function writeLabel(label, name, distance) {
+function writeLabel(label, name, distance, accent = '#f27a0a') {
   const u = label.userData;
   const text = `${name}\n${distance}`;
   if (u.text === text) return;
@@ -283,7 +288,7 @@ function writeLabel(label, name, distance) {
   g.beginPath();
   g.roundRect(6, 6, W - 12, H - 12, 34);
   g.fill();
-  g.fillStyle = '#f27a0a'; // the accent on the left, the colour of the marker
+  g.fillStyle = accent; // the accent on the left, the colour of the marker
   g.beginPath();
   g.roundRect(6, 6, 16, H - 12, [34, 0, 0, 34]);
   g.fill();
@@ -291,11 +296,43 @@ function writeLabel(label, name, distance) {
   g.textBaseline = 'middle';
   g.fillStyle = '#c9cfdb';
   g.font = '600 34px "Atkinson Hyperlegible", system-ui, sans-serif';
-  g.fillText(name.toUpperCase(), W / 2 + 8, 52, W - 70);
+  g.fillText(name, W / 2 + 8, 52, W - 70);
   g.fillStyle = '#ffffff';
   g.font = '700 70px "Atkinson Hyperlegible", system-ui, sans-serif';
   g.fillText(distance, W / 2 + 8, 116, W - 70);
   u.texture.needsUpdate = true;
+}
+
+/**
+ * A waypoint in the room: a blue ring on the floor, a thin pole, a ball at waist height and
+ * its name. Lower and smaller than the target's marker, and blue where that is orange.
+ */
+function makeWaypointBeacon() {
+  const g = new THREE.Group();
+  g.name = 'guide-waypoint';
+  const mat = (opacity) => new THREE.MeshBasicMaterial({ color: GUIDE.waypoint, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.11, 0.135, 40).rotateX(-Math.PI / 2), mat(0.85));
+  ring.position.y = 0.012;
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.035, 20).rotateX(-Math.PI / 2), mat(0.85));
+  dot.position.y = 0.012;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.9, 8).translate(0, 0.45, 0), mat(0.5));
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 12), mat(0.9));
+  ball.position.y = 0.95;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 176;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  label.scale.set(0.36, 0.124, 1);
+  label.position.y = 1.13;
+  label.userData = { canvas, texture, text: '' };
+  for (const [object, order] of [[ring, 20], [dot, 20], [pole, 20], [ball, 21], [label, 22]]) {
+    object.renderOrder = order;
+    object.frustumCulled = false;
+    g.add(object);
+  }
+  return { group: g, label };
 }
 
 const dummy = new THREE.Object3D();
@@ -307,6 +344,7 @@ export function createGuide() {
   const band = makeBand();
   const beacon = makeBeacon();
   group.add(band.mesh, chevrons.mesh, beacon.group);
+  const waypointBeacons = []; // a pool: as many as there are waypoints near enough to show
 
   return {
     group,
@@ -362,6 +400,30 @@ export function createGuide() {
       if (at) beacon.group.position.set(at.x, 0, at.z);
     },
 
+    /**
+     * The waypoints near the wearer: [{ x, z, label, distanceM }] in room coordinates. Each gets
+     * a blue marker with its name and distance; those too near or too far are not shown.
+     */
+    waypoints(list) {
+      const [nearest, farthest] = GUIDE.waypointShowM;
+      const shown = list.filter((w) => w.distanceM >= nearest && w.distanceM <= farthest).slice(0, GUIDE.maxWaypoints);
+      while (waypointBeacons.length < shown.length) {
+        const b = makeWaypointBeacon();
+        waypointBeacons.push(b);
+        group.add(b.group);
+      }
+      waypointBeacons.forEach((b, k) => {
+        const w = shown[k];
+        b.group.visible = !!w;
+        if (!w) return;
+        b.group.position.set(w.x, 0, w.z);
+        writeLabel(b.label, w.label || 'Waypoint', `${w.distanceM.toFixed(1)} m`, '#4da3ff');
+      });
+    },
+    get waypointsShown() {
+      return waypointBeacons.filter((b) => b.group.visible).length;
+    },
+
     /** What the label says: a name ("Target") and a distance ("3.2 m"). `near` hides it: at arm's length it is in the way. */
     label(name, distance, near = false) {
       writeLabel(beacon.label, name, distance);
@@ -375,7 +437,7 @@ export function createGuide() {
       band.material.uniforms.time.value = t;
       beacon.floor.material.uniforms.time.value = t;
       beacon.gem.rotation.y = t * 0.9;
-      beacon.gem.position.y = 1.22 + 0.025 * Math.sin(t * 1.7);
+      beacon.gem.position.y = GEM_Y + 0.025 * Math.sin(t * 1.7);
     },
   };
 }

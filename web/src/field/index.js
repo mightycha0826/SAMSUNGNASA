@@ -9,7 +9,9 @@
 //     a room crosses a visible part of the 2 km map; in field mode it is 1 : 1.
 //
 // In field mode (the second button on the start page)
-//   - The palm map shows FIELD.spanM around the wearer, 1 : 1 with the room, and on it only
+//   - The palm map shows the ground around the wearer, and how much of it depends on where
+//     the map is held: brought toward the middle of the view it shows more (FIELD.spanRangeM,
+//     up to 24 m across), held off to the side it shows less, larger. On it is only
 //     what the headset has scanned (`hazard:update` from scan/): clear floor and structure.
 //     Ground the headset knows nothing about is left empty, with no frame around the map.
 //     (It used to show the Mars image there, which read as floor that had been seen.)
@@ -20,14 +22,19 @@
 //     the palm with a beam from the hand, the Mars terrain as its ground and the scanned
 //     structure standing on it, and everything written about it on the caption card that goes
 //     around the map's cylinder. Nothing is written on the map surface.
-//   - What moves on the map (the wearer, the target, the route) floats above its surface.
-//   - "Mark target" (voice or the command menu) sets the target where the wearer stands. Away
-//     from it, the way back is planned around the scanned structure and shown twice: as arrows
-//     on the real floor and as a line on the map. "Navigate" / "Stop" turn the guidance on and
-//     off; saying "Mark target" again moves the target.
+//   - What moves on the map (the wearer, the target, waypoints, the route) floats above its
+//     surface, in the shapes both maps share (core/markers.js).
+//   - The target is where the route leads: a place picked on the map with the pointer, or a
+//     waypoint ("Navigate" on its card). The way there is planned around the scanned structure
+//     and shown twice: as arrows on the real floor and as a line on the map. "Navigate" /
+//     "Stop" turn the guidance on and off; "Navigate" with no target goes to the waypoint
+//     marked last. The route passes every waypoint that lies nearly on the way (planner.js).
+//   - Waypoints are places that were marked (hud/: "Mark waypoint" where the wearer stands, or
+//     a place picked on the map), each with a name. They are blue, on the map and in the room.
 //
-// Receives: layers:ready, hazard:update, voice:command, app:mode,
-//           field:target { point: [x, z] room metres } (a place picked on the map with the pointer)
+// Receives: layers:ready, hazard:update, voice:command, app:mode, map:pick,
+//           field:target { point: [x, z] room metres | null, label? } (hud: the target is set or deleted)
+//           waypoint:set { id, label, room: [x, z] | cell: [col, row] }, waypoint:remove { id }
 // Sends:    nav:position { point: [x, 0, z] in map metres, source: 'headset' }
 //           nav:route (field mode only; targetId 'mark', points in room coordinates), voice:say
 
@@ -38,8 +45,9 @@ import { makeBeam, makeCaption, writeCaption, placeCaption, floatOverPalm, fadeB
 import { MAP } from '../map/config.js';
 import { sampleHeight } from '../map/terrain.js';
 import { createGridFrame, cellToWorld, worldToCell } from '../nav/coordinates.js';
-import { planPath } from './planner.js';
+import { planVia, PLAN } from './planner.js';
 import { createGuide, makeRibbon, GUIDE } from './guide.js';
+import { MARK, makeYou, makeTarget, makeWaypoint, makePin, setLabel, place } from '../core/markers.js';
 
 const q = new URLSearchParams(location.search);
 
@@ -56,7 +64,12 @@ export const WALK = {
 };
 
 export const FIELD = {
-  spanM: 20, // the palm map shows spanM x spanM around the wearer
+  spanM: 20, // the palm map shows spanM x spanM around the wearer (PC view, and until the map has been looked at)
+  // In the headset the range follows where the map is held: [off to the side, in the middle of
+  // the view] in metres across. More than 24 m would show nothing more: the scan's window is 25.6 m.
+  spanRangeM: [10, 24],
+  spanAtDeg: [34, 10], // the map's centre this far from the line of sight: the first range, the second range; between them it glides
+  spanRate: 5, // how fast the range follows (1/s)
   mapM: MAP.widthM, // size of the palm map (m): the same as the Mars map
   mapPx: 512,
   segments: 128, // the map surface is a grid of this many quads per side, raised into a relief
@@ -66,7 +79,6 @@ export const FIELD = {
   showRouteBeyondM: 1.0, // the route appears once the wearer is this far from the target
   arrivedM: 0.5,
   replanMs: 500,
-  markerLiftM: 0.014, // the wearer's arrow and the target float this far above the map's surface (m on the map)
 };
 
 let ctx;
@@ -90,7 +102,16 @@ const head = new THREE.Vector3();
 let heading = 0; // radians, 0 = facing -z (north on the map), clockwise positive
 const headStart = new THREE.Vector3();
 let haveHead = false;
+let wantSpan = FIELD.spanM; // the range the map should show, following where it is held
+let span = FIELD.spanM; // the range it was last drawn with: markers and picking go by this
 let target = null; // THREE.Vector3 on the floor, or null
+let targetLabel = ''; // its name, when it was set from a waypoint
+// Marked places: id -> { id, label, room: [x, z] } (field mode) or { id, label, cell } (Mars mode).
+const waypoints = new Map();
+const passed = new Set(); // waypoints the wearer has been at on the way to this target
+let viaSaid = ''; // the stops last announced
+let picked = false; // a place is picked on the map and its card is up (hud): "Navigate" then means that place
+let lastWaypointDraw = 0;
 let guiding = false;
 let route = { points: [], distanceM: 0, blocked: false };
 let lastPlan = 0;
@@ -109,55 +130,26 @@ const dummy = new THREE.Object3D();
 // projected onto a hand: half on a wall's top, half on the floor beside it.
 function makeMapMarkers(root) {
   const flat = (material) => Object.assign(material, { depthTest: false, transparent: true });
-  // The wearer: an arrowhead pointing where they face (north on the map is -z), with a dark rim.
-  const head_ = new THREE.Shape();
-  head_.moveTo(0, 0.0085);
-  head_.lineTo(0.006, -0.0065);
-  head_.lineTo(0, -0.003);
-  head_.lineTo(-0.006, -0.0065);
-  head_.closePath();
-  const arrowShape = new THREE.ShapeGeometry(head_).rotateX(-Math.PI / 2);
-  const you = new THREE.Group();
+  const you = makeYou();
   you.name = 'field-map-you';
-  const rim = new THREE.Mesh(arrowShape, flat(new THREE.MeshBasicMaterial({ color: 0x0b0d10, side: THREE.DoubleSide })));
-  rim.scale.setScalar(1.3);
-  rim.position.y = -0.0003;
-  const body = new THREE.Mesh(arrowShape, flat(new THREE.MeshBasicMaterial({ color: 0x5bdbba, side: THREE.DoubleSide })));
-  const youStem = new THREE.Mesh(new THREE.CylinderGeometry(0.0004, 0.0004, 1, 6).translate(0, -0.5, 0), flat(new THREE.MeshBasicMaterial({ color: 0x5bdbba, opacity: 0.7 })));
-  you.add(rim, body, youStem);
-
-  // The target: a diamond on a stem, the colour of the marker in the room.
-  const goal = new THREE.Group();
+  const goal = makeTarget();
   goal.name = 'field-map-target';
-  const gemShape = new THREE.OctahedronGeometry(0.0055).scale(0.75, 1.2, 0.75);
-  const gem = new THREE.Mesh(gemShape, flat(new THREE.MeshBasicMaterial({ color: GUIDE.target })));
-  const gemRim = new THREE.LineSegments(new THREE.EdgesGeometry(gemShape), flat(new THREE.LineBasicMaterial({ color: 0xffffff })));
-  const goalStem = new THREE.Mesh(new THREE.CylinderGeometry(0.0004, 0.0004, 1, 6).translate(0, -0.5, 0), flat(new THREE.MeshBasicMaterial({ color: GUIDE.target, opacity: 0.8 })));
-  goal.add(gem, gemRim, goalStem);
-
   // The route: a band just above the surface, rising and falling with it.
   const route_ = makeRibbon(96, flat(new THREE.MeshBasicMaterial({ color: GUIDE.path, opacity: 0.95, side: THREE.DoubleSide })));
   route_.mesh.name = 'field-map-route';
-
-  for (const [object, order] of [[route_.mesh, 21], [goal, 23], [you, 24]]) {
-    object.traverse((o) => {
-      o.renderOrder = order;
-      o.frustumCulled = false;
-    });
-    object.visible = false;
-    root.add(object);
-  }
-  return { you, youStem, goal, goalStem, route: route_ };
+  route_.mesh.renderOrder = 21;
+  route_.mesh.visible = false;
+  root.add(route_.mesh, goal, you);
+  return { you, goal, route: route_, waypoints: new Map() }; // waypoints: id -> marker
 }
 
 /** Put the floating markers where they belong on the map as it is drawn now. Every frame while the map shows. */
 function placeMapMarkers() {
-  const { you, youStem, goal, goalStem, route: band } = palmMap.markers;
+  const { you, goal, route: band, waypoints: marks } = palmMap.markers;
   const centre = palmMap.centre;
   if (!centre) return;
-  const perRoomM = FIELD.mapM / FIELD.spanM;
+  const perRoomM = FIELD.mapM / span;
   const edge = FIELD.mapM / 2 - 0.006;
-  const lift = FIELD.markerLiftM;
   // Room position -> map position, kept inside the map, and the surface's height there.
   const onMap = (x, z) => {
     const mx = Math.max(-edge, Math.min(edge, (x - centre[0]) * perRoomM));
@@ -167,18 +159,39 @@ function placeMapMarkers() {
   };
 
   const [hx, hy, hz] = onMap(head.x, head.z);
-  you.visible = true;
-  you.position.set(hx, hy + lift, hz);
+  place(you, hx, hy, hz, MARK.youLiftM);
   you.rotation.y = -heading;
-  youStem.scale.y = lift;
 
-  goal.visible = !!target;
+  goal.visible = false;
   if (target) {
-    const [tx, ty, tz] = onMap(target.x, target.z);
-    goal.position.set(tx, ty + lift + 0.006, tz);
+    place(goal, ...onMap(target.x, target.z), MARK.targetLiftM);
     goal.rotation.y = performance.now() / 900;
-    goalStem.scale.y = lift + 0.006;
-    goalStem.rotation.y = -goal.rotation.y;
+  }
+
+  // Waypoints: one marker each, made when the waypoint appears and dropped when it goes. One
+  // that lies beyond the map's circle is not shown (the target is kept at the edge instead:
+  // it says which way to go).
+  for (const [id, marker] of marks) {
+    if (!waypoints.get(id)?.room) {
+      marker.removeFromParent();
+      marks.delete(id);
+    }
+  }
+  for (const w of waypoints.values()) {
+    if (!w.room) continue;
+    let marker = marks.get(w.id);
+    if (!marker) {
+      marker = makeWaypoint(w.label);
+      marker.name = `field-map-waypoint-${w.id}`;
+      palmMap.root.add(marker);
+      marks.set(w.id, marker);
+    }
+    setLabel(marker, w.label);
+    const mx = (w.room[0] - centre[0]) * perRoomM;
+    const mz = (w.room[1] - centre[1]) * perRoomM;
+    const y = surfaceY(mx, mz);
+    marker.visible = false;
+    if (Math.hypot(mx, mz) <= FIELD.mapM * 0.47 && Number.isFinite(y)) place(marker, mx, y, mz, MARK.waypointLiftM);
   }
 
   const shown = guiding && route.points.length > 1;
@@ -186,7 +199,7 @@ function placeMapMarkers() {
   if (shown) {
     band.set(route.points.map(([x, z]) => {
       const [mx, my, mz] = onMap(x, z);
-      return [mx, my + lift * 0.45, mz];
+      return [mx, my + MARK.youLiftM * 0.45, mz];
     }), 0.0024);
   }
 }
@@ -239,7 +252,6 @@ function drawGridCanvas() {
 function drawPalmMap() {
   const { g, canvas, tex } = palmMap;
   const W = canvas.width;
-  const span = FIELD.spanM;
   const k = W / span; // pixels per metre
   const toPx = (x, z) => [(x - head.x) * k + W / 2, (z - head.z) * k + W / 2];
   g.save();
@@ -289,8 +301,8 @@ function updateRelief() {
   const { surface, mask } = palmMap;
   const N = FIELD.segments;
   const side = N + 1;
-  const step = FIELD.spanM / N;
-  const scale = FIELD.mapM / FIELD.spanM; // map metres per room metre
+  const step = span / N;
+  const scale = FIELD.mapM / span; // map metres per room metre
   const pos = surface.geometry.attributes.position;
   const col = surface.geometry.attributes.color;
   const terrain = !!(topo && frameT && anchorMap && layerSet?.grid);
@@ -302,16 +314,16 @@ function updateRelief() {
     return Number.isFinite(h) ? Math.max(-FIELD.reliefMaxM, Math.min(FIELD.reliefMaxM, h)) : 0;
   };
   for (let r = 0; r < side; r++) {
-    const z = head.z + (r / N - 0.5) * FIELD.spanM;
+    const z = head.z + (r / N - 0.5) * span;
     for (let c = 0; c < side; c++) {
-      mask[r * side + c] = grid && structureNear(head.x + (c / N - 0.5) * FIELD.spanM, z, step / 2) ? 1 : 0;
+      mask[r * side + c] = grid && structureNear(head.x + (c / N - 0.5) * span, z, step / 2) ? 1 : 0;
     }
   }
   for (let r = 0; r < side; r++) {
-    const z = head.z + (r / N - 0.5) * FIELD.spanM;
+    const z = head.z + (r / N - 0.5) * span;
     for (let c = 0; c < side; c++) {
       const i = r * side + c;
-      const base = Number.isFinite(here) ? ground(head.x + (c / N - 0.5) * FIELD.spanM, z) : 0;
+      const base = Number.isFinite(here) ? ground(head.x + (c / N - 0.5) * span, z) : 0;
       pos.setY(i, (base + (mask[i] ? FIELD.structureM : 0)) * scale);
       const beside = !mask[i] && ((c > 0 && mask[i - 1]) || (c < N && mask[i + 1]) || (r > 0 && mask[i - side]) || (r < N && mask[i + side]));
       const shade = beside ? 0.45 : 1;
@@ -327,17 +339,17 @@ function writeFieldCaption() {
   const stats = grid?.stats;
   const live = grid?.source === 'room-scan+depth';
   const source = !grid ? 'Waiting for the room scan' : grid.source ? `Room scan${live ? ' + live depth' : ''} · Quest 3` : 'Scan · simulated obstacle';
-  let note = 'Orange: scanned structure · say "Mark target" where you stand';
+  let note = 'Point at the map and pinch: set a target or a waypoint there';
   if (target) {
     const d = Math.hypot(target.x - head.x, target.z - head.z).toFixed(1);
-    note = !guiding ? `Target ${d} m · guidance off` : lastStatus === 'blocked' ? `Target ${d} m · no clear way through` : `Target ${d} m · violet: the way back`;
+    note = !guiding ? `Target ${d} m · guidance off` : lastStatus === 'blocked' ? `Target ${d} m · no clear way through` : `Target ${d} m · violet: the way there`;
   }
   writeCaption(palmMap.caption, [
-    `${layerSet?.mock ? 'SYNTHETIC · ' : ''}Field map · ${FIELD.spanM} m around you · N ↑`,
+    `${layerSet?.mock ? 'SYNTHETIC · ' : ''}Field map · ${Math.round(span)} m around you · N ↑`,
     source,
-    `Map extent ${FIELD.spanM} × ${FIELD.spanM} m · ${grid ? grid.cellSizeM : 0.1} m/cell · 1 : 1 with the room`,
+    `Map extent ${Math.round(span)} × ${Math.round(span)} m · ${grid ? grid.cellSizeM : 0.1} m/cell · hold it in the middle of your view to see farther`,
     note,
-    stats ? `${stats.obstacles} structure cells${live ? `, ${stats.depth} seen by live depth just now` : ''} · teal: you` : 'Teal: you · orange diamond: target',
+    `Teal: you · orange diamond: target · blue: waypoints${waypoints.size ? ` (${[...waypoints.values()].filter((w) => w.room).length})` : ''} · orange ground: structure or a drop`,
     'Only scanned ground is drawn; the rest is empty until the headset has seen it',
   ]);
 }
@@ -361,25 +373,43 @@ function publishRoute(status, now, force = false) {
   });
 }
 
-function markTarget() {
-  if (!haveHead) {
-    say('Position not tracked yet.');
-    return;
-  }
-  target = new THREE.Vector3(head.x, 0, head.z);
+/** The target at a place of the room (hud: a place picked on the map, or a waypoint): guidance starts. */
+function setTargetAt(x, z, label = '') {
+  target = new THREE.Vector3(x, 0, z);
+  targetLabel = label;
+  passed.clear();
+  viaSaid = '';
   guiding = true;
   fx.target(target);
   lastPlan = 0;
-  say('Target marked.');
+  say(label ? `Target set: ${label}.` : 'Target set.');
 }
 
-/** The target at a place picked on the map (hud): like "Mark target", but there instead of here. */
-function setTargetAt(x, z) {
-  target = new THREE.Vector3(x, 0, z);
-  guiding = true;
-  fx.target(target);
-  lastPlan = 0;
-  say('Target set.');
+/** How many metres across the field map shows right now (hud: distances on the map). */
+export const fieldSpan = () => span;
+
+// The range follows where the map is held: toward the middle of the view it widens.
+const lookAt_ = new THREE.Vector3();
+const toMap = new THREE.Vector3();
+function aimSpan(frame) {
+  if (!frame.session || !palmMap.root.visible) return;
+  ctx.camera.getWorldDirection(lookAt_);
+  toMap.copy(palmMap.root.position).sub(ctx.camera.getWorldPosition(v));
+  const off = THREE.MathUtils.radToDeg(toMap.angleTo(lookAt_));
+  const [far, near] = FIELD.spanAtDeg;
+  const t = THREE.MathUtils.smoothstep(off, near, far); // 0 in the middle of the view, 1 off to the side
+  const goal = FIELD.spanRangeM[1] + (FIELD.spanRangeM[0] - FIELD.spanRangeM[1]) * t;
+  wantSpan += (goal - wantSpan) * (1 - Math.exp(-FIELD.spanRate * Math.min(0.1, frame.dt ?? 0.016)));
+}
+
+/** Where the wearer stands in the room, [x, z], or null while the headset is not tracked (hud: "Mark waypoint"). */
+export function fieldHere() {
+  return haveHead ? [head.x, head.z] : null;
+}
+
+/** The target of field mode, [x, z] in the room, or null (hud: picking it on the map). */
+export function fieldTarget() {
+  return mode.current === 'field' && target ? [target.x, target.z] : null;
 }
 
 // ---- picking a place on the field map (hud/index.js points a hand's ray at it) ----
@@ -438,7 +468,7 @@ export function pickOnFieldMap(origin, direction, maxM = 3) {
       probe.copy(rayFrom).addScaledVector(rayStep, b);
       const y = surfaceY(probe.x, probe.z);
       if (!Number.isFinite(y)) return null;
-      const perRoomM = FIELD.mapM / FIELD.spanM;
+      const perRoomM = FIELD.mapM / span;
       return {
         room: [palmMap.centre[0] + probe.x / perRoomM, palmMap.centre[1] + probe.z / perRoomM],
         point: root.localToWorld(new THREE.Vector3(probe.x, y, probe.z)),
@@ -454,7 +484,7 @@ export function pickOnFieldMap(origin, direction, maxM = 3) {
 /** Where a place of the room is on the field map right now (for a card that stands over it), or null. */
 export function fieldPlaceOnMap(room) {
   if (mode.current !== 'field' || !palmMap?.root.visible || !palmMap.centre) return null;
-  const perRoomM = FIELD.mapM / FIELD.spanM;
+  const perRoomM = FIELD.mapM / span;
   const x = (room[0] - palmMap.centre[0]) * perRoomM;
   const z = (room[1] - palmMap.centre[1]) * perRoomM;
   const y = surfaceY(x, z);
@@ -465,17 +495,8 @@ export function fieldPlaceOnMap(room) {
 export function showFieldPick(room) {
   if (!palmMap) return;
   if (!pin) {
-    pin = new THREE.Group();
+    pin = makePin();
     pin.name = 'field-map-pick';
-    const material = new THREE.MeshBasicMaterial({ color: 0xb9c3ff, depthTest: false, transparent: true });
-    const head_ = new THREE.Mesh(new THREE.SphereGeometry(0.004, 12, 8), material);
-    head_.position.y = 0.016;
-    const stem = new THREE.Mesh(new THREE.ConeGeometry(0.0026, 0.014, 8).rotateX(Math.PI), material);
-    stem.position.y = 0.007;
-    for (const m of [head_, stem]) {
-      m.renderOrder = 22;
-      pin.add(m);
-    }
     palmMap.root.add(pin);
   }
   const at = room && fieldPlaceOnMap(room);
@@ -485,6 +506,7 @@ export function showFieldPick(room) {
 
 function clearTarget() {
   target = null;
+  targetLabel = '';
   guiding = false;
   fx.target(null);
   fx.clear();
@@ -494,13 +516,17 @@ function clearTarget() {
 
 function onVoice({ intent }) {
   if (mode.current !== 'field') return;
-  if (intent === 'nav.mark') markTarget();
-  else if (intent === 'nav.start') {
-    if (!target) say('No target yet. Say mark target where you want to return.');
-    else {
+  if (intent === 'nav.start') {
+    if (picked) return; // "Navigate" on the card over a picked place: the hud sets the target there
+    if (target) {
       guiding = true;
       lastPlan = 0;
+      return;
     }
+    // No target: the waypoint marked last becomes it.
+    const last = [...waypoints.values()].filter((w) => w.room).pop();
+    if (last) setTargetAt(last.room[0], last.room[1], last.label);
+    else say('No target yet. Point at the map to pick one, or mark a waypoint.');
   } else if (intent === 'nav.stop') {
     guiding = false;
     fx.clear();
@@ -511,7 +537,7 @@ function onVoice({ intent }) {
 function guide(now) {
   if (!target) return;
   const dist = Math.hypot(target.x - head.x, target.z - head.z);
-  fx.label('Target', `${dist.toFixed(1)} m`, dist <= 0.8);
+  fx.label((targetLabel || 'Target').toUpperCase(), `${dist.toFixed(1)} m`, dist <= 0.8);
   if (!guiding) return;
   if (dist < FIELD.arrivedM) {
     fx.clear();
@@ -524,7 +550,20 @@ function guide(now) {
   if (dist < FIELD.showRouteBeyondM && lastStatus !== 'ok') return;
   if (now - lastPlan >= FIELD.replanMs) {
     lastPlan = now;
-    route = planPath(grid, [head.x, head.z], [target.x, target.z]);
+    // Through the waypoints that lie nearly on the way (planner.js: planVia), except those the
+    // wearer has already been at on this way to the target: the route does not lead back to them.
+    const stops = [];
+    for (const w of waypoints.values()) {
+      if (!w.room) continue;
+      if (Math.hypot(w.room[0] - head.x, w.room[1] - head.z) < PLAN.viaMinM) passed.add(w.id);
+      if (!passed.has(w.id)) stops.push({ id: w.id, at: w.room });
+    }
+    route = planVia(grid, [head.x, head.z], [target.x, target.z], stops);
+    const via = (route.via ?? []).map((id) => waypoints.get(id)?.label ?? id).join(', ');
+    if (via !== viaSaid) {
+      viaSaid = via;
+      if (via && !route.blocked) say(`The route passes ${via}.`);
+    }
     if (route.blocked) {
       fx.clear();
       if (lastStatus !== 'blocked') say('No clear way to the target.');
@@ -584,8 +623,30 @@ function layMarsRoute(now) {
   const [ex, ez] = pts[pts.length - 1];
   fx.target({ x: ex, z: ez });
   const wp = layerSet?.waypoints?.find((w) => w.id === marsRoute.targetId);
-  const name = String(wp?.labelEn ?? wp?.label ?? marsRoute.targetId ?? 'Destination').split(' · ')[0];
-  fx.label(name, `${Math.round(marsRoute.distanceM)} m`, Math.hypot(ex - head.x, ez - head.z) <= 0.8);
+  const name = String(waypoints.get(marsRoute.targetId)?.label ?? wp?.labelEn ?? wp?.label ?? (marsRoute.targetId === 'pick' ? 'Selected point' : marsRoute.targetId) ?? 'Destination').split(' · ')[0];
+  fx.label(name.toUpperCase(), `${Math.round(marsRoute.distanceM)} m`, Math.hypot(ex - head.x, ez - head.z) <= 0.8);
+}
+
+// The waypoints as markers in the room. In field mode a waypoint is a place of the room; in
+// Mars mode it is a cell of the Mars map, shown where that is in the room at the walking scale
+// in use (so, like the route, it is only where a few steps reach it).
+function showWaypointsInRoom(now) {
+  if (now - lastWaypointDraw < 150) return;
+  lastWaypointDraw = now;
+  const field = mode.current === 'field';
+  const list = [];
+  if (haveHead) {
+    for (const w of waypoints.values()) {
+      let at = null;
+      if (field && w.room) at = w.room;
+      else if (!field && w.cell && frameT && anchorMap) {
+        const m = cellToWorld(frameT, w.cell);
+        at = marsToRoom([m[0], m[2]]);
+      }
+      if (at) list.push({ x: at[0], z: at[1], label: w.label, distanceM: Math.hypot(at[0] - head.x, at[1] - head.z) });
+    }
+  }
+  fx.waypoints(list.sort((a, b) => a.distanceM - b.distanceM));
 }
 
 // ---------- position ----------
@@ -627,6 +688,7 @@ function placePalmMap(frame) {
   if (!frame.session) {
     // PC view: where the Mars map stands in Mars mode, at the same size and tilt.
     floatState.shownSince = null;
+    wantSpan = FIELD.spanM; // the PC view has no hand to move the map with
     beam.visible = false;
     root.visible = true;
     root.position.set(0, 0.85, 0);
@@ -671,7 +733,26 @@ export function init(context) {
   ctx.bus.on('nav:request', () => {
     fitNext = true;
   });
-  ctx.bus.on('field:target', ({ point }) => mode.current === 'field' && setTargetAt(point[0], point[1]));
+  ctx.bus.on('field:target', ({ point, label }) => {
+    if (mode.current !== 'field') return;
+    if (point) setTargetAt(point[0], point[1], label ?? '');
+    else {
+      clearTarget(); // deleted on the map
+      say('Target deleted.');
+    }
+  });
+  ctx.bus.on('map:pick', (p) => {
+    picked = !!p;
+  });
+  ctx.bus.on('waypoint:set', (w) => {
+    if (w?.id == null) return;
+    waypoints.set(w.id, { id: w.id, label: w.label ?? '', room: w.room ?? null, cell: w.cell ?? null });
+    lastWaypointDraw = 0;
+  });
+  ctx.bus.on('waypoint:remove', ({ id }) => {
+    waypoints.delete(id);
+    lastWaypointDraw = 0;
+  });
   ctx.bus.on('app:mode', () => {
     if (mode.current !== 'field') clearTarget();
     marsRoute = null;
@@ -686,16 +767,15 @@ export function init(context) {
     marsScale = WALK.marsScale;
   });
 
-  // PC testing without a headset: __field.walk(x, z, headingDeg), __field.mark(), __field.state()
+  // PC testing without a headset: __field.walk(x, z, headingDeg), __field.state()
   window.__field = {
     /** Where a ray meets the map: pick([ox, oy, oz], [dx, dy, dz]) (for tests). */
     pick: (o, d, maxM = 40) => pickOnFieldMap(new THREE.Vector3(...o), new THREE.Vector3(...d).normalize(), maxM),
     walk(x, z, headingDeg = 0) {
       simulated = { x, z, heading: THREE.MathUtils.degToRad(headingDeg) };
     },
-    mark: markTarget,
     clear: clearTarget,
-    state: () => ({ mode: mode.current, head: [head.x, head.z], target: target && [target.x, target.z], guiding, status: lastStatus, route: route.points.length, distanceM: route.distanceM, arrows: fx.arrows, targetShown: fx.targetShown, marsScale, marsRoute: marsRoute && { targetId: marsRoute.targetId, distanceM: marsRoute.distanceM, points: marsRoute.points.length } }),
+    state: () => ({ via: route.via ?? [], spanM: span, mode: mode.current, head: [head.x, head.z], target: target && [target.x, target.z], targetLabel, waypoints: [...waypoints.values()], waypointsInRoom: fx.waypointsShown, guiding, status: lastStatus, route: route.points.length, distanceM: route.distanceM, arrows: fx.arrows, targetShown: fx.targetShown, marsScale, marsRoute: marsRoute && { targetId: marsRoute.targetId, distanceM: marsRoute.distanceM, points: marsRoute.points.length } }),
     /** The map as drawn: caption text, how many surface vertices stand on structure, the tallest point (m on the map). */
     map: () => {
       const y = palmMap.surface.geometry.attributes.position;
@@ -722,6 +802,7 @@ export function update(frame) {
   if (haveHead) emitPosition(now);
 
   fx.tick(now);
+  showWaypointsInRoom(now);
   const field = mode.current === 'field';
   group.visible = field;
   if (!field) {
@@ -735,8 +816,12 @@ export function update(frame) {
 
   if (haveHead) guide(now);
   placePalmMap(frame);
-  if (palmMap.root.visible && now - lastDraw > FIELD.redrawMs) {
+  aimSpan(frame);
+  // Drawn again five times a second, and sooner while the range is changing, so that glides.
+  const zooming = Math.abs(wantSpan - span) > 0.2;
+  if (palmMap.root.visible && now - lastDraw > (zooming ? 50 : FIELD.redrawMs)) {
     lastDraw = now;
+    span = zooming ? wantSpan : span;
     drawPalmMap();
     updateRelief();
     writeFieldCaption();

@@ -36,8 +36,9 @@ import { walkableNear, reachableFrom } from '../core/waypoints.js';
 import { choose, importance, trend } from './importance.js';
 import { createDash } from './dash.js';
 import { sizeOf } from './layout.js';
-import { pickOnMap, mapCellInRoom, showPick } from '../map/index.js';
-import { pickOnFieldMap, fieldPlaceOnMap, showFieldPick } from '../field/index.js';
+import { pickOnMap, mapCellInRoom, showPick, cellOfMapPoint, mapTargetCell } from '../map/index.js';
+import { MAP } from '../map/config.js';
+import { FIELD, pickOnFieldMap, fieldPlaceOnMap, showFieldPick, fieldHere, fieldTarget, fieldSpan } from '../field/index.js';
 
 const S = STRINGS[HUD.lang];
 const UNIT = HUD.distanceM * Math.tan(Math.PI / 180); // 1도의 길이 (m)
@@ -81,7 +82,7 @@ let commands = [
   { say: 'Status', intent: 'status.report', slots: {} },
   { say: 'Navigate', intent: 'nav.start', slots: { targetId: 'near' } },
   { say: 'Base', intent: 'nav.home', slots: {}, mode: 'mars' },
-  { say: 'Mark target', intent: 'nav.mark', slots: {}, mode: 'field' },
+  { say: 'Mark waypoint', intent: 'nav.mark', slots: {} },
   { say: 'Stop', intent: 'nav.stop', slots: {} },
   { say: 'Confirm', intent: 'alert.ack', slots: {} },
 ];
@@ -94,9 +95,24 @@ let pointerTargets = [];
 const engaged = { layers: false, commands: false, pick: false };
 let rescue = null; // the emergency button on the command card (rescue.js)
 let leftOpen = false; // the left hand is held open: only then does it bring a menu up
-// A place picked on the palm map with the pointer: a pin on the map and a small card over it
-// with "Navigate" and "Cancel". Saying "Navigate" or "Cancel" does the same as pressing them.
-let pick = null; // while the card is up: { cell: [col, row], note } on the Mars map, { room: [x, z] } on the field map
+// A place picked on the palm map with the pointer: a pin on the map and a small card over it.
+// What the card offers depends on what was picked (pick.kind):
+//   'place'     bare ground                 Navigate (it becomes the target) · Waypoint · Cancel
+//   'waypoint'  a waypoint (pick.id)        Navigate · Record (say a new name) · Delete · Cancel
+//   'target'    the target                  Navigate · Delete · Cancel
+// and while a waypoint that was just set waits for its name (`naming`): Record · Confirm.
+// Every button can be spoken: "Navigate", "Waypoint", "Record", "Confirm", "Delete", "Cancel".
+let pick = null; // while the card is up: { cell: [col, row], note, kind, id } on the Mars map, { room: [x, z], kind, id } on the field map
+// The places the wearer marked: id -> { id, label, room: [x, z] } (field map) or { id, label, cell } (Mars map).
+// They live for the session: a field waypoint is a place of the room, and the room's frame starts over with each session.
+const waypoints = new Map();
+let waypointCount = 0;
+// A waypoint that was just set and may be given a name: { id, until, listening, listenUntil, token }.
+// Its two buttons are on the card over the map and, since "Mark waypoint" is pressed on the
+// command card (where the map is not in view), on the command card too.
+let naming = null;
+let dictations = 0;
+let lastMapPoint = null; // where the wearer is on the Mars map, in map metres (nav:position)
 let pPick = null;
 let pickHits = [];
 const pickTouch = { hoverId: null, pressedId: null, pressedUntil: 0 };
@@ -221,38 +237,103 @@ const tabAt = (x, y) => hitAt(layerHits, x, y);
 
 function commandsVM() {
   const pressedId = performance.now() < cmdTouch.pressedUntil ? cmdTouch.pressedId : null;
+  // A waypoint was just marked from this card: until it is named or confirmed the card asks for that.
+  const ask = naming ? namingVM() : null;
   return {
-    cols: HUD.commands.cols,
-    title: S.voiceTitle ?? 'Commands',
-    hint: S.voiceHint ?? 'Say it, or point and pinch',
-    items: menuCommands().map((c) => ({ id: c.say, label: c.say, hover: c.say === cmdTouch.hoverId, pressed: c.say === pressedId })),
+    cols: ask ? ask.items.length : HUD.commands.cols,
+    title: ask?.title ?? S.voiceTitle ?? 'Commands',
+    hint: ask?.hint ?? S.voiceHint ?? 'Say it, or point and pinch',
+    items: ask
+      ? ask.items.map((label) => ({ id: NAMING_PREFIX + label, label, hover: NAMING_PREFIX + label === cmdTouch.hoverId, pressed: NAMING_PREFIX + label === pressedId }))
+      : menuCommands().map((c) => ({ id: c.say, label: c.say, hover: c.say === cmdTouch.hoverId, pressed: c.say === pressedId })),
     sos: { id: SOS_ID, ...rescue.vm(performance.now()), hover: cmdTouch.hoverId === SOS_ID, pressed: pressedId === SOS_ID },
   };
 }
 const SOS_ID = '__sos';
+const NAMING_PREFIX = '__name:'; // the naming buttons on the command card ("Confirm" is also a command's name)
+
+const onField = () => mode.current === 'field';
+const wpOf = (id) => waypoints.get(id) ?? null;
+const here = (w) => (onField() ? w.room : w.cell); // a waypoint of the other map has no place on this one
+
+/** The waypoint or target at (or right beside) a picked place, as { kind, id?, room | cell }, or null. */
+function markNear(place) {
+  let best = null;
+  const take = (kind, id, at, d) => {
+    if (d <= 1 && (!best || d < best.d)) best = { kind, id, d, ...(onField() ? { room: at } : { cell: at }) };
+  };
+  if (place.room) {
+    const reach = (HUD.pick.snapM * fieldSpan()) / FIELD.mapM; // the snap distance on the map, in room metres
+    const far = (at) => Math.hypot(at[0] - place.room[0], at[1] - place.room[1]) / reach;
+    const t = fieldTarget();
+    if (t) take('target', null, t, far(t) * 0.8); // the target is the larger marker: it wins a tie
+    for (const w of waypoints.values()) if (w.room) take('waypoint', w.id, w.room, far(w.room));
+  } else if (state.layerSet) {
+    const reach = (HUD.pick.snapM / MAP.widthM) * state.layerSet.grid.cols; // in cells
+    const far = (at) => Math.hypot(at[0] - place.cell[0], at[1] - place.cell[1]) / reach;
+    const t = mapTargetCell();
+    if (t) take('target', null, t, far(t) * 0.8);
+    for (const w of waypoints.values()) if (w.cell) take('waypoint', w.id, w.cell, far(w.cell));
+  }
+  // The target stands on a waypoint (it was navigated to): the waypoint is what is picked, so
+  // it can still be renamed or deleted; "Stop" ends the way to it.
+  if (best?.kind === 'target') {
+    const at = best.room ?? best.cell;
+    const tol = best.room ? 0.05 : 0.5;
+    const same = [...waypoints.values()].find((w) => here(w) && Math.hypot(here(w)[0] - at[0], here(w)[1] - at[1]) <= tol);
+    if (same) best = { ...best, kind: 'waypoint', id: same.id };
+  }
+  return best;
+}
+
+const NAMING_ITEMS = ['Record', 'Confirm'];
+
+/** What the two cards say while a waypoint waits for its name. */
+function namingVM() {
+  const w = wpOf(naming.id);
+  return naming.listening
+    ? { title: 'Listening…', hint: 'Say the name, then pause', items: ['Cancel'] }
+    : { title: w?.label ?? 'Waypoint', hint: 'Name it by voice?', items: NAMING_ITEMS };
+}
 
 function pickVM() {
   const pressedId = performance.now() < pickTouch.pressedUntil ? pickTouch.pressedId : null;
   const ls = state.layerSet;
   let hint = '';
   if (pick?.room) {
-    const eye = ctx.camera.getWorldPosition(v1);
-    hint = `${Math.hypot(pick.room[0] - eye.x, pick.room[1] - eye.z).toFixed(1)} m from you`;
+    const eye = fieldHere() ?? [ctx.camera.getWorldPosition(v1).x, v1.z];
+    hint = `${Math.hypot(pick.room[0] - eye[0], pick.room[1] - eye[1]).toFixed(1)} m from you`;
   } else if (pick && ls) {
     const at = Math.round(pick.cell[1]) * ls.grid.cols + Math.round(pick.cell[0]);
     const h = state.grids.topo?.[at];
     const slope = state.grids.slope?.[at];
     hint = [pick.note || (Number.isFinite(h) ? `${h.toFixed(0)} m` : null), Number.isFinite(slope) ? `slope ${slope.toFixed(0)}°` : null].filter(Boolean).join(' · ');
   }
+  let vm;
+  if (naming && pick?.id === naming.id) vm = namingVM();
+  else if (pick?.kind === 'waypoint') vm = { title: wpOf(pick.id)?.label ?? 'Waypoint', hint, items: ['Navigate', 'Record', 'Delete', 'Cancel'] };
+  else if (pick?.kind === 'target') vm = { title: 'Target', hint, items: ['Navigate', 'Delete', 'Cancel'] };
+  else vm = { title: 'Selected point', hint, items: ['Navigate', 'Waypoint', 'Cancel'] };
   return {
-    cols: 2,
-    title: 'Selected point',
-    hint,
-    items: ['Navigate', 'Cancel'].map((label) => ({ id: label, label, hover: label === pickTouch.hoverId, pressed: label === pressedId })),
+    cols: vm.items.length > 3 ? 2 : vm.items.length, // four buttons: two rows of two, so "Navigate" is not cut short
+    title: vm.title,
+    hint: vm.hint,
+    items: vm.items.map((label) => ({ id: label, label, hover: label === pickTouch.hoverId, pressed: label === pressedId })),
   };
 }
 
+function setPick(next) {
+  pick = next;
+  if (pick.cell) showPick(pick.cell);
+  dirty.pick = true;
+  ctx.bus.emit('map:pick', pick.room ? { room: pick.room } : { cell: pick.cell });
+}
+
 function selectPoint(cell) {
+  if (naming) endNaming(); // picking elsewhere settles the waypoint that was waiting for its name
+  clickSound();
+  const mark = markNear({ cell });
+  if (mark) return setPick({ cell: mark.cell, note: '', kind: mark.kind, id: mark.id });
   // The planner closes ground steeper than 20 degrees, and much of this terrain is: the pick
   // goes to the nearest walkable cell, and the card says how far that was.
   const asked = [Math.round(cell[0]), Math.round(cell[1])];
@@ -265,19 +346,15 @@ function selectPoint(cell) {
   const walkable = ls ? walkableNear(ls, state.grids.slope ?? null, asked, { within: state.reachable?.cells ?? null, reachCells: 40 }) : asked;
   const to = walkable ?? asked;
   const movedM = ls ? Math.round(Math.hypot(to[0] - asked[0], to[1] - asked[1]) * ls.grid.cellSizeM) : 0;
-  pick = { cell: to, note: !walkable ? 'no walkable ground near' : movedM ? `moved ${movedM} m to reachable ground` : '' };
-  showPick(pick.cell);
-  dirty.pick = true;
-  clickSound();
-  ctx.bus.emit('map:pick', { cell: pick.cell });
+  setPick({ cell: to, note: !walkable ? 'no walkable ground near' : movedM ? `moved ${movedM} m to reachable ground` : '', kind: 'place' });
 }
 
 /** A place picked on the field map: `room` is where it is in the room. */
 function selectPlace(room) {
-  pick = { room: [room[0], room[1]] };
-  dirty.pick = true;
+  if (naming) endNaming();
   clickSound();
-  ctx.bus.emit('map:pick', { room: pick.room });
+  const mark = markNear({ room });
+  setPick(mark ? { room: mark.room, kind: mark.kind, id: mark.id } : { room: [room[0], room[1]], kind: 'place' });
 }
 
 function clearPick(keepPin = false) {
@@ -290,26 +367,134 @@ function clearPick(keepPin = false) {
   ctx.bus.emit('map:pick', null);
 }
 
-/** Go to the picked place: it becomes the destination `pick`, and the route is requested. */
+/** Go to the picked place: it becomes the target, and the route is requested. */
 function navigatePick() {
   if (!pick) return;
+  const w = pick.kind === 'waypoint' ? wpOf(pick.id) : null;
+  if (naming) endNaming(false);
   if (pick.room) {
-    // Field map: the picked place becomes the target, as "Mark target" makes the place underfoot.
-    ctx.bus.emit('field:target', { point: pick.room });
+    ctx.bus.emit('field:target', { point: pick.room, label: w?.label ?? '' });
     clearPick();
     return;
   }
-  ctx.bus.emit('nav:waypoint', { id: 'pick', cell: pick.cell, label: 'Selected point' });
-  ctx.bus.emit('nav:request', { targetId: 'pick' });
-  clearPick(true); // the card goes, the pin stays where the route leads
+  const id = w ? w.id : 'pick';
+  ctx.bus.emit('nav:waypoint', { id, cell: pick.cell, label: w?.label ?? 'Selected point' });
+  ctx.bus.emit('nav:request', { targetId: id });
+  clearPick(!w); // the card goes; the pin stays where the route leads (a waypoint has its own marker)
+}
+
+// ---- waypoints ----
+/** Mark a place: { room } on the field map, { cell } on the Mars map. The waypoint then waits for its name. */
+function addWaypoint(place) {
+  const n = ++waypointCount;
+  const w = { id: `wp${n}`, label: `Waypoint ${n}`, ...(place.room ? { room: [place.room[0], place.room[1]] } : { cell: [place.cell[0], place.cell[1]] }) };
+  waypoints.set(w.id, w);
+  ctx.bus.emit('waypoint:set', w);
+  naming = { id: w.id, until: performance.now() + HUD.pick.namingMs, listening: false, listenUntil: 0, token: 0 };
+  setPick({ ...(w.room ? { room: w.room } : { cell: w.cell, note: '' }), kind: 'waypoint', id: w.id });
+  dirty.commands = true;
+  showToast(`${w.label} set`);
+  return w;
+}
+
+/** "Mark waypoint": the place where the wearer stands. */
+function markHere() {
+  // On the Mars map without tracking (the PC view) the wearer is where the map starts them: at the base.
+  const place = onField() ? { room: fieldHere() } : { cell: cellOfMapPoint(lastMapPoint) ?? state.layerSet?.waypoints?.find((w) => w.id === 'base')?.cell };
+  if (!(place.room ?? place.cell)) {
+    showToast('Position not tracked yet');
+    return;
+  }
+  if (naming) endNaming(false);
+  addWaypoint(place);
+}
+
+/** The naming is over (named, confirmed, timed out, or something else was picked). */
+function endNaming(closeCard = true) {
+  if (!naming) return;
+  if (naming.listening) ctx.bus.emit('voice:dictate', { on: false, id: naming.token });
+  const id = naming.id;
+  naming = null;
+  dirty.commands = dirty.pick = true;
+  if (closeCard && pick?.id === id) clearPick();
+}
+
+/** "Record": what is said next, until the speaker pauses, becomes the waypoint's name. */
+function startRecording(id) {
+  if (!wpOf(id)) return;
+  if (naming?.id !== id) naming = { id, until: 0, listening: false, listenUntil: 0, token: 0 };
+  const now = performance.now();
+  naming.listening = true;
+  naming.listenUntil = now + HUD.pick.listenMs;
+  naming.until = naming.listenUntil;
+  naming.token = ++dictations;
+  ctx.bus.emit('voice:dictate', { on: true, id: naming.token, seconds: HUD.pick.listenMs / 1000 });
+  dirty.commands = dirty.pick = true;
+  showToast('Listening: say the name');
+}
+
+function stopRecording(note) {
+  if (!naming?.listening) return;
+  ctx.bus.emit('voice:dictate', { on: false, id: naming.token });
+  naming.listening = false;
+  naming.until = performance.now() + HUD.pick.namingMs;
+  dirty.commands = dirty.pick = true;
+  if (note) showToast(note);
+}
+
+/** What the hub heard after "Record". */
+function onDictation({ id, text, unavailable }) {
+  if (!naming?.listening || id !== naming.token) return;
+  if (unavailable) return stopRecording('Recording needs the Jetson: not connected');
+  // As a name: one line, no full stop at the end, not longer than a label can show.
+  const label = String(text ?? '').replace(/\s+/g, ' ').trim().replace(/[.!?。]+$/, '').slice(0, 40).trim();
+  if (!label) return stopRecording('Nothing heard');
+  const w = wpOf(naming.id);
+  naming.listening = false;
+  if (w) {
+    w.label = label;
+    ctx.bus.emit('waypoint:set', w);
+    showToast(`Waypoint: “${label}”`);
+  }
+  endNaming();
+}
+
+/** Delete what is picked: a waypoint, or the target. */
+function deletePicked() {
+  if (!pick) return;
+  if (pick.kind === 'waypoint') {
+    const w = wpOf(pick.id);
+    if (naming?.id === pick.id) endNaming(false);
+    waypoints.delete(pick.id);
+    ctx.bus.emit('waypoint:remove', { id: pick.id });
+    showToast(`${w?.label ?? 'Waypoint'} deleted`);
+  } else if (pick.kind === 'target') {
+    if (pick.room) ctx.bus.emit('field:target', { point: null });
+    else ctx.bus.emit('voice:command', { intent: 'nav.stop', slots: {}, text: '' }); // the Mars route ends, and its target with it
+    showToast('Target deleted');
+  } else return;
+  clearPick();
+}
+
+/** A button of the pick card, or of the naming buttons on the command card. */
+function pressMark(id) {
+  if (id === 'Navigate') navigatePick();
+  else if (id === 'Waypoint') pick?.kind === 'place' && addWaypoint(pick);
+  else if (id === 'Record') startRecording(naming?.id ?? pick?.id);
+  else if (id === 'Confirm') endNaming();
+  else if (id === 'Delete') deletePicked();
+  else if (naming?.listening) stopRecording(); // "Cancel" while listening: back to Record / Confirm
+  else {
+    if (naming) endNaming(false);
+    clearPick();
+  }
 }
 
 function pressPick(id) {
   pickTouch.pressedId = id;
   pickTouch.pressedUntil = performance.now() + HUD.layers.pressFlashMs;
   clickSound();
-  if (id === 'Navigate') navigatePick();
-  else clearPick();
+  pressMark(id);
 }
 
 /** Run a command from the menu exactly as if it had been spoken. `id` is what the button says. */
@@ -383,7 +568,7 @@ const layerLabel = (id) => {
 };
 const waypointLabel = (id) => {
   const wp = state.layerSet?.waypoints?.find((w) => w.id === id);
-  return S.waypoints[id] ?? wp?.label ?? id ?? '';
+  return waypoints.get(id)?.label ?? S.waypoints[id] ?? wp?.label ?? id ?? '';
 };
 
 // ---- 표시용 값 ----
@@ -652,10 +837,37 @@ function wire(bus) {
     // The card over a picked place: saying its buttons presses them. (link.js leaves the
     // route request to us while a place is picked.)
     if (pick && intent === 'nav.start') navigatePick();
-    else if (pick && intent === 'nav.stop') clearPick();
+    else if (intent === 'nav.stop' && (pick || naming)) pressMark('Cancel');
+    // "Mark waypoint": the picked place if bare ground is picked, else where the wearer stands.
+    else if (intent === 'nav.mark') pick?.kind === 'place' ? addWaypoint(pick) : markHere();
+    else if (intent === 'waypoint.record') {
+      const id = naming?.id ?? (pick?.kind === 'waypoint' ? pick.id : null);
+      if (id) startRecording(id);
+      else showToast('Pick a waypoint on the map first');
+    } else if (intent === 'alert.ack' && naming && !naming.listening && rescue.state().phase !== 'armed') endNaming();
+    else if (intent === 'mark.delete') {
+      if (pick?.kind === 'waypoint' || pick?.kind === 'target') deletePicked();
+      else showToast('Pick a waypoint or the target on the map first');
+    }
   });
-  // "Base" is a Mars-map command and "Mark target" a field-map one: the menu follows the mode.
+  bus.on('voice:dictation', onDictation);
+  bus.on('nav:position', ({ point }) => {
+    lastMapPoint = point;
+  });
+  // A new session: the room's frame starts over, so the places marked in the room are gone.
+  // (Waypoints on the Mars map are cells of the data and stay.)
+  ctx.xr.onSessionStart(() => {
+    endNaming(false);
+    clearPick();
+    for (const w of [...waypoints.values()]) {
+      if (!w.room) continue;
+      waypoints.delete(w.id);
+      bus.emit('waypoint:remove', { id: w.id });
+    }
+  });
+  // "Base" is a Mars-map command: the menu follows the mode.
   bus.on('app:mode', () => {
+    endNaming(false);
     clearPick(); // a place picked on one map means nothing on the other
     dirty.commands = true;
   });
@@ -682,6 +894,7 @@ function pressCommand(id) {
   dirty.commands = true;
   clickSound();
   if (id === SOS_ID) rescue.press();
+  else if (id.startsWith(NAMING_PREFIX)) pressMark(id.slice(NAMING_PREFIX.length));
   else runCommand(id);
 }
 
@@ -924,6 +1137,11 @@ function updatePointer(frame, now) {
     }
     break;
   }
+  // A waypoint that waits for its name does not wait for ever, and neither does the listening.
+  if (naming && now > naming.until) {
+    if (naming.listening) stopRecording('Nothing heard');
+    else endNaming();
+  }
   // The card stands over the picked place and goes where the map goes; it hides with the map.
   // (The field map scrolls under the wearer, so its pin is put in place again every frame.)
   if (pick?.room) showFieldPick(pick.room);
@@ -1014,6 +1232,14 @@ export function init(context) {
     pointer,
     suit,
     rescue,
+    /** Marked places and the pick card: for tests and the console. */
+    marks: () => ({ pick, naming: naming && { ...naming }, waypoints: [...waypoints.values()], card: pick ? pickVM() : null }),
+    pressMark,
+    selectPlace,
+    selectPoint,
+    markHere,
+    /** As if the hub had heard `text` after "Record". */
+    dictated: (text) => naming && onDictation({ id: naming.token, text }),
     panels: () => ({ layers: pLayers, commands: pCommands, layerHits, commandHits }),
     state,
     statusVM,

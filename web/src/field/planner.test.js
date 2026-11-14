@@ -1,7 +1,7 @@
 // node --test src/field/planner.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPath, inflate, impassable } from './planner.js';
+import { planPath, planVia, inflate, impassable } from './planner.js';
 
 function room(cols = 60, rows = 60) {
   return { originXZ: [-3, -3], cellSizeM: 0.1, cols, rows, cells: new Uint8Array(cols * rows) };
@@ -148,4 +148,37 @@ test('known floor is preferred to unseen floor: the known way is taken unless it
   assert.equal(viaKnown(planPath(make(1.5), [-2, 0], [2, 0])), true);
   // A known way of 4 + 2 x 5 = 14 m is more than three times the direct 4 m: straight across.
   assert.equal(viaKnown(planPath(make(5), [-2, 0], [2, 0])), false);
+});
+
+test('a waypoint nearly on the way is passed; one that would be a detour is not', () => {
+  const g = room();
+  const direct = planPath(g, [-2, 0], [2, 0]);
+  const near = planVia(g, [-2, 0], [2, 0], [{ id: 'near', at: [0, 0.3] }, { id: 'far', at: [0, 2] }]);
+  assert.deepEqual(near.via, ['near']);
+  assert.ok(near.distanceM <= direct.distanceM + 0.5, `${near.distanceM} against ${direct.distanceM}`);
+  assert.ok(near.points.some(([x, z]) => Math.hypot(x, z - 0.3) < 0.08), 'the route goes through the waypoint');
+  assert.ok(Math.abs(length(near.points) - near.distanceM) < 1e-6);
+});
+
+test('several waypoints are passed in the order they lie on the way, while the allowance lasts', () => {
+  const g = room();
+  // Given out of order; each costs a few centimetres, all three together about 0.2 m.
+  const stops = [{ id: 'c', at: [1.2, 0.2] }, { id: 'a', at: [-1.2, 0.2] }, { id: 'b', at: [0, -0.2] }];
+  const r = planVia(g, [-2.5, 0], [2.5, 0], stops);
+  assert.deepEqual(r.via, ['a', 'b', 'c']);
+  assert.ok(r.distanceM <= 5 + 0.5 + 1e-6, String(r.distanceM));
+  // Each of these would fit alone (0.31 m each), but not both: only one is taken.
+  const two = planVia(g, [-2.5, 0], [2.5, 0], [{ id: 'p', at: [-1, 0.75] }, { id: 'q', at: [1, -0.75] }]);
+  assert.equal(two.via.length, 1);
+});
+
+test('waypoints at the start or the goal, or behind a wall, are no stops; no waypoints: the direct route', () => {
+  const g = room();
+  wall(g, -3, 0.9, 3, 1.1); // a wall across the room: what lies beyond it cannot be reached
+  const direct = planPath(g, [-2, 0], [2, 0]);
+  const r = planVia(g, [-2, 0], [2, 0], [{ id: 'here', at: [-1.8, 0] }, { id: 'there', at: [2, 0.3] }, { id: 'beyond', at: [0, 1.25] }]);
+  assert.deepEqual(r.via, []);
+  assert.deepEqual(r.points, direct.points);
+  assert.deepEqual(planVia(g, [-2, 0], [2, 0]).via, []);
+  assert.deepEqual(planVia(null, [0, 0], [3, 4], [{ id: 'w', at: [1.5, 2.05] }]).via, ['w']);
 });

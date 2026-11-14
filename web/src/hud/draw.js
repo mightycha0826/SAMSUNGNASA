@@ -498,7 +498,9 @@ export function drawCommands(g, d, vm) {
   box(g, 0, top, W, total, 1.6 * d, T.surface);
   ring(g, 0, top, W, total, 1.6 * d);
   icon(g, 'navigation', pad + 1.3 * d, top + pad + headH / 2 - 0.25 * d, 1.6 * d, T.primaryIcon, T.row);
-  text(g, vm.title, pad + 2.7 * d, top + pad + headH / 2 - 0.25 * d, { weight: 700, size: 1.45 * d });
+  // The title gets what the hint leaves: a long one (a waypoint's spoken name) is cut short, not written over the hint.
+  const hintW = vm.hint ? measure(g, vm.hint, 400, 1.0 * d) + 1.0 * d : 0;
+  text(g, fit(g, vm.title, W - pad * 2 - 2.7 * d - hintW, 700, 1.45 * d), pad + 2.7 * d, top + pad + headH / 2 - 0.25 * d, { weight: 700, size: 1.45 * d });
   text(g, vm.hint, W - pad - 0.4 * d, top + pad + headH / 2 - 0.25 * d, { size: 1.0 * d, color: T.muted, align: 'right' });
   vm.items.forEach((item, i) => {
     const row = Math.floor(i / cols);
@@ -551,13 +553,10 @@ export function drawVitalChip(g, d, chip) {
   const H = g.canvas.height;
   g.clearRect(0, 0, W, H);
   const tone = (state) => (state === 'crit' ? T.dangerLine : state === 'warn' ? T.point : null);
+  // A dark backing so the numbers read against a bright room, and no frame: a reading out of
+  // range is told by the colour of its name and number.
   box(g, 0, 0, W, H, 1.0 * d, T.surface);
-  g.beginPath();
-  g.roundRect(0.12 * d, 0.12 * d, W - 0.24 * d, H - 0.24 * d, 0.9 * d);
-  g.strokeStyle = tone(chip.state) ?? 'rgba(255, 255, 255, 0.55)';
-  g.lineWidth = chip.state ? 0.32 * d : 0.14 * d;
-  g.stroke();
-  text(g, chip.rows && chip.unit ? `${chip.label} · ${chip.unit}` : chip.label, 0.8 * d, 1.3 * d, { weight: 600, size: 1.0 * d, color: T.muted });
+  text(g, chip.rows && chip.unit ? `${chip.label} · ${chip.unit}` : chip.label, 0.8 * d, 1.3 * d, { weight: 600, size: 1.0 * d, color: tone(chip.state) ?? T.muted });
   if (chip.tag) tag(g, chip.tag, W - 0.6 * d, 1.3 * d, d, true);
   if (chip.rows) {
     chip.rows.forEach((row, k) => {

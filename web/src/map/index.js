@@ -1,6 +1,9 @@
 // map — 손바닥 지도, 레이어 표시 (D, 안현상)
 //
-// 받는 이벤트: layers:ready, layer:toggle, nav:route, hazard:update(P1)
+// 받는 이벤트: layers:ready, layer:toggle, nav:route, nav:position, hazard:update(P1),
+//              waypoint:set { id, label, cell: [col, row] }, waypoint:remove { id }
+// What stands on the map (the wearer, the target, waypoints, the picked place, the route) has
+// the shapes the field map uses (core/markers.js), so the two maps read alike.
 // 보내는 이벤트: 없음
 // 형식: docs/INTERFACES.md 3장
 //
@@ -31,10 +34,15 @@ import { mapPoint, range, sampleHeight, terrainArrays } from './terrain.js';
 import { PALM, leftPalm, handOpen, makePalmState } from '../core/palm.js';
 import { makeBeam, updateBeam as aimBeam, makeCaption, writeCaption, placeCaption as putCaption, fadeBeyondCircle } from '../core/hologram.js';
 import { createGridFrame, worldToCell, cellToWorld } from '../nav/coordinates.js';
+import { MARK, makeYou, makeTarget, makeWaypoint, makePin, setLabel, place } from '../core/markers.js';
+import { makeRibbon, GUIDE } from '../field/guide.js';
 
 let ctx, root, surface, data, arrays, transform, label, currentMarker;
 let activeLayer = null, request = 0, generation = 0, shownSince = null, controllerShown = false;
-let routePoints = [], routeLine, off = [], textures = new Map();
+let routePoints = [], routeBand = null, targetMarker = null, off = [], textures = new Map();
+// Waypoints the wearer marked (hud): id -> { id, label, cell }, and the marker of each on the map as it is built now.
+const marked = new Map(), markedMarkers = new Map();
+const lookDir = new THREE.Vector3();
 const position = new THREE.Vector3(), wristQuat = new THREE.Quaternion(), normal = new THREE.Vector3();
 const palmState = makePalmState();
 const tiltQuat = new THREE.Quaternion(), tiltAxis = new THREE.Vector3(), upAxis = new THREE.Vector3(0, 1, 0);
@@ -58,7 +66,7 @@ function caption(note = '') {
     `${data.layerSet.mock ? 'SYNTHETIC · ' : ''}${data.layerSet.site?.name ?? 'Terrain map'} · N ↑`,
     `${layer?.labelEn ?? layer?.label ?? 'Terrain'} · ${layer?.mission ?? ''} ${layer?.instrument ?? ''}`,
     `Map extent ${transform.width} × ${transform.depth} m · ${transform.cellSizeM} m/cell`,
-    note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: start · orange: Curiosity · violet: planned route'),
+    note || (activeLayer === 'thermal' ? 'Relative brightness · not temperature' : 'Teal: you · orange diamond: target · blue: waypoints · violet: route'),
     'Route distances use map metres. Display size does not affect planning.',
     layer?.credit ?? (data.layerSet.mock ? 'Synthetic example, not NASA observations' : 'Data sources: layerset.json'),
   ]);
@@ -76,30 +84,52 @@ function lineForCells(cells, color, name) {
   const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   line.name = name; line.renderOrder = 4; root.add(line); return line;
 }
+/** The surface point of a cell in the map's frame, [x, y, z], or null off the terrain. */
+const onMap = cell => mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0);
 function drawRoute() {
-  disposeObject(routeLine); routeLine = null;
-  if (!data || !arrays) return;
+  if (!data || !arrays || !routeBand) return;
   const cells = [];
   for (let i = 1; i < routePoints.length; i++) {
     const a = worldToCell(transform, routePoints[i - 1]), b = worldToCell(transform, routePoints[i]);
     const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
     for (let k = 0; k <= steps; k++) cells.push([a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps]);
   }
-  // A tube instead of a one-pixel line: readable on a 25 cm map in the headset.
-  const points = [];
+  // A band just above the terrain, as on the field map: readable on a 25 cm map in the headset.
+  let points = [];
   for (const cell of cells) {
-    const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.0025);
-    if (p && (!points.length || points[points.length - 1].distanceToSquared(normal.fromArray(p)) > 1e-9)) points.push(new THREE.Vector3().fromArray(p));
+    const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, MARK.youLiftM * 0.45);
+    if (p && (!points.length || Math.hypot(p[0] - points[points.length - 1][0], p[2] - points[points.length - 1][2]) > 1e-5)) points.push(p);
   }
-  if (points.length < 2) return;
-  const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false, 'centripetal'), Math.min(400, points.length * 2), 0.0013, 6, false);
-  routeLine = new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0x8e9dff, depthTest: false, transparent: true }));
-  routeLine.name = 'map-planned-route'; routeLine.renderOrder = 5; root.add(routeLine);
+  if (points.length > ROUTE_SEGMENTS) { const every = Math.ceil(points.length / ROUTE_SEGMENTS); points = points.filter((_, i) => i % every === 0 || i === points.length - 1); }
+  routeBand.mesh.visible = points.length > 1;
+  routeBand.set(points.length > 1 ? points : [], 0.0024);
+  // The target: where the route ends.
+  const end = routePoints.length > 1 ? onMap(worldToCell(transform, routePoints[routePoints.length - 1])) : null;
+  if (targetMarker) { targetMarker.visible = false; if (end) place(targetMarker, ...end, MARK.targetLiftM); }
 }
+const ROUTE_SEGMENTS = 480;
 function setCurrent(point) {
   if (!data || !arrays || !currentMarker) return;
-  const p = mapPoint(data.grids.topo, data.layerSet.grid, worldToCell(transform, point), arrays.min, MAP.widthM, 0.003);
-  currentMarker.visible = !!p; if (p) currentMarker.position.fromArray(p);
+  const p = onMap(worldToCell(transform, point));
+  currentMarker.visible = false; if (p) place(currentMarker, ...p, MARK.youLiftM);
+}
+/** Keep the markers of the marked waypoints in step with the list, on the map as it is built now. */
+function syncMarked() {
+  for (const [id, marker] of markedMarkers) if (!marked.has(id) || marker.parent !== root) { marker.removeFromParent(); markedMarkers.delete(id); }
+  if (!data || !arrays) return;
+  for (const w of marked.values()) {
+    let marker = markedMarkers.get(w.id);
+    if (!marker) { marker = makeWaypoint(w.label); marker.name = `map-marked-${w.id}`; root.add(marker); markedMarkers.set(w.id, marker); }
+    setLabel(marker, w.label);
+    const p = onMap(w.cell);
+    marker.visible = false; if (p) place(marker, ...p, MARK.waypointLiftM);
+  }
+}
+/** Every frame: the wearer's arrow points where they face (north on the map is -z), the target turns. */
+function tickMarkers() {
+  if (!root?.visible || !data) return;
+  if (currentMarker) { ctx.camera.getWorldDirection(lookDir); currentMarker.rotation.y = -Math.atan2(lookDir.x, -lookDir.z); }
+  if (targetMarker?.visible) targetMarker.rotation.y = performance.now() / 900;
 }
 function numericTexture(id) {
   const grid = data.grids[id]; if (!grid) throw new Error(`missing-${id}`);
@@ -159,7 +189,7 @@ function clearData() {
   for (const texture of textures.values()) texture.dispose(); textures.clear();
   if (label) label.userData.texture.dispose();
   if (root) for (const child of [...root.children]) disposeObject(child);
-  surface = label = currentMarker = routeLine = beam = null; data = arrays = transform = null;
+  surface = label = currentMarker = routeBand = targetMarker = beam = null; data = arrays = transform = null; markedMarkers.clear();
   routePoints = []; activeLayer = null;
 }
 function load(payload) {
@@ -173,16 +203,20 @@ function load(payload) {
     fadeBeyondCircle(surface.material, MAP.widthM); // the map dissolves outside the circle its hologram stands on
     surface.name = 'map-terrain'; root.add(surface);
     lineForCells(data.traverse?.points?.map(p => p.cell) ?? [], 0xf27a0a, 'map-curiosity-traverse');
+    // The places the data names (base, survey site, the nearby point): waypoints, as the ones the wearer marks.
     for (const wp of data.layerSet.waypoints ?? []) {
-      const p = mapPoint(data.grids.topo, data.layerSet.grid, wp.cell, arrays.min, MAP.widthM, 0.002);
+      const p = onMap(wp.cell);
       if (!p) continue;
-      const marker = new THREE.Mesh(new THREE.ConeGeometry(0.003, 0.01, 8), new THREE.MeshBasicMaterial({ color: wp.id === 'base' ? 0xf27a0a : 0xffffff, depthTest: false, transparent: true }));
-      marker.position.fromArray(p); marker.position.y += 0.005; marker.name = `map-waypoint-${wp.id}`; marker.renderOrder = 6; root.add(marker);
+      const marker = makeWaypoint(String(wp.labelEn ?? wp.label ?? wp.id).split(' · ')[0]);
+      marker.name = `map-waypoint-${wp.id}`; root.add(marker); place(marker, ...p, MARK.waypointLiftM);
     }
-    currentMarker = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5bdbba, depthTest: false, transparent: true }));
-    currentMarker.name = 'map-explorer'; currentMarker.renderOrder = 7; root.add(currentMarker);
+    routeBand = makeRibbon(ROUTE_SEGMENTS, new THREE.MeshBasicMaterial({ color: GUIDE.path, opacity: 0.95, side: THREE.DoubleSide, depthTest: false, transparent: true }));
+    routeBand.mesh.name = 'map-planned-route'; routeBand.mesh.renderOrder = 21; routeBand.mesh.visible = false; root.add(routeBand.mesh);
+    targetMarker = makeTarget(); targetMarker.name = 'map-target'; root.add(targetMarker);
+    currentMarker = makeYou(); currentMarker.name = 'map-explorer'; root.add(currentMarker);
     const base = data.layerSet.waypoints?.find(w => w.id === 'base');
-    if (base) setCurrent(cellToWorld(transform, base.cell)); else currentMarker.visible = false;
+    if (base) setCurrent(cellToWorld(transform, base.cell));
+    syncMarked();
     label = makeLabel(); caption();
   } catch (err) { console.warn('[map] 지형을 표시할 수 없습니다:', err.message); }
 }
@@ -240,18 +274,18 @@ export function showPick(cell) {
   if (!root || !data || !arrays) return;
   if (pin && pin.parent !== root) pin = null; // the map was rebuilt
   if (!cell) { if (pin) pin.visible = false; return; }
-  const p = mapPoint(data.grids.topo, data.layerSet.grid, cell, arrays.min, MAP.widthM, 0.001);
+  const p = onMap(cell);
   if (!p) return;
-  if (!pin) {
-    pin = new THREE.Group(); pin.name = 'map-pick';
-    const material = new THREE.MeshBasicMaterial({ color: 0xb9c3ff, depthTest: false, transparent: true });
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.004, 12, 8), material); head.position.y = 0.016;
-    const stem = new THREE.Mesh(new THREE.ConeGeometry(0.0026, 0.014, 8).rotateX(Math.PI), material); stem.position.y = 0.007;
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.006, 0.0075, 24).rotateX(-Math.PI / 2), material);
-    for (const m of [head, stem, ring]) { m.renderOrder = 7; pin.add(m); }
-    root.add(pin);
-  }
+  if (!pin) { pin = makePin(); pin.name = 'map-pick'; root.add(pin); }
   pin.position.fromArray(p); pin.visible = true;
+}
+/** The cell of a point in map metres ([x, 0, z], as nav:position gives it), or null before the data is there (hud: "Mark waypoint"). */
+export function cellOfMapPoint(point) {
+  return transform && point ? worldToCell(transform, point) : null;
+}
+/** Where the route on the map ends, as a cell, or null when there is none (hud: picking the target). */
+export function mapTargetCell() {
+  return transform && routePoints.length > 1 ? worldToCell(transform, routePoints[routePoints.length - 1]) : null;
 }
 
 export function init(context) {
@@ -262,7 +296,9 @@ export function init(context) {
       if (event.frame === 'room') return; // field-mode routes are in room coordinates, not map metres
       if (event.points?.length) setCurrent(event.points[0]);
       routePoints = event.status === 'ok' ? event.points : []; drawRoute(); caption();
-    }));
+    }),
+    ctx.bus.on('waypoint:set', w => { if (w?.id != null && w.cell) { marked.set(w.id, { id: w.id, label: w.label ?? '', cell: w.cell }); if (root) syncMarked(); } }),
+    ctx.bus.on('waypoint:remove', ({ id }) => { if (marked.delete(id) && root) syncMarked(); }));
   off.push(ctx.xr.onSessionStart(session => {
     shownSince = null; controllerShown = false; root.visible = false; root.scale.setScalar(1); root.quaternion.identity();
     const select = event => { if (!event.inputSource.hand) controllerShown = !controllerShown; };
@@ -276,6 +312,7 @@ export function init(context) {
   }));
 }
 export function update(frame) {
+  tickMarkers();
   if (root && data && !frame.session) placeCaption(); // PC view
   if (!root || !data || !arrays || !frame.session) return;
   const { xrFrame, refSpace, session, time, dt } = frame;

@@ -58,7 +58,7 @@ class IntentTest(unittest.TestCase):
         "Guide me to the nearby point": ("nav.start", {"targetId": "near"}),
         "base": ("nav.home", {}),
         "Stop.": ("nav.stop", {}),
-        "Mark target": ("nav.mark", {}),
+        "Mark waypoint": ("nav.mark", {}),
         "thermal": ("layer.show", {"id": "thermal"}),
         "Elevation.": ("layer.show", {"id": "topo"}),
         "confirm": ("alert.ack", {}),
@@ -132,9 +132,10 @@ class MenuTest(unittest.TestCase):
         from marswalk.intents import menu
         entries = menu()[1]
         self.assertEqual([e["say"] for e in entries],
-                         ["Status", "Navigate", "Base", "Mark target", "Stop", "Confirm"])
+                         ["Status", "Navigate", "Base", "Mark waypoint", "Stop", "Confirm"])
         modes = {e["say"]: e.get("mode") for e in entries}
-        self.assertEqual((modes["Base"], modes["Mark target"], modes["Stop"]), ("mars", "field", None))
+        # "Mark waypoint" works on both maps (it used to be "Mark target", on the field map only).
+        self.assertEqual((modes["Base"], modes["Mark waypoint"], modes["Stop"]), ("mars", None, None))
 
 
 class SpeechTest(unittest.TestCase):
@@ -308,3 +309,89 @@ class MapStoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MirrorTuneTest(unittest.TestCase):
+    def test_numbers_are_held_to_their_ranges_and_junk_is_dropped(self):
+        from marswalk.mirror import clean_tune
+        self.assertEqual(clean_tune({"fovDeg": 58, "tiltDeg": -3.26}), {"fovDeg": 58.0, "tiltDeg": -3.3})
+        self.assertEqual(clean_tune({"fovDeg": 500, "tiltDeg": -90}), {"fovDeg": 110.0, "tiltDeg": -25.0})
+        self.assertEqual(clean_tune({"fovDeg": "wide", "tiltDeg": 2}), {"tiltDeg": 2.0})
+        for junk in (None, [], {}, {"fovDeg": True}, {"fovDeg": float("nan")}):
+            self.assertIsNone(clean_tune(junk))
+
+    def test_a_tune_is_kept_for_the_next_start(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from marswalk.mirror import Mirror
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "tune.json"
+            path.write_text(json.dumps({"fovDeg": 61, "tiltDeg": 4}))
+            self.assertEqual(Mirror(path).tune, {"fovDeg": 61.0, "tiltDeg": 4.0})
+            self.assertIn('"tune"', Mirror(path)._hello())
+            self.assertIsNone(Mirror(Path(d) / "none.json").tune)
+
+
+class DictationTest(unittest.TestCase):
+    """After voice.dictate the next words of that headset come back as text, not as a command."""
+
+    def run_utterance(self, heard, conn):
+        import asyncio
+        import json
+        from marswalk.hub import Hub
+
+        class Stt:
+            def transcribe(self, samples, rate):
+                return heard
+
+        class Socket:
+            sent = []
+
+            async def send_str(self, text):
+                self.sent.append(json.loads(text))
+
+        class Stub:
+            stt = Stt()
+            commands = []
+
+            def _keep_audio(self, *a):
+                pass
+
+            def _note_heard(self, *a):
+                pass
+
+            async def handle_text_command(self, text):
+                self.commands.append(text)
+
+        stub, ws = Stub(), Socket()
+        ws.sent, stub.commands = [], []
+        asyncio.run(Hub.handle_utterance(stub, b"", 16000, ws, conn))
+        return ws.sent, stub.commands
+
+    def test_words_after_a_request_are_sent_back_and_are_no_command(self):
+        import time
+        conn = {"dictate": {"id": 7, "until": time.monotonic() + 5}}
+        sent, commands = self.run_utterance("Rock sample by the door.", conn)
+        self.assertEqual(commands, [])
+        self.assertEqual(sent[0]["type"], "voice.dictation")
+        self.assertEqual(sent[0]["payload"], {"id": 7, "text": "Rock sample by the door."})
+        self.assertIsNone(conn["dictate"])           # one utterance only
+        sent, commands = self.run_utterance("navigate", conn)
+        self.assertEqual((sent, commands), ([], ["navigate"]))
+
+    def test_a_noise_keeps_it_listening_and_a_late_word_is_a_command_again(self):
+        import time
+        conn = {"dictate": {"id": 1, "until": time.monotonic() + 5}}
+        self.assertEqual(self.run_utterance("", conn), ([], []))
+        self.assertIsNotNone(conn["dictate"])
+        conn = {"dictate": {"id": 1, "until": time.monotonic() - 1}}
+        self.assertEqual(self.run_utterance("stop", conn), ([], ["stop"]))
+
+
+class NewPhrasesTest(unittest.TestCase):
+    def test_sos_words_waypoint_record_delete(self):
+        for text, intent in [("SOS", "sos.arm"), ("S.O.S.", "sos.arm"), ("rescue", "sos.arm"), ("help me", "sos.arm"),
+                             ("cancel rescue", "sos.cancel"), ("mark waypoint", "nav.mark"), ("record", "waypoint.record"),
+                             ("delete", "mark.delete"), ("confirm", "alert.ack")]:
+            self.assertEqual(parse(text)["intent"], intent, text)

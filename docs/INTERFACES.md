@@ -241,7 +241,11 @@ bus.on('layer:toggle', ({ id, visible }) => { /* ... */ });   // receive
 | `rescue:signal` | F (`hud/rescue.js`) | B (to the Jetson) | The emergency button was sent or cancelled: `{ active, position: [x, z] map metres or null, suitTempC, batteryPct }` |
 | `rescue:state` | B (from the Jetson) | F | What became of this headset's signal: `{ active, acknowledged, by }` |
 | `map:pick` | F | B | A place was picked on the palm map and its card is up: `{ cell: [col, row] }` on the Mars map, `{ room: [x, z] }` on the field map; `null` when the card closes. While it is up, a spoken "Navigate" means that place |
-| `field:target` | F | field (B) | A place picked on the field map becomes the target: `{ point: [x, z] }` in room metres |
+| `field:target` | F | field (B) | The target of the field map: `{ point: [x, z], label? }` in room metres (a place picked on the map, or a waypoint); `{ point: null }` deletes it |
+| `waypoint:set` | F | field (B), D (map) | A waypoint was set or renamed: `{ id, label, room: [x, z] }` on the field map, `{ id, label, cell: [col, row] }` on the Mars map |
+| `waypoint:remove` | F | field (B), D (map) | `{ id }`: the waypoint was deleted |
+| `voice:dictate` | F | B (to the Jetson) | `{ on, id }`: the next thing said is to come back as text, not as a command (a waypoint's name) |
+| `voice:dictation` | B (from the Jetson) | F | `{ id, text }`: what was said. `text` is empty with `unavailable: true` when there is no hub |
 | `nav:waypoint` | F | D | A destination added or moved while running: `{ id: "pick", cell: [col, row], label }`. It joins `layerSet.waypoints`; request it with `nav:request` |
 
 ### Payload formats and mock data
@@ -335,7 +339,7 @@ The `intent` list is in [section 6](#6-voice-commands).
 ```json
 { "mode": "field" }
 ```
-`mode`: `mars` (NASA map on the palm, route between base and survey site) or `field` (the room scan rewrites the map around the wearer; "Mark target" and arrows on the floor). `import { mode } from '../core/mode.js'` gives the current value.
+`mode`: `mars` (NASA map on the palm, route between base and survey site) or `field` (the room scan rewrites the map around the wearer; targets, waypoints and arrows on the floor). `import { mode } from '../core/mode.js'` gives the current value.
 
 **`nav:position`** — where the wearer is, in D's map metre frame (`web/src/nav/coordinates.js`)
 ```json
@@ -388,6 +392,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | (binary) | 16-bit PCM, mono | (B plays it) |
 | `tts.end` | `{}` | (B ends playback) |
 | `map.stored` | `{ run, cellSizeM, tileCells, tiles: [{ x, z, runs }], startedAt, savedAt, updates }` | `map:stored`. The answer to `map.request`: every tile of the newest run; nothing is sent when no map is stored |
+| `voice.dictation` | `{ "id": 3, "text": "Rock sample by the door." }` | `voice:dictation`. What this headset said after `voice.dictate`, sent to it alone |
 | `rescue.state` | `{ "active": true, "from", "at", "position", "acknowledged": false, "by": null }` | `rescue:state`. To the headset that sent the signal. The other headsets get `alert.raise` `{ "id": "crew-rescue", "level": "warn", "message": "Rescue signal from a crew member" }` and `alert.clear` when it is cancelled |
 
 ### Headset → Jetson
@@ -397,6 +402,7 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 | `hello` | `{ "client": "quest", "mock": false }` | Right after connecting |
 | `mic.begin` | `{ "sampleRate": 16000, "stream": true }` | When the microphone starts, and again after every reconnect |
 | (binary) | 16-bit PCM, mono, 16 kHz | Continuously. The hub finds the utterances itself (voice activity detection) and ignores the microphone while it is speaking |
+| `voice.dictate` | `{ "on": true, "id": 3, "seconds": 12 }` | The next utterance of this headset is sent back to it as `voice.dictation { id, text }` and is not matched against the commands. `"on": false` withdraws the request; it lapses by itself after `seconds` (12 by default) |
 | `mic.end` | `{}` | Microphone stream ends. Without `"stream": true` in `mic.begin`, everything between `mic.begin` and `mic.end` is one utterance |
 | `voice.status` | `{ "mic": "on", "audio": "running", "inputRate": 48000, "level": 0.02 }` | When the microphone or audio state changes, and every 10 s. Shows in the hub log why a headset is silent |
 | `voice.text` | `{ "text": "Status" }` | A command picked from the headset's menu. The hub handles it exactly like recognized speech |
@@ -413,9 +419,9 @@ B sends the text to the hub, which treats it as speech. Without a hub, B emits `
 
 | Direction | Message | Meaning |
 |---|---|---|
-| headset → hub | binary | One JPEG, 480 × 360, about five a second, only while someone is watching |
+| headset → hub | binary | One JPEG, 640 × 480, about ten a second, only while someone is watching |
 | headset → hub | `{ "info": { "width", "height", "fps", "ar", "mode", "space", "camera" } }` | When any of these change |
-| hub → headset | `{ "viewers": 1 }` | How many monitor pages are open; at 0 the headset makes no pictures |
+| hub → headset | `{ "viewers": 1, "tune": { "fovDeg": 58, "tiltDeg": 0 } }` | How many monitor pages are open; at 0 the headset makes no pictures. `tune`, when the camera lens was set on the monitor page (`POST /monitor/tune`): the lens the virtual things are drawn with over the camera picture |
 
 The hub serves `/monitor` (the page), `/monitor.mjpg` (the pictures as one multipart response) and `/monitor.json` (state, including a rescue signal that is up).
 
@@ -461,15 +467,17 @@ E's hub turns speech into one of the `intent` values below. Speech is English. A
 | `nav.start` | `{ "targetId": "near" }` | "Navigate" | "Take me", "Guide me", "Nearby point" | Mars map: D, to the nearby point about 20 m from the base (`near` in `waypoints`; on a map without it, `?near=0`, B's `link.js` sends the survey site instead). Field map: field (guidance to the marked target) |
 | `nav.start` | `{ "targetId": "site1" }` | — (voice only) | "Take me to the survey site", "Sulfur rocks" | Mars map: D, to the survey site (390 m by route) |
 | `nav.home` | `{}` | "Base" | "Go back", "Return to base" | D (Mars map only) |
-| `nav.mark` | `{}` | "Mark target" | "Set target", "Mark here" | field (field map only): the target is where the wearer stands. Saying it again moves the target |
+| `nav.mark` | `{}` | "Mark waypoint" | "Waypoint", "Set waypoint", "Mark here" | F: a waypoint where the wearer stands, or at the place picked on the map (both maps) |
+| `waypoint.record` | `{}` | "Record" | "Record label", "Record message" | F: the next thing said becomes the name of the waypoint that was just set or is picked (`voice.dictate`). Voice and the card's button |
+| `mark.delete` | `{}` | "Delete" | "Remove" | F: deletes the waypoint or target picked on the map |
 | `nav.stop` | `{}` | "Stop" | "Stop navigation", "Cancel" | D, field. Also closes the card over a picked place and disarms an armed emergency button |
-| `alert.ack` | `{}` | "Confirm" | "Acknowledge" | F. While the emergency button is armed it also sends the rescue signal |
-| `sos.arm` | `{}` | "Emergency" | "Mayday", "Rescue signal" | F: arms the emergency button, as pressing the red bar once does. Voice only |
+| `alert.ack` | `{}` | "Confirm" | "Acknowledge" | F. While the emergency button is armed it sends the rescue signal; while a new waypoint waits for its name it keeps the name it has |
+| `sos.arm` | `{}` | "SOS" | "Rescue", "Help", "Emergency", "Mayday" | F: arms the emergency button, as pressing the red bar once does. Voice only |
 | `sos.cancel` | `{}` | "Cancel rescue" | "Cancel emergency" | F: withdraws a rescue signal that was sent. Voice only |
 | `layer.show` | `{ "id": "thermal" }` | "Thermal" (also "Optical", "Slope", "Elevation") | "Show the thermal map" | B → `layer:toggle`. Voice only: the layer tabs beside the map do the same by hand |
 
 **This is the whole list, and it is short on purpose** (pruned on 2026-11-14). Every phrase is one more thing ordinary talk can trigger by accident, so only what the demo needs is left. Removed: `layer.hide` (one layer is always shown; naming another switches to it), `nav.clear` ("Mark target" again moves the target, "Stop" ends the guidance), `mode.set` (night mode was never built), and the looser synonyms ("home", "return", "report", "copy", "roger", "let's go", "photo", "camera", "height" and others).
 
-Naming the survey site is the one longer form that changes the destination; it is not in the menu. The command menu on the headset shows six of the commands as buttons, at most five at a time: "Base" only on the Mars map and "Mark target" only on the field map (`"mode"` in `commands.json`).
+Naming the survey site is the one longer form that changes the destination; it is not in the menu. The command menu on the headset shows six of the commands as buttons, at most five at a time: "Base" only on the Mars map (`"mode"` in `commands.json`).
 
 B re-emits `nav.start` and `nav.home` as `nav:request` (on the Mars map), and `layer.show` as `layer:toggle`, so D never needs to know whether a request came from voice or the UI.

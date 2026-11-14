@@ -2,8 +2,9 @@
 //
 // Pressing it once arms it for a few seconds ("SEND SOS"); pressing it again, or saying
 // "Confirm", sends the rescue signal. Arming first keeps a stray pinch from calling for help.
-// By voice: "Emergency" arms it, "Confirm" sends, "Cancel" disarms, "Cancel rescue" withdraws
-// a signal that was sent.
+// By voice: "SOS", "Rescue" or "Help" (also "Emergency", "Mayday") arms it, one "Confirm" sends,
+// "Cancel" disarms, "Cancel rescue" withdraws a signal that was sent. The words that arm it are
+// in jetson/commands.json.
 //
 // Sending emits `rescue:signal`; link.js passes it to the hub, which raises an alert on the
 // other headsets, shows a banner on the monitor page and answers with `rescue:state`. The crew
@@ -45,7 +46,7 @@ export function createRescue(ctx, { showToast, changed, battery }) {
     if (s.phase !== 'idle') return;
     s.phase = 'armed';
     s.armedUntil = performance.now() + K.armMs;
-    showToast('Emergency armed: say "Confirm" or press again');
+    showToast('SOS armed: say "Confirm" to send');
     changed();
   }
 

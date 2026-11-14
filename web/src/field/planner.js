@@ -10,6 +10,13 @@ export const PLAN = {
   squeezeCost: 4, // walking right beside an obstacle costs up to 1 + this: a wide way is taken unless it is some 3 m longer
   unknownCost: 3, // a step on floor nobody has seen costs three steps on floor that is known clear, as on the Mars map (nav: unknown terrain risk x3): a route through known ground is taken unless it is three times as long
   snapM: 0.8, // a start or goal on an obstacle may move this far to free floor
+  // Waypoints on the way (planVia): the route goes through a waypoint when that makes it hardly
+  // longer: by at most viaExtraShare of the direct route, or viaExtraM if that is more. Several
+  // waypoints may be taken, as long as all of them together stay within that.
+  viaExtraShare: 0.1,
+  viaExtraM: 0.5,
+  viaMinM: 0.6, // a waypoint this near the start or the goal is not a stop on the way
+  viaMax: 6, // at most this many stops
 };
 
 const cellOf = (g, x, z) => [Math.floor((x - g.originXZ[0]) / g.cellSizeM), Math.floor((z - g.originXZ[1]) / g.cellSizeM)];
@@ -196,17 +203,76 @@ class Heap {
  * Returns { points: [[x, z], ...], distanceM, blocked: false } or { points: [], blocked: true }.
  * Without a grid (nothing scanned yet) the path is the straight line.
  */
+/**
+ * What every search on a grid needs, worked out once: where nobody can walk, and what a step
+ * onto each cell costs, per metre: more beside an obstacle, and more on floor nobody has seen.
+ * The search uses the cost, and so does the straightening afterwards: a shortcut across unseen
+ * floor must not undo a way around it that the search chose. planPath works it out itself;
+ * planVia, which plans several legs on one grid, passes it on (opts.prepared).
+ */
+export function prepare(grid, opts = {}) {
+  const P = { ...PLAN, ...opts };
+  const blocked = impassable(grid, P.squeezeM);
+  const crowd = crowding(grid, P.clearanceM, P.squeezeCost);
+  for (let i = 0; i < crowd.length; i++) if (grid.cells[i] === 255) crowd[i] *= P.unknownCost;
+  return { blocked, crowd };
+}
+
+/**
+ * The route from start to goal, through every waypoint that lies nearly on the way.
+ * `stops`: [{ id, at: [x, z] }]. A waypoint is taken when going through it makes the route
+ * hardly longer (PLAN.viaExtraShare / viaExtraM, counted for all stops together against the
+ * direct route); the one that costs least is taken first, at the place in the order where it
+ * costs least, and so on while the allowance lasts.
+ * Returns what planPath returns, plus `via`: the ids of the stops, in the order they are passed.
+ */
+export function planVia(grid, start, goal, stops = [], opts = {}) {
+  const P = { ...PLAN, ...opts };
+  const prepared = grid?.cells?.length ? prepare(grid, P) : undefined;
+  const plan = (a, b) => planPath(grid, a, b, { ...opts, prepared });
+  const direct = plan(start, goal);
+  if (direct.blocked || !stops.length) return { ...direct, via: [] };
+  const far = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const allowance = Math.max(P.viaExtraM, direct.distanceM * P.viaExtraShare);
+  const left = stops.filter((w) => far(w.at, start) >= P.viaMinM && far(w.at, goal) >= P.viaMinM);
+  const chain = [{ at: start }, { at: goal }]; // the places passed, in order
+  const legs = [direct]; // legs[k] leads from chain[k] to chain[k + 1]
+  let extra = 0;
+  while (left.length && chain.length - 2 < P.viaMax) {
+    let best = null;
+    for (const w of left) {
+      for (let k = 0; k < legs.length; k++) {
+        // The straight-line detour is the least this stop can cost here: most are ruled out without a search.
+        const least = far(chain[k].at, w.at) + far(w.at, chain[k + 1].at) - legs[k].distanceM;
+        if (extra + least > allowance || (best && least >= best.cost)) continue;
+        const to = plan(chain[k].at, w.at);
+        if (to.blocked) continue;
+        const from = plan(w.at, chain[k + 1].at);
+        if (from.blocked) continue;
+        const cost = to.distanceM + from.distanceM - legs[k].distanceM;
+        if (extra + cost <= allowance && (!best || cost < best.cost)) best = { w, k, to, from, cost };
+      }
+    }
+    if (!best) break;
+    chain.splice(best.k + 1, 0, best.w);
+    legs.splice(best.k, 1, best.to, best.from);
+    left.splice(left.indexOf(best.w), 1);
+    extra += Math.max(0, best.cost);
+  }
+  const points = [];
+  for (const leg of legs) for (const p of leg.points) {
+    const last = points[points.length - 1];
+    if (!last || far(last, p) > 1e-6) points.push(p);
+  }
+  return { points, distanceM: legs.reduce((sum, leg) => sum + leg.distanceM, 0), blocked: false, via: chain.slice(1, -1).map((w) => w.id) };
+}
+
 export function planPath(grid, start, goal, opts = {}) {
   const P = { ...PLAN, ...opts };
   const straight = () => ({ points: [start, goal], distanceM: Math.hypot(goal[0] - start[0], goal[1] - start[1]), blocked: false });
   if (!grid?.cells?.length) return straight();
 
-  const blocked = impassable(grid, P.squeezeM);
-  // What a step onto each cell costs, per metre: more beside an obstacle, and more on floor
-  // nobody has seen. The search uses it, and so does the straightening afterwards: a shortcut
-  // across unseen floor must not undo a way around it that the search chose.
-  const crowd = crowding(grid, P.clearanceM, P.squeezeCost);
-  for (let i = 0; i < crowd.length; i++) if (grid.cells[i] === 255) crowd[i] *= P.unknownCost;
+  const { blocked, crowd } = opts.prepared ?? prepare(grid, P);
   const snap = Math.ceil(P.snapM / grid.cellSizeM);
   const s0 = cellOf(grid, start[0], start[1]);
   const g0 = cellOf(grid, goal[0], goal[1]);

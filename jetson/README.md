@@ -74,7 +74,7 @@ Edit [`commands.json`](commands.json) and save. The hub reloads it by itself; a 
 - `wake_word` (or `--wake-word helmet`) makes the hub obey only speech that contains the word.
 - Try a sentence without a headset: `.venv/bin/python tools/voice_selftest.py --text "show me the thermal map"`.
 
-Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate" (to the nearby point about 20 m from the base; "Take me to the survey site" names the far one), "Base", "Mark target", "Stop", "Confirm", "Emergency" (arms the SOS; "Confirm" then sends it, "Cancel rescue" withdraws it), "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
+Current commands (kept to what the demo needs; every extra phrase is one more thing ordinary talk can trigger): "Status", "Navigate" (to the nearby point about 20 m from the base; "Take me to the survey site" names the far one), "Base", "Mark waypoint" (then "Record" to say its name, or "Confirm"), "Delete" (the waypoint or target picked on the map), "Stop", "Confirm", "SOS" / "Rescue" / "Help" (arms the SOS; one "Confirm" then sends it, "Cancel rescue" withdraws it), "Thermal" / "Optical" / "Slope" / "Elevation", and the longer forms in [INTERFACES.md section 6](../docs/INTERFACES.md#6-voice-commands).
 
 - The critical alert sentence is synthesized at startup, so it plays without the 1 s delay.
 - `status.report` is answered by the hub itself: ambient temperature, alerts, route state.
@@ -113,7 +113,7 @@ journalctl -u marswalk-hub -f
 - **Monitor.** `http://localhost:8080/monitor` (or `https://<jetson>:8443/monitor`) shows what the headset app is drawing, live. The app sends JPEG pictures over `/mirror` only while the page is open. No Meta account or developer mode is involved.
 - **Field maps.** The headset sends the tiles of its obstacle map that changed (a tile is 6.4 m square); the hub keeps them in `maps/` (`--maps-dir`), one JSON file per run holding every tile of that run, the newest 200 runs. After a restart the newest run is still handed back to a headset that asks, and a run that carries on is merged into its own file. Files from before the tiles (one grid per file) are skipped.
 - **Utterances.** The last 100 pieces of speech the hub cut out of the microphone stream are kept as WAV in `logs/utterances/`, named by time and by what the recogniser made of them (`--keep-audio 0` keeps none). This is audio of whoever spoke near the headset; it stays on the Jetson and `logs/` is not in git.
-- **Rescue signal.** The headset's emergency button (the red bar on its command card, or "Emergency" then "Confirm" by voice) arrives as `rescue.signal`. The hub logs it, raises the alert `crew-rescue` on every other headset, shows a banner on the monitor page, speaks, and after 5 s acknowledges in the name of a crew that does not exist ("Base crew (simulated)").
+- **Rescue signal.** The headset's emergency button (the red bar on its command card, or "SOS" / "Rescue" / "Help" then "Confirm" by voice) arrives as `rescue.signal`. The hub logs it, raises the alert `crew-rescue` on every other headset, shows a banner on the monitor page, speaks, and after 5 s acknowledges in the name of a crew that does not exist ("Base crew (simulated)").
 
 ## Layout
 

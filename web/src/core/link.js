@@ -10,12 +10,14 @@
 //   tts.begin / binary / tts.end → played by voice.js
 //   map.stored     → map:stored         (the field map the hub stored last, for scan/)
 //   rescue.state   → rescue:state       (what became of this headset's rescue signal)
+//   voice.dictation → voice:dictation   { id, text }: what was said after voice:dictate (a waypoint's name)
 //
 // 헤드셋 → 젯슨:
 //   연결 직후 hello, 브라우저의 voice:say → voice.say,
 //   mode:change·nav:route가 바뀌면 state,
 //   map:store → map.store (the field map, kept on the Jetson's disk), map:request → map.request,
 //   rescue:signal → rescue.signal (the emergency button),
+//   voice:dictate { on, id } → voice.dictate (the next thing said comes back as text, not as a command),
 //   a continuous microphone stream (mic.begin + binary) and voice.status (voice.js)
 //
 // 연결이 끊기면 `alert:raise` { id: 'link-lost' }, 다시 붙으면 `alert:clear`.
@@ -66,6 +68,9 @@ export function handleMessage(msg) {
     case 'map.stored':
       bus.emit('map:stored', payload);
       break;
+    case 'voice.dictation':
+      bus.emit('voice:dictation', { id: payload.id, text: String(payload.text ?? '') });
+      break;
     case 'tts.begin':
     case 'tts.end':
       handleVoiceMessage(msg);
@@ -98,8 +103,8 @@ function handleVoiceCommand({ intent, slots = {}, text = '' }) {
       if (slots.id) bus.emit('layer:toggle', { id: slots.id, visible: true });
       else console.warn('[link] layer.show without slots.id:', text);
       break;
-    // nav.stop, nav.mark, alert.ack and status.report are handled by the modules that listen
-    // to voice:command.
+    // nav.stop, nav.mark, waypoint.record, mark.delete, alert.ack and status.report are handled
+    // by the modules that listen to voice:command.
   }
 }
 
@@ -199,6 +204,11 @@ export async function initLink(xr) {
   bus.on('map:request', () => send('map.request', {}));
   // The emergency button (hud/suit.js). The hub tells the other headsets and answers rescue.state.
   bus.on('rescue:signal', (signal) => send('rescue.signal', signal));
+  // The name of a waypoint is spoken (hud): the hub sends the next utterance back as text.
+  // Without a hub there is nobody to write it down: the hud is told at once, with no text.
+  bus.on('voice:dictate', ({ on, id }) => {
+    if (!send('voice.dictate', { on: !!on, id }) && on) setTimeout(() => bus.emit('voice:dictation', { id, text: '', unavailable: true }), 0);
+  });
   bus.on('mode:change', ({ mode }) => sendState({ mode }));
   bus.on('nav:route', ({ status, targetId }) => sendState({ navStatus: status, targetId: targetId ?? null }));
 

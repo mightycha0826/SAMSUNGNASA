@@ -41,6 +41,9 @@ def envelope(type_: str, payload: dict) -> str:
                       ensure_ascii=False)
 
 
+DICTATE_S = 12.0   # how long a headset's request for dictation waits for words
+
+
 class Hub:
     def __init__(self, args):
         self.args = args
@@ -168,13 +171,27 @@ class Hub:
         except OSError:
             pass
 
-    async def handle_utterance(self, samples, rate: int):
+    async def handle_utterance(self, samples, rate: int, ws=None, conn: dict | None = None):
+        """One utterance of a headset: a command, or, while that headset asked for dictation
+        (voice.dictate: the name of a waypoint), the words themselves, sent back to it alone."""
         try:
             text = await asyncio.to_thread(self.stt.transcribe, samples, rate)
         except Exception:
             log.exception("STT failed")
             return
         await asyncio.to_thread(self._keep_audio, samples, rate, text)
+        wanted = conn.get("dictate") if conn else None
+        if wanted and time.monotonic() < wanted["until"]:
+            if not text.strip():
+                return                      # a noise, not words: keep listening
+            conn["dictate"] = None
+            log.info("dictation %r", text)
+            self._note_heard(text, {"intent": "(dictation)"})
+            try:
+                await ws.send_str(envelope("voice.dictation", {"id": wanted["id"], "text": text.strip()}))
+            except (ConnectionResetError, RuntimeError):
+                pass
+            return
         if text:
             await self.handle_text_command(text)
 
@@ -223,6 +240,7 @@ class Hub:
         mic_rate = 16000
         mic_on = False
         segmenter = None            # set while the client streams its microphone continuously
+        conn = {"dictate": None}    # {"id", "until"} while this headset wants its next words as text
         try:
             # send current alert state so a reconnecting headset is in sync
             for a in self.active_alerts.values():
@@ -234,7 +252,7 @@ class Hub:
                             segmenter.reset()        # the hub is speaking: not a command
                             continue
                         for samples in segmenter.feed(msg.data, mic_rate):
-                            asyncio.create_task(self.handle_utterance(samples, segmenter.RATE))
+                            asyncio.create_task(self.handle_utterance(samples, segmenter.RATE, ws, conn))
                     elif mic_on:
                         mic_buf += msg.data
                     continue
@@ -273,7 +291,16 @@ class Hub:
                         mic_on = False
                         audio = bytes(mic_buf)
                         mic_buf.clear()
-                        await self.handle_utterance(audio, mic_rate)
+                        await self.handle_utterance(audio, mic_rate, ws, conn)
+                elif type_ == "voice.dictate":
+                    # The next thing said is not a command but a text (a waypoint's name).
+                    if p.get("on"):
+                        secs = p.get("seconds")
+                        secs = min(30.0, max(3.0, float(secs))) if isinstance(secs, (int, float)) else DICTATE_S
+                        conn["dictate"] = {"id": p.get("id"), "until": time.monotonic() + secs}
+                        log.info("dictation asked by %s for %.0f s", peer, secs)
+                    else:
+                        conn["dictate"] = None
                 elif type_ == "voice.text":
                     # A command picked from the headset's menu: same path as a spoken one.
                     asyncio.create_task(self.handle_text_command(str(p.get("text", ""))))
